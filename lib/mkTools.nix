@@ -1,8 +1,9 @@
-{ pkgs
-, coyoteRoot
-, xilinxShareRoot
-, platforms ? pkgs.lib.platforms.linux
-, extraRuntimeInputs ? [ ]
+{
+  pkgs,
+  coyoteRoot,
+  xilinxShareRoot,
+  platforms ? pkgs.lib.platforms.linux,
+  extraRuntimeInputs ? [ ],
 }:
 let
   common = ../nix/tools/coyote-common.sh;
@@ -16,10 +17,11 @@ let
   coyoteRootValue = toString coyoteRoot;
 
   mkTool =
-    { name
-    , description
-    , body
-    , runtimeInputs ? [ ]
+    {
+      name,
+      description,
+      body,
+      runtimeInputs ? [ ],
     }:
     pkgs.writeShellApplication {
       inherit name;
@@ -68,9 +70,10 @@ let
     };
 
   mkXilinxWrapper =
-    { name
-    , description
-    , script
+    {
+      name,
+      description,
+      script,
     }:
     pkgs.writeShellApplication {
       inherit name;
@@ -82,10 +85,9 @@ let
         gnumake
         inetutils
       ];
-      text = builtins.replaceStrings
-        [ "@XILINX_WRAPPER_LIB@" ]
-        [ "${xilinxWrapperLib}" ]
-        (builtins.readFile script);
+      text = builtins.replaceStrings [ "@XILINX_WRAPPER_LIB@" ] [ "${xilinxWrapperLib}" ] (
+        builtins.readFile script
+      );
       meta = {
         description = description;
         mainProgram = name;
@@ -157,11 +159,13 @@ rec {
         description = "Run Vivado inside xilinx-shell.";
         script = ../nix/tools/vivado-wrapper.sh;
       };
-      mkVivadoCompanionWrapper = name: mkXilinxWrapper {
-        inherit name;
-        description = "Run ${name} inside xilinx-shell.";
-        script = ../nix/tools/vivado-companion-wrapper.sh;
-      };
+      mkVivadoCompanionWrapper =
+        name:
+        mkXilinxWrapper {
+          inherit name;
+          description = "Run ${name} inside xilinx-shell.";
+          script = ../nix/tools/vivado-companion-wrapper.sh;
+        };
     in
     pkgs.symlinkJoin {
       name = "vivado";

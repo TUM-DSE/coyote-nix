@@ -1,18 +1,19 @@
-{ pkgs
-, tools
-, coyoteRoot
-, packages ? [ ]
-, shellHook ? ""
-, withXilinx ? false
-, coyotePlatform ? null
-, fdevName ? null
-, targetPlatform ? null
-, xilinxVersion ? null
-, fpgaPartHint ? null
-, fpgaPackage ? null
-, fpgaArtifact ? null
-, driverPackage ? null
-, sim ? { }
+{
+  pkgs,
+  tools,
+  coyoteRoot,
+  packages ? [ ],
+  shellHook ? "",
+  withXilinx ? false,
+  coyotePlatform ? null,
+  fdevName ? null,
+  targetPlatform ? null,
+  xilinxVersion ? null,
+  fpgaPartHint ? null,
+  fpgaPackage ? null,
+  fpgaArtifact ? null,
+  driverPackage ? null,
+  sim ? { },
 }:
 let
   basePackages =
@@ -43,22 +44,28 @@ let
       pkgs.procps
     ];
 
-  shellHookCommon = builtins.replaceStrings
-    [ "@COYOTE_ROOT@" ]
-    [ (toString coyoteRoot) ]
-    (builtins.readFile ../nix/tools/shellhook-common.sh);
+  shellHookCommon = builtins.replaceStrings [ "@COYOTE_ROOT@" ] [ (toString coyoteRoot) ] (
+    builtins.readFile ../nix/tools/shellhook-common.sh
+  );
 
-  shellHookXilinx = builtins.replaceStrings
-    [ "@XILINX_WRAPPER_LIB@" ]
-    [ "${tools.xilinxWrapperLib}" ]
-    (builtins.readFile ../nix/tools/shellhook-xilinx.sh);
+  shellHookXilinx =
+    builtins.replaceStrings [ "@XILINX_WRAPPER_LIB@" ] [ "${tools.xilinxWrapperLib}" ]
+      (builtins.readFile ../nix/tools/shellhook-xilinx.sh);
 
-  maybeExport = name: value: pkgs.lib.optionalString (value != null) ''
-    export ${name}=${pkgs.lib.escapeShellArg (toString value)}
-  '';
+  maybeExport =
+    name: value:
+    pkgs.lib.optionalString (value != null) ''
+      export ${name}=${pkgs.lib.escapeShellArg (toString value)}
+    '';
 
   hasSim = sim != { };
-  simWorkspaceSuffix = if sim ? workspaceSuffix then sim.workspaceSuffix else if fdevName != null then fdevName else "default";
+  simWorkspaceSuffix =
+    if sim ? workspaceSuffix then
+      sim.workspaceSuffix
+    else if fdevName != null then
+      fdevName
+    else
+      "default";
   simProjectName = if sim ? projectName then sim.projectName else "project.xpr";
   simSimset = if sim ? simset then sim.simset else "sim_1";
   simMode = if sim ? mode then sim.mode else "behavioral";
@@ -100,5 +107,11 @@ let
 in
 pkgs.mkShell {
   packages = basePackages ++ packages ++ pkgs.lib.optionals withXilinx tools.all;
-  shellHook = pkgs.lib.optionalString withXilinx (shellHookXilinx + "\n") + platformHook + "\n" + shellHookCommon + "\n" + shellHook;
+  shellHook =
+    pkgs.lib.optionalString withXilinx (shellHookXilinx + "\n")
+    + platformHook
+    + "\n"
+    + shellHookCommon
+    + "\n"
+    + shellHook;
 }

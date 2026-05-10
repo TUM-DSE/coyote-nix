@@ -17,8 +17,7 @@ coyote_nix_xilinx_versions() {
     return 0
   fi
 
-  # Compatibility fallback when shell policy did not set a version.
-  printf '%s\n' 2023.2 2025.1
+  return 1
 }
 
 coyote_nix_resolve_vivado_root_by_version() {
@@ -56,39 +55,20 @@ coyote_nix_resolve_hls_root_by_version() {
 }
 
 coyote_nix_pick_xilinx_version() {
-  if [ -n "${COYOTE_NIX_XILINX_VERSION:-}" ] && coyote_nix_resolve_vivado_root_by_version "${COYOTE_NIX_XILINX_VERSION}" >/dev/null 2>&1; then
+  if [ -z "${COYOTE_NIX_XILINX_VERSION:-}" ]; then
+    return 1
+  fi
+
+  if coyote_nix_resolve_vivado_root_by_version "${COYOTE_NIX_XILINX_VERSION}" >/dev/null 2>&1; then
     printf '%s\n' "$COYOTE_NIX_XILINX_VERSION"
     return 0
   fi
-
-  case "${FDEV_NAME:-}" in
-    v80|*v80*|versal|*versal*)
-      if coyote_nix_resolve_vivado_root_by_version "2025.1" >/dev/null 2>&1; then
-        printf '%s\n' "2025.1"
-        return 0
-      fi
-      ;;
-    u280|*u280*|ultrascale*|*ultrascale*)
-      if coyote_nix_resolve_vivado_root_by_version "2023.2" >/dev/null 2>&1; then
-        printf '%s\n' "2023.2"
-        return 0
-      fi
-      ;;
-  esac
-
-  local v
-  for v in 2023.2 2025.1; do
-    if coyote_nix_resolve_vivado_root_by_version "$v" >/dev/null 2>&1; then
-      printf '%s\n' "$v"
-      return 0
-    fi
-  done
 
   return 1
 }
 
 coyote_nix_pick_xilinx_version_for() {
-  local probe_fn preferred v
+  local probe_fn
 
   probe_fn="$1"
 
@@ -96,21 +76,6 @@ coyote_nix_pick_xilinx_version_for() {
     printf '%s\n' "$COYOTE_NIX_XILINX_VERSION"
     return 0
   fi
-
-  preferred="$(coyote_nix_pick_xilinx_version 2>/dev/null || true)"
-  if [ -n "$preferred" ] && "$probe_fn" "$preferred" >/dev/null 2>&1; then
-    printf '%s\n' "$preferred"
-    return 0
-  fi
-
-  mapfile -t coyote_nix_versions < <(coyote_nix_xilinx_versions)
-  for v in "${coyote_nix_versions[@]}"; do
-    [ -n "$v" ] || continue
-    if "$probe_fn" "$v" >/dev/null 2>&1; then
-      printf '%s\n' "$v"
-      return 0
-    fi
-  done
 
   return 1
 }
