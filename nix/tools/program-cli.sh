@@ -1,5 +1,17 @@
-if [ $# -gt 1 ]; then
+usage() {
   echo "Usage: program-cli [image.bit|image.pdi]" >&2
+  echo "Program an FPGA image with Vivado. Defaults may come from FPGA_BITSTREAM or the active dev shell." >&2
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+if [ $# -gt 1 ]; then
+  usage
   exit 1
 fi
 

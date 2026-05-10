@@ -5,6 +5,12 @@ source "@XILINX_WRAPPER_LIB@"
 
 tool_name="$(basename "$0")"
 
+case "${1:-}" in
+  -h|--help)
+    set -- -help "${@:2}"
+    ;;
+esac
+
 version="$(coyote_nix_pick_xilinx_version_for coyote_nix_find_vivado_bin 2>/dev/null || true)"
 if [ -z "$version" ]; then
   echo "$tool_name not found under $(coyote_nix_xilinx_share_root)" >&2

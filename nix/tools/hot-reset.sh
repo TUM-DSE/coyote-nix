@@ -1,3 +1,21 @@
+usage() {
+  echo "Usage: hot-reset [bdf]" >&2
+  echo "Run a PCIe secondary-bus hot reset for the FPGA endpoint." >&2
+  echo "If bdf is omitted, FPGA_BDF is used." >&2
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+if [ $# -gt 1 ]; then
+  usage
+  exit 1
+fi
+
 bdf="${1:-${FPGA_BDF:-}}"
 reset_hold_s="${COYOTE_NIX_HOT_RESET_HOLD_S:-0.5}"
 post_reset_settle_s="${COYOTE_NIX_HOT_RESET_SETTLE_S:-2}"

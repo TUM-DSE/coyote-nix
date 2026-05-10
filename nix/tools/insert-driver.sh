@@ -1,3 +1,20 @@
+usage() {
+  echo "Usage: insert-driver [ko_path] [image_hint]" >&2
+  echo "Insert the Coyote kernel driver. If ko_path is omitted, the active dev shell/package defaults are used." >&2
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+if [ $# -gt 2 ]; then
+  usage
+  exit 1
+fi
+
 target_platform="$(resolve_target_platform 2>/dev/null || true)"
 if [ -z "$target_platform" ]; then
   echo "ERROR: could not determine TARGET_PLATFORM. Set TARGET_PLATFORM explicitly or use a platform devshell." >&2

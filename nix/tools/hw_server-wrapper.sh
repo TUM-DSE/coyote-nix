@@ -3,6 +3,12 @@ set -euo pipefail
 # shellcheck source=/dev/null
 source "@XILINX_WRAPPER_LIB@"
 
+case "${1:-}" in
+  -h|--help)
+    set -- -help "${@:2}"
+    ;;
+esac
+
 version="$(coyote_nix_pick_xilinx_version_for coyote_nix_find_vivado_bin 2>/dev/null || true)"
 if [ -z "$version" ]; then
   echo "hw_server not found under $(coyote_nix_xilinx_share_root)" >&2

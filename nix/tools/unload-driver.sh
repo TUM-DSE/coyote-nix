@@ -1,5 +1,22 @@
 set -euo pipefail
 
+usage() {
+  echo "Usage: unload-driver" >&2
+  echo "Unload the Coyote kernel driver. If FPGA_BDF is set, unbind that endpoint first." >&2
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+if [ $# -gt 0 ]; then
+  usage
+  exit 1
+fi
+
 module_name="coyote_driver"
 driver_sysfs="/sys/bus/pci/drivers/$module_name"
 

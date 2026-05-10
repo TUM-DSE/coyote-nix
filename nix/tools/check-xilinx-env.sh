@@ -1,3 +1,20 @@
+usage() {
+  echo "Usage: check-xilinx-env" >&2
+  echo "Print basic Coyote/Xilinx environment diagnostics." >&2
+}
+
+case "${1:-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+if [ $# -gt 0 ]; then
+  usage
+  exit 1
+fi
+
 project_root="$(resolve_project_root)"
 echo "Project root: $project_root"
 echo "Coyote root (flake input): $COYOTE_ROOT"
