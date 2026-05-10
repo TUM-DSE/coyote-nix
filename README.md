@@ -14,7 +14,7 @@ Provided here:
 - common Coyote shell tools (`program-cli`, `deploy-hw`, driver lifecycle helpers, hot reset, hugepages)
 - generic Coyote hardware stage derivation builder
 - generic U280/V80 Coyote board-flow builders
-- generic Coyote kernel driver derivation builder
+- generic Coyote kernel driver derivation and matrix builders
 - reusable dev shell construction
 
 Kept in consuming projects or site flakes:
@@ -35,6 +35,7 @@ coyote-nix.lib.mkTools
 coyote-nix.lib.mkCoyoteHwStagePackage
 coyote-nix.lib.mkCoyoteBoardPackages
 coyote-nix.lib.mkCoyoteDriverPackage
+coyote-nix.lib.mkCoyoteDriverPackages
 coyote-nix.lib.mkCoyoteDevShell
 coyote-nix.lib.mkApp
 ```
@@ -95,6 +96,26 @@ This produces public packages named by default:
 - `<pnamePrefix>-v80-sim` when `simXilinxVersion` is supplied
 
 Intermediate synth/routed derivations are internal dependencies of those outputs.
+
+## Driver package matrix
+
+`mkCoyoteDriverPackages` builds the conventional Coyote driver package matrix for a set of site-provided host kernels and target platforms:
+
+```nix
+coyote-nix.lib.mkCoyoteDriverPackages {
+  inherit pkgs coyoteRoot;
+  driverKernels = site.driverKernels;
+  targetPlatforms = site.targetPlatforms;
+}
+```
+
+By default this produces packages named:
+
+```text
+coyote-driver-<targetPlatform>-<hostName>
+```
+
+The site flake still owns host inventory and kernel policy; this helper only encodes the generic package-matrix mechanics.
 
 ## Dev shell board context
 
