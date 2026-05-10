@@ -140,12 +140,6 @@ rec {
     body = builtins.readFile ../nix/tools/set-hugepages.sh;
   };
 
-  reload-driver = mkTool {
-    name = "reload-driver";
-    description = "Reload Coyote kernel driver after programming: reload-driver [ko_path].";
-    body = builtins.readFile ../nix/tools/reload-driver.sh;
-  };
-
   gen-verible-filelist = mkTool {
     name = "gen-verible-filelist";
     description = "Generate verible.filelist from tracked HDL sources.";
@@ -203,7 +197,6 @@ rec {
     hot-reset
     insert-driver
     set-hugepages
-    reload-driver
     gen-verible-filelist
     vivado
     hw_server
