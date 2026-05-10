@@ -96,6 +96,32 @@ This produces public packages named by default:
 
 Intermediate synth/routed derivations are internal dependencies of those outputs.
 
+## Dev shell board context
+
+`mkCoyoteDevShell` accepts an optional `board` attrset, such as one supplied by a site flake. When present, it fills the Coyote board defaults used by the shell:
+
+```nix
+coyote-nix.lib.mkCoyoteDevShell {
+  inherit pkgs tools coyoteRoot;
+  withXilinx = true;
+  board = site.boards.u280;
+  fpgaPackage = "my-project-u280";
+  fpgaArtifact = "cyt_top.bit";
+}
+```
+
+Explicit arguments still override board-derived defaults. The expected board fields are:
+
+```nix
+{
+  board = "u280";
+  coyotePlatform = "ultrascale";
+  targetPlatform = "ultrascale_plus";
+  partHint = "xcu280";
+  xilinxVersion = "...";
+}
+```
+
 ## Deployment helpers
 
 Deployment helpers do not bake in project package names. A consuming project can set defaults through environment variables such as:

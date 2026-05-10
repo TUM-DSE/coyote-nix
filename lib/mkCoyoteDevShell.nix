@@ -5,6 +5,7 @@
   packages ? [ ],
   shellHook ? "",
   withXilinx ? false,
+  board ? null,
   coyotePlatform ? null,
   fdevName ? null,
   targetPlatform ? null,
@@ -58,12 +59,21 @@ let
       export ${name}=${pkgs.lib.escapeShellArg (toString value)}
     '';
 
+  valueOr = value: fallback: if value != null then value else fallback;
+  boardField = field: if board != null && board ? ${field} then board.${field} else null;
+
+  resolvedCoyotePlatform = valueOr coyotePlatform (boardField "coyotePlatform");
+  resolvedFdevName = valueOr fdevName (boardField "board");
+  resolvedTargetPlatform = valueOr targetPlatform (boardField "targetPlatform");
+  resolvedXilinxVersion = valueOr xilinxVersion (boardField "xilinxVersion");
+  resolvedFpgaPartHint = valueOr fpgaPartHint (boardField "partHint");
+
   hasSim = sim != { };
   simWorkspaceSuffix =
     if sim ? workspaceSuffix then
       sim.workspaceSuffix
-    else if fdevName != null then
-      fdevName
+    else if resolvedFdevName != null then
+      resolvedFdevName
     else
       "default";
   simProjectName = if sim ? projectName then sim.projectName else "project.xpr";
@@ -71,11 +81,11 @@ let
   simMode = if sim ? mode then sim.mode else "behavioral";
 
   platformHook = ''
-    ${maybeExport "COYOTE_NIX_PLATFORM" coyotePlatform}
-    ${maybeExport "FDEV_NAME" fdevName}
-    ${maybeExport "TARGET_PLATFORM" targetPlatform}
-    ${maybeExport "COYOTE_NIX_XILINX_VERSION" xilinxVersion}
-    ${maybeExport "FPGA_PART_HINT" fpgaPartHint}
+    ${maybeExport "COYOTE_NIX_PLATFORM" resolvedCoyotePlatform}
+    ${maybeExport "FDEV_NAME" resolvedFdevName}
+    ${maybeExport "TARGET_PLATFORM" resolvedTargetPlatform}
+    ${maybeExport "COYOTE_NIX_XILINX_VERSION" resolvedXilinxVersion}
+    ${maybeExport "FPGA_PART_HINT" resolvedFpgaPartHint}
     ${maybeExport "FPGA_PACKAGE" fpgaPackage}
     ${maybeExport "COYOTE_DRIVER_PACKAGE" driverPackage}
 
