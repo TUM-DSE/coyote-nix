@@ -118,9 +118,9 @@ in
 pkgs.mkShell {
   packages = basePackages ++ packages ++ pkgs.lib.optionals withXilinx tools.all;
   shellHook =
-    pkgs.lib.optionalString withXilinx (shellHookXilinx + "\n")
-    + platformHook
+    platformHook
     + "\n"
+    + pkgs.lib.optionalString withXilinx (shellHookXilinx + "\n")
     + shellHookCommon
     + "\n"
     + shellHook;
