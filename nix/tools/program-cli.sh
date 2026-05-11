@@ -66,6 +66,8 @@ require_cmd hw_server
 hw_server_pid=""
 vivado_pid=""
 tcl_file=""
+program_lock_dir="${COYOTE_NIX_PROGRAM_LOCK_DIR:-/tmp/coyote-program-cli.lock}"
+program_lock_acquired=0
 
 cleanup_program_cli() {
   if [ -n "$vivado_pid" ] && kill -0 "$vivado_pid" 2>/dev/null; then
@@ -81,24 +83,138 @@ cleanup_program_cli() {
   if [ -n "$tcl_file" ] && [ -f "$tcl_file" ]; then
     rm -f "$tcl_file"
   fi
+
+  if [ "$program_lock_acquired" = "1" ] && [ -d "$program_lock_dir" ]; then
+    rm -rf "$program_lock_dir" 2>/dev/null || true
+  fi
 }
 
 trap cleanup_program_cli EXIT
 trap 'exit 130' INT TERM
 
-# Vivado and hw_server major versions must match. Restart any existing user-owned
-# hw_server so this invocation uses the shell-selected version.
-existing_hw_server_pids="$(pgrep -u "$(id -u)" -x hw_server || true)"
-if [ -n "$existing_hw_server_pids" ]; then
-  echo "Stopping existing hw_server process(es): $existing_hw_server_pids"
-  # shellcheck disable=SC2086
-  kill $existing_hw_server_pids 2>/dev/null || true
-  sleep 1
+acquire_program_lock() {
+  if mkdir "$program_lock_dir" 2>/dev/null; then
+    program_lock_acquired=1
+    {
+      printf 'user=%s\n' "$(id -un 2>/dev/null || id -u)"
+      printf 'uid=%s\n' "$(id -u)"
+      printf 'pid=%s\n' "$$"
+      printf 'started=%s\n' "$(date -Is 2>/dev/null || date)"
+      printf 'cwd=%s\n' "$PWD"
+    } >"$program_lock_dir/info" 2>/dev/null || true
+    return 0
+  fi
+
+  echo "ERROR: another program-cli/deploy-hw invocation appears to be running." >&2
+  echo "Refusing to interfere with its hw_server." >&2
+  echo >&2
+  echo "Lock: $program_lock_dir" >&2
+  if [ -r "$program_lock_dir/info" ]; then
+    echo "Lock owner:" >&2
+    sed 's/^/  /' "$program_lock_dir/info" >&2 || true
+  fi
+  echo >&2
+  echo "If this is a stale lock, remove it manually after checking that no programming job is active." >&2
+  exit 1
+}
+
+find_foreign_hw_servers() {
+  local current_uid pid pid_uid info
+
+  current_uid="$(id -u)"
+  for pid in $(pgrep -x hw_server || true); do
+    pid_uid="$(ps -o uid= -p "$pid" 2>/dev/null | awk '{print $1}' || true)"
+    [ -n "$pid_uid" ] || continue
+
+    if [ "$pid_uid" != "$current_uid" ]; then
+      info="$(ps -o user= -o pid= -o args= -p "$pid" 2>/dev/null || true)"
+      if [ -n "$info" ]; then
+        printf '%s\n' "$info"
+      else
+        printf 'uid=%s pid=%s hw_server\n' "$pid_uid" "$pid"
+      fi
+    fi
+  done
+}
+
+stop_own_hw_servers() {
+  local current_uid pid pid_uid remaining_pids attempts
+  local own_pids=()
+
+  current_uid="$(id -u)"
+  for pid in $(pgrep -x hw_server || true); do
+    pid_uid="$(ps -o uid= -p "$pid" 2>/dev/null | awk '{print $1}' || true)"
+    [ -n "$pid_uid" ] || continue
+
+    if [ "$pid_uid" = "$current_uid" ]; then
+      own_pids+=("$pid")
+    fi
+  done
+
+  if [ "${#own_pids[@]}" -eq 0 ]; then
+    return 0
+  fi
+
+  echo "Stopping existing hw_server process(es): ${own_pids[*]}"
+  kill "${own_pids[@]}" 2>/dev/null || true
+
+  attempts=0
+  while [ "$attempts" -lt 10 ]; do
+    remaining_pids=()
+    for pid in "${own_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        remaining_pids+=("$pid")
+      fi
+    done
+
+    if [ "${#remaining_pids[@]}" -eq 0 ]; then
+      return 0
+    fi
+
+    sleep 0.2
+    attempts=$((attempts + 1))
+  done
+
+  echo "ERROR: hw_server process(es) did not exit after SIGTERM: ${remaining_pids[*]}" >&2
+  echo "Refusing to force-kill them; another programming/debug session may be active." >&2
+  echo "Stop them manually if they are stale, then retry program-cli." >&2
+  exit 1
+}
+
+acquire_program_lock
+
+foreign_hw_servers="$(find_foreign_hw_servers)"
+if [ -n "$foreign_hw_servers" ]; then
+  echo "ERROR: refusing to use an existing hw_server owned by another user." >&2
+  echo "Ask the owner/admin to stop it, then retry program-cli." >&2
+  echo >&2
+  echo "Existing foreign hw_server process(es):" >&2
+  printf '%s\n' "$foreign_hw_servers" >&2
+  exit 1
 fi
+
+# Vivado and hw_server major versions must match. Restart any existing
+# current-user hw_server so this invocation uses the shell-selected version.
+stop_own_hw_servers
 
 hw_server -s tcp::3121 >/tmp/hw_server.log 2>&1 &
 hw_server_pid="$!"
 sleep 2
+
+if ! kill -0 "$hw_server_pid" 2>/dev/null; then
+  echo "ERROR: hw_server exited before programming started." >&2
+  echo "hw_server log:" >&2
+  sed 's/^/  /' /tmp/hw_server.log >&2 || true
+  exit 1
+fi
+
+foreign_hw_servers="$(find_foreign_hw_servers)"
+if [ -n "$foreign_hw_servers" ]; then
+  echo "ERROR: a foreign hw_server appeared after starting our hw_server; refusing to continue." >&2
+  echo "Existing foreign hw_server process(es):" >&2
+  printf '%s\n' "$foreign_hw_servers" >&2
+  exit 1
+fi
 
 tcl_file="$(mktemp /tmp/coyote_program.XXXXXX.tcl)"
 cat > "$tcl_file" <<'TCL'
