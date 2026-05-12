@@ -107,6 +107,7 @@ rec {
   program-cli = mkTool {
     name = "program-cli";
     description = "Program FPGA via Vivado batch. Defaults can be supplied by the consuming project.";
+    runtimeInputs = [ pkgs.util-linux ];
     body = builtins.readFile ../nix/tools/program-cli.sh;
   };
 

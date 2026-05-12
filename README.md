@@ -155,3 +155,20 @@ export COYOTE_NIX_VERSAL_FPGA_ARTIFACT=cyt_top.pdi
 ```
 
 or pass explicit image paths to commands like `program-cli` and `deploy-hw`.
+
+`hw_server` and `program-cli` use platform-specific default ports so UltraScale+ and Versal sessions can coexist: `3121` for U280/UltraScale+ and `3122` for V80/Versal. Override with `COYOTE_NIX_HW_SERVER_PORT` or `HW_SERVER_PORT` for multiple cards of the same platform.
+
+`hw_server` logs default to `$HW_SERVER_LOG`, then `$XDG_RUNTIME_DIR/hw_server-<port>.log`, then `/tmp/hw_server-$UID-<port>.log`. The wrappers pre-create logs with world-writable permissions where possible, and fall back to the per-user `/tmp` path if the requested log is not writable.
+
+For hosts with multiple identical FPGA parts, site inventory should provide `FPGA_JTAG_TARGET` as a Vivado hardware-target substring (for example a cable serial). `program-cli` filters `get_hw_targets` by that value before selecting the single device matching `FPGA_PART_HINT`.
+
+`deploy-hw` runs the manual sequence:
+
+```sh
+unload-driver
+hot-reset
+program-cli [image.bit|image.pdi]
+hot-reset
+set-hugepages
+insert-driver [driver.ko] [image.bit|image.pdi]
+```
