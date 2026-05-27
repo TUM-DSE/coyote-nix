@@ -145,7 +145,10 @@ let
     '';
 
   installFinalReportsAndArtifacts = artifacts: ''
-    ${installCheckpointReports { copyAllReports = true; }}
+    ${installCheckpointReports {
+      copyAllCheckpoints = true;
+      copyAllReports = true;
+    }}
     mkdir -p "$out/bitstreams"
     ${lib.concatMapStringsSep "\n" (artifact: ''
       install -m0644 "$build_dir/bitstreams/${artifact}" "$out/bitstreams/${artifact}"
