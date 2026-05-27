@@ -144,7 +144,8 @@ let
       )}
     '';
 
-  installFinalArtifacts = artifacts: ''
+  installFinalReportsAndArtifacts = artifacts: ''
+    ${installCheckpointReports { copyAllReports = true; }}
     mkdir -p "$out/bitstreams"
     ${lib.concatMapStringsSep "\n" (artifact: ''
       install -m0644 "$build_dir/bitstreams/${artifact}" "$out/bitstreams/${artifact}"
@@ -407,7 +408,7 @@ let
           "vivado -mode tcl -source \"$build_dir/bitgen.tcl\" -notrace"
         ];
         expectedPaths = map (artifact: "bitstreams/${artifact}") board.finalArtifacts;
-        extraInstallPhase = installFinalArtifacts board.finalArtifacts;
+        extraInstallPhase = installFinalReportsAndArtifacts board.finalArtifacts;
         description = "Coyote hardware build for ${board.platform}";
       };
 
@@ -502,7 +503,7 @@ let
           "vivado -mode tcl -source \"$build_dir/bitgen.tcl\" -notrace"
         ];
         expectedPaths = map (artifact: "bitstreams/${artifact}") board.finalArtifacts;
-        extraInstallPhase = installFinalArtifacts board.finalArtifacts;
+        extraInstallPhase = installFinalReportsAndArtifacts board.finalArtifacts;
         description = "Coyote hardware build for ${board.platform}";
       };
 
