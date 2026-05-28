@@ -155,6 +155,30 @@ let
     '') artifacts}
   '';
 
+  finalBitgenCommand = artifacts: ''
+    set +e
+    vivado -mode tcl -source "$build_dir/bitgen.tcl" -notrace
+    vivado_status=$?
+    set -e
+
+    if [ "$vivado_status" -ne 0 ]; then
+      missing_artifacts=0
+      ${lib.concatMapStringsSep "\n" (artifact: ''
+        if [ ! -e "$build_dir/bitstreams/${artifact}" ]; then
+          echo "ERROR: Vivado bitgen failed and expected artifact is missing: $build_dir/bitstreams/${artifact}" >&2
+          missing_artifacts=1
+        fi
+      '') artifacts}
+
+      if [ "$missing_artifacts" -ne 0 ]; then
+        exit "$vivado_status"
+      fi
+
+      echo "WARNING: Vivado bitgen exited with status $vivado_status, but all expected final artifacts exist; continuing." >&2
+      echo "WARNING: This usually indicates a Vivado post-bitgen cleanup/crash after artifact generation; inspect $build_dir/vivado.log if needed." >&2
+    fi
+  '';
+
   mkCoyoteSimPackage =
     {
       pname,
@@ -408,7 +432,7 @@ let
         ++ (board.appCmakeFlags or [ ]);
         preBuildSetup = copyPreviousStageSetup routed { };
         buildCommands = [
-          "vivado -mode tcl -source \"$build_dir/bitgen.tcl\" -notrace"
+          (finalBitgenCommand board.finalArtifacts)
         ];
         expectedPaths = map (artifact: "bitstreams/${artifact}") board.finalArtifacts;
         extraInstallPhase = installFinalReportsAndArtifacts board.finalArtifacts;
@@ -503,7 +527,7 @@ let
         cmakeFlags = board.cmakeFlags or [ ];
         preBuildSetup = copyPreviousStageSetup routed { };
         buildCommands = [
-          "vivado -mode tcl -source \"$build_dir/bitgen.tcl\" -notrace"
+          (finalBitgenCommand board.finalArtifacts)
         ];
         expectedPaths = map (artifact: "bitstreams/${artifact}") board.finalArtifacts;
         extraInstallPhase = installFinalReportsAndArtifacts board.finalArtifacts;
