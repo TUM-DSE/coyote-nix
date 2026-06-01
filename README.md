@@ -126,8 +126,6 @@ coyote-nix.lib.mkCoyoteDevShell {
   inherit pkgs tools coyoteRoot;
   withXilinx = true;
   board = site.boards.u280;
-  fpgaPackage = "my-project-u280";
-  fpgaArtifact = "cyt_top.bit";
 }
 ```
 
@@ -145,16 +143,14 @@ Explicit arguments still override board-derived defaults. The expected board fie
 
 ## Deployment helpers
 
-Deployment helpers do not bake in project package names. A consuming project can set defaults through environment variables such as:
+Deployment helpers do not bake in or infer project package names. `program-cli` and `deploy-hw` require an explicit image path, either as a positional argument or via `FPGA_BITSTREAM`:
 
 ```sh
-export COYOTE_NIX_ULTRASCALE_FPGA_PACKAGE=my-u280-package
-export COYOTE_NIX_VERSAL_FPGA_PACKAGE=my-v80-package
-export COYOTE_NIX_ULTRASCALE_FPGA_ARTIFACT=cyt_top.bit
-export COYOTE_NIX_VERSAL_FPGA_ARTIFACT=cyt_top.pdi
+program-cli path/to/image.bit
+FPGA_BITSTREAM=path/to/image.bit deploy-hw
 ```
 
-or pass explicit image paths to commands like `program-cli` and `deploy-hw`.
+A consuming project that has an unambiguous default image should provide its own wrapper that passes that image path to these generic tools.
 
 `hw_server` and `program-cli` use platform-specific default ports so UltraScale+ and Versal sessions can coexist: `3121` for U280/UltraScale+ and `3122` for V80/Versal. Override with `COYOTE_NIX_HW_SERVER_PORT` or `HW_SERVER_PORT` for multiple cards of the same platform.
 
@@ -167,8 +163,8 @@ For hosts with multiple identical FPGA parts, site inventory should provide `FPG
 ```sh
 unload-driver
 hot-reset
-program-cli [image.bit|image.pdi]
+program-cli image.bit|image.pdi
 hot-reset
 set-hugepages
-insert-driver [driver.ko] [image.bit|image.pdi]
+insert-driver [driver.ko] image.bit|image.pdi
 ```

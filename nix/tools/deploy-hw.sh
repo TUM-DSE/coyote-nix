@@ -114,7 +114,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     -h|--help)
-      echo "Usage: deploy-hw [-v|--verbose] [-vv|--very-verbose] [--timeout <sec>] [--program-timeout <sec>] [--program-cmd '<cmd ...>'] [image.bit|image.pdi]" >&2
+      echo "Usage: deploy-hw [-v|--verbose] [-vv|--very-verbose] [--timeout <sec>] [--program-timeout <sec>] [--program-cmd '<cmd ...>'] image.bit|image.pdi" >&2
       exit 0
       ;;
     --*)
@@ -124,7 +124,7 @@ while [ $# -gt 0 ]; do
     *)
       if [ -n "$image_arg" ]; then
         echo "ERROR: too many positional arguments" >&2
-        echo "Usage: deploy-hw [-v|--verbose] [-vv|--very-verbose] [--timeout <sec>] [--program-timeout <sec>] [--program-cmd '<cmd ...>'] [image.bit|image.pdi]" >&2
+        echo "Usage: deploy-hw [-v|--verbose] [-vv|--very-verbose] [--timeout <sec>] [--program-timeout <sec>] [--program-cmd '<cmd ...>'] image.bit|image.pdi" >&2
         exit 1
       fi
       image_arg="$1"
@@ -136,16 +136,13 @@ done
 project_root="$(resolve_project_root)"
 platform="${FDEV_NAME:-u280}"
 
-default_package=""
-default_image=""
-if [ -z "$image_arg" ] && [ -z "${FPGA_BITSTREAM:-}" ]; then
-  default_package="$(resolve_fpga_package_name "$platform" 2>/dev/null || true)"
-  if [ -n "$default_package" ]; then
-    default_image="$(resolve_default_fpga_image_from_package "$platform" 2>/dev/null || true)"
-  fi
-fi
+image="${image_arg:-${FPGA_BITSTREAM:-}}"
 
-image="${image_arg:-${FPGA_BITSTREAM:-$default_image}}"
+if [ -z "$image" ]; then
+  echo "ERROR: deploy-hw requires an explicit image path or FPGA_BITSTREAM." >&2
+  echo "Usage: deploy-hw [-v|--verbose] [-vv|--very-verbose] [--timeout <sec>] [--program-timeout <sec>] [--program-cmd '<cmd ...>'] image.bit|image.pdi" >&2
+  exit 1
+fi
 
 if [ -z "${FPGA_BDF:-}" ]; then
   echo "ERROR: FPGA_BDF is required (set it to your device BDF)." >&2
@@ -157,11 +154,6 @@ if [ ! -f "$image" ] && [ -f "$project_root/$image" ]; then
 fi
 if [ ! -f "$image" ]; then
   echo "ERROR: bitstream not found: $image" >&2
-  if [ -n "$default_image" ]; then
-    echo "Default packaged image checked: $default_image" >&2
-  elif [ -n "$default_package" ]; then
-    echo "Default package checked: $default_package" >&2
-  fi
   echo "Hint: pass an explicit image path, or set FPGA_BITSTREAM=/path/to/image.{bit,pdi}." >&2
   exit 1
 fi

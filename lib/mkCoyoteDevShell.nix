@@ -11,6 +11,8 @@
   targetPlatform ? null,
   xilinxVersion ? null,
   fpgaPartHint ? null,
+  # Deprecated/no-op: generic deploy tools require explicit image paths.
+  # Projects that want image defaults should provide their own wrappers.
   fpgaPackage ? null,
   fpgaArtifact ? null,
   driverPackage ? null,
@@ -86,23 +88,10 @@ let
     ${maybeExport "TARGET_PLATFORM" resolvedTargetPlatform}
     ${maybeExport "COYOTE_NIX_XILINX_VERSION" resolvedXilinxVersion}
     ${maybeExport "FPGA_PART_HINT" resolvedFpgaPartHint}
-    ${maybeExport "FPGA_PACKAGE" fpgaPackage}
     ${maybeExport "COYOTE_DRIVER_PACKAGE" driverPackage}
 
     coyote_nix_project_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
     export COYOTE_NIX_BUILD_ROOT="''${COYOTE_NIX_BUILD_ROOT:-$coyote_nix_project_root/.build}"
-  ''
-  + pkgs.lib.optionalString (fpgaPackage != null) ''
-    case "''${COYOTE_NIX_PLATFORM:-''${FDEV_NAME:-}}" in
-      v80|*v80*|versal|*versal*) export COYOTE_NIX_VERSAL_FPGA_PACKAGE="''${COYOTE_NIX_VERSAL_FPGA_PACKAGE:-${fpgaPackage}}" ;;
-      u280|*u280*|ultrascale|*ultrascale*) export COYOTE_NIX_ULTRASCALE_FPGA_PACKAGE="''${COYOTE_NIX_ULTRASCALE_FPGA_PACKAGE:-${fpgaPackage}}" ;;
-    esac
-  ''
-  + pkgs.lib.optionalString (fpgaArtifact != null) ''
-    case "''${COYOTE_NIX_PLATFORM:-''${FDEV_NAME:-}}" in
-      v80|*v80*|versal|*versal*) export COYOTE_NIX_VERSAL_FPGA_ARTIFACT="''${COYOTE_NIX_VERSAL_FPGA_ARTIFACT:-${fpgaArtifact}}" ;;
-      u280|*u280*|ultrascale|*ultrascale*) export COYOTE_NIX_ULTRASCALE_FPGA_ARTIFACT="''${COYOTE_NIX_ULTRASCALE_FPGA_ARTIFACT:-${fpgaArtifact}}" ;;
-    esac
   ''
   + pkgs.lib.optionalString hasSim ''
     export XDB_SIM_WORKSPACE="''${XDB_SIM_WORKSPACE:-''${COYOTE_NIX_BUILD_ROOT}/sim-workspace-${simWorkspaceSuffix}}"

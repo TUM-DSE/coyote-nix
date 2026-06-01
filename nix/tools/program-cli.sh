@@ -1,6 +1,6 @@
 usage() {
-  echo "Usage: program-cli [image.bit|image.pdi]" >&2
-  echo "Program an FPGA image with Vivado. Defaults may come from FPGA_BITSTREAM or the active dev shell." >&2
+  echo "Usage: program-cli image.bit|image.pdi" >&2
+  echo "Program an FPGA image with Vivado. Pass an image path explicitly, or set FPGA_BITSTREAM." >&2
 }
 
 case "${1:-}" in
@@ -21,17 +21,14 @@ project_root="$(resolve_project_root)"
 platform="${FDEV_NAME:-u280}"
 build_root="${COYOTE_NIX_BUILD_ROOT:-$project_root/.build}"
 
-default_package=""
-default_image=""
-if [ $# -eq 0 ] && [ -z "${FPGA_BITSTREAM:-}" ]; then
-  default_package="$(resolve_fpga_package_name "$platform" 2>/dev/null || true)"
-  if [ -n "$default_package" ]; then
-    default_image="$(resolve_default_fpga_image_from_package "$platform" 2>/dev/null || true)"
-  fi
-fi
-
-image="${1:-${FPGA_BITSTREAM:-$default_image}}"
+image="${1:-${FPGA_BITSTREAM:-}}"
 part_hint="${FPGA_PART_HINT:-}"
+
+if [ -z "$image" ]; then
+  echo "ERROR: program-cli requires an explicit image path or FPGA_BITSTREAM." >&2
+  usage
+  exit 1
+fi
 
 if [ -z "$part_hint" ]; then
   echo "ERROR: FPGA_PART_HINT is required (e.g. export FPGA_PART_HINT=<device-part-substring>)." >&2
@@ -51,11 +48,6 @@ if [ ! -f "$image" ] && [ -f "$project_root/$image" ]; then
 fi
 if [ ! -f "$image" ]; then
   echo "Image not found: $image" >&2
-  if [ -n "$default_image" ]; then
-    echo "Default packaged image checked: $default_image" >&2
-  elif [ -n "$default_package" ]; then
-    echo "Default package checked: $default_package" >&2
-  fi
   echo "Hint: pass an explicit image path, or set FPGA_BITSTREAM=/path/to/image.{bit,pdi}." >&2
   exit 1
 fi
