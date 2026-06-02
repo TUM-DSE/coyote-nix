@@ -268,6 +268,11 @@ let
     board:
     let
       xilinxVersion = board.xilinxVersion;
+      intermediateRouteCheckpoints = lib.optionals (!(board.skipIntermediateRouteCheckpoints or false)) [
+        "checkpoints/shell_opted.dcp"
+        "checkpoints/shell_placed.dcp"
+        "checkpoints/shell_phys_opted.dcp"
+      ];
       staticSynth = mkStage {
         pname = board.staticSynthPname or "${pnamePrefix}-${board.platform}-static-synth";
         inherit board xilinxVersion;
@@ -331,9 +336,9 @@ let
           "checkpoints/shell/shell_synthed.dcp"
           "checkpoints/config_0/user_synthed_c0_0.dcp"
           "checkpoints/shell_linked.dcp"
-          "checkpoints/shell_opted.dcp"
-          "checkpoints/shell_placed.dcp"
-          "checkpoints/shell_phys_opted.dcp"
+        ]
+        ++ intermediateRouteCheckpoints
+        ++ [
           "checkpoints/shell_routed.dcp"
           "checkpoints/static_routed_locked.dcp"
         ];
@@ -408,9 +413,9 @@ let
           "checkpoints/shell/shell_synthed.dcp"
           "checkpoints/config_0/user_synthed_c0_0.dcp"
           "checkpoints/shell_linked.dcp"
-          "checkpoints/shell_opted.dcp"
-          "checkpoints/shell_placed.dcp"
-          "checkpoints/shell_phys_opted.dcp"
+        ]
+        ++ intermediateRouteCheckpoints
+        ++ [
           "checkpoints/shell_routed.dcp"
         ];
         extraInstallPhase = installCheckpointReports {
