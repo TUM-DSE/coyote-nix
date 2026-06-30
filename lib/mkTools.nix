@@ -168,6 +168,7 @@ rec {
         vivado-wrapper
         (mkVivadoCompanionWrapper "xsc")
         (mkVivadoCompanionWrapper "xvlog")
+        (mkVivadoCompanionWrapper "xvhdl")
         (mkVivadoCompanionWrapper "xelab")
         (mkVivadoCompanionWrapper "xsim")
       ];
