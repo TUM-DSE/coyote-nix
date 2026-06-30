@@ -121,6 +121,57 @@ coyote_nix_find_vivado_settings() {
   return 1
 }
 
+coyote_nix_find_vivado_component_settings() {
+  local root v p
+
+  v="$1"
+  root="$(coyote_nix_xilinx_share_root)"
+  for p in \
+    "$root/$v/Vivado/.settings64-Vivado.sh" \
+    "$root/Vivado/$v/.settings64-Vivado.sh"
+  do
+    if [ -f "$p" ]; then
+      printf '%s\n' "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
+coyote_nix_find_vitis_component_settings() {
+  local root v p
+
+  v="$1"
+  root="$(coyote_nix_xilinx_share_root)"
+  for p in \
+    "$root/$v/Vitis/.settings64-Vitis.sh" \
+    "$root/Vitis/$v/.settings64-Vitis.sh"
+  do
+    if [ -f "$p" ]; then
+      printf '%s\n' "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
+coyote_nix_find_vitis_hls_component_settings() {
+  local root v p
+
+  v="$1"
+  root="$(coyote_nix_xilinx_share_root)"
+  for p in \
+    "$root/$v/Vitis_HLS/.settings64-Vitis_HLS.sh" \
+    "$root/Vitis_HLS/$v/.settings64-Vitis_HLS.sh"
+  do
+    if [ -f "$p" ]; then
+      printf '%s\n' "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
 coyote_nix_find_vitis_hls_bin() {
   local root v p
 
@@ -287,8 +338,37 @@ coyote_nix_exec_in_xilinx_shell() {
   exec "$xilinx_shell" -c "$1" -- "${@:2}"
 }
 
+coyote_nix_version_shell_exports() {
+  local version root out settings q_root q_settings
+
+  version="$1"
+  root="$(coyote_nix_xilinx_share_root)"
+  q_root="$(coyote_nix_shell_quote "$root")"
+
+  # xilinx-shell may source a default Xilinx version from its /etc/profile.
+  # Clear that environment before launching the requested version. Mixing, for
+  # example, a 2022.2 tool binary with 2023.2 XILINX_* variables corrupts the
+  # part database initialization in Vivado/Vitis HLS.
+  out="unset XILINX_VIVADO XILINX_HLS XILINX_VITIS XILINX_SDX XILINX_PATH MYVIVADO MYXILINX;"
+  out="$out unset RDI_BINROOT RDI_APPROOT RDI_BASEROOT RDI_INSTALLROOT RDI_INSTALLVER RDI_BASELINE RDI_PATCHROOT RDI_SHARED_DATA HDI_APPROOT _RDI_SETENV_RUN;"
+  out="$out PATH=\"\$(printf '%s' \"\$PATH\" | tr ':' '\n' | awk -v root=$q_root '\$0 !~ (\"^\" root \"/\")' | paste -sd: -)\"; export PATH;"
+
+  for settings in \
+    "$(coyote_nix_find_vivado_component_settings "$version" 2>/dev/null || true)" \
+    "$(coyote_nix_find_vitis_component_settings "$version" 2>/dev/null || true)" \
+    "$(coyote_nix_find_vitis_hls_component_settings "$version" 2>/dev/null || true)"
+  do
+    if [ -n "$settings" ]; then
+      q_settings="$(coyote_nix_shell_quote "$settings")"
+      out="$out source $q_settings >/dev/null 2>&1 || true;"
+    fi
+  done
+
+  printf '%s\n' "$out"
+}
+
 coyote_nix_exec_xilinx_shell_command() {
-  local version command prelude settings q_settings
+  local version command prelude version_prelude
 
   version="$1"
   command="$2"
@@ -296,14 +376,9 @@ coyote_nix_exec_xilinx_shell_command() {
 
   coyote_nix_export_wrapper_env
   prelude="$(coyote_nix_wrapper_shell_exports)"
-  settings="$(coyote_nix_find_vivado_settings "$version" 2>/dev/null || true)"
+  version_prelude="$(coyote_nix_version_shell_exports "$version")"
 
-  if [ -n "$settings" ]; then
-    q_settings="$(coyote_nix_shell_quote "$settings")"
-    coyote_nix_exec_in_xilinx_shell "$prelude source $q_settings >/dev/null 2>&1 || true; $prelude $command" "$@"
-  else
-    coyote_nix_exec_in_xilinx_shell "$prelude $command" "$@"
-  fi
+  coyote_nix_exec_in_xilinx_shell "$version_prelude $prelude $command" "$@"
 }
 
 coyote_nix_exec_xilinx_tool() {
