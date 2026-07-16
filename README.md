@@ -14,6 +14,7 @@ Provided here:
 - common Coyote shell tools (`program-cli`, `deploy-hw`, driver lifecycle helpers, hot reset, hugepages)
 - generic Coyote hardware stage derivation builder
 - generic U280/V80 Coyote board-flow builders
+- reusable U280/V80 two-stage PR shell-export and app-only builders
 - generic Coyote kernel driver derivation and matrix builders
 - reusable dev shell construction
 
@@ -34,6 +35,8 @@ The flake exposes:
 coyote-nix.lib.mkTools
 coyote-nix.lib.mkCoyoteHwStagePackage
 coyote-nix.lib.mkCoyoteBoardPackages
+coyote-nix.lib.mkCoyoteShellPackage
+coyote-nix.lib.mkCoyoteAppPackage
 coyote-nix.lib.mkCoyoteDriverPackage
 coyote-nix.lib.mkCoyoteDriverPackages
 coyote-nix.lib.mkCoyoteDevShell
@@ -96,6 +99,34 @@ This produces public packages named by default:
 - `<pnamePrefix>-v80-sim` when `simXilinxVersion` is supplied
 
 Intermediate synth/routed derivations are internal dependencies of those outputs.
+
+## Two-stage PR shell and application packages
+
+`mkCoyoteShellPackage` builds an `EN_PR=1` shell and exports the locked shell contract. `mkCoyoteAppPackage` accepts that exact derivation, passes it to Coyote as `SHELL_PATH`, and builds only application partial artifacts with `BUILD_APP=1`.
+
+```nix
+shell = coyote-nix.lib.mkCoyoteShellPackage {
+  inherit pkgs tools coyoteRoot xilinxShareRoot;
+  hwSource = ./shell-hw;
+  pname = "my-u280-shell";
+  board = "u280"; # or "v80"
+  xilinxVersion = site.boards.u280.xilinxVersion;
+  cmakeFlags = [ "-DFPLAN_PATH=${./floorplan.xdc}" ];
+};
+
+app = coyote-nix.lib.mkCoyoteAppPackage {
+  inherit pkgs tools coyoteRoot xilinxShareRoot;
+  hwSource = ./app-hw;
+  pname = "my-u280-app";
+  shellPackage = shell;
+};
+```
+
+The shell package contains `export.cmake`, `checkpoints/shell_routed_locked.dcp`, reports/checkpoints, boot and board-applicable partial artifacts, and compatibility metadata. The app package contains only `config_*` application partials, app-build reports/checkpoints, and metadata tied to the exact shell.
+
+See [`docs/two-stage-packages.md`](docs/two-stage-packages.md) for the complete API, output layouts, board differences, compatibility contract, and consumer guidance.
+
+The established `mkCoyoteBoardPackages` API and package names are unchanged; standalone non-two-stage consumers do not need to migrate.
 
 ## Driver package matrix
 
