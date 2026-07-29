@@ -136,9 +136,17 @@
       {
         checks.shellcheck = pkgs.runCommand "shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
           cd ${./.}
-          shellcheck -s bash nix/tools/*.sh
+          shellcheck -s bash nix/tools/*.sh tests/*.sh
           touch $out
         '';
+
+        checks.xilinx-wrapper-gmake-compat =
+          pkgs.runCommand "xilinx-wrapper-gmake-compat" { nativeBuildInputs = [ pkgs.bash ]; }
+            ''
+              cd ${./.}
+              bash tests/xilinx-wrapper-gmake-compat.sh
+              touch $out
+            '';
 
         checks.board-packages-eval =
           assert
