@@ -255,16 +255,40 @@ coyote_nix_export_ncurses_compat() {
   fi
 }
 
+coyote_nix_gmake_compat_dir() {
+  local runtime_root
+
+  if [ -n "${COYOTE_NIX_GMAKE_COMPAT_DIR:-}" ]; then
+    printf '%s\n' "$COYOTE_NIX_GMAKE_COMPAT_DIR"
+    return 0
+  fi
+
+  # Keep compatibility state ephemeral. Agent sandboxes commonly provide a
+  # session-specific TMPDIR, while normal interactive shells can use
+  # XDG_RUNTIME_DIR or fall back to a per-user directory under /tmp.
+  runtime_root="${TMPDIR:-${XDG_RUNTIME_DIR:-/tmp}}"
+  printf '%s\n' "$runtime_root/coyote-nix-gmake-${UID:-0}/bin"
+}
+
 coyote_nix_export_gmake_compat() {
   local compat_dir make_bin
 
-  compat_dir="$HOME/bin"
-  mkdir -p "$compat_dir"
+  # Current Xilinx FHS environments provide gmake directly. Retain a fallback
+  # for older environments, but do not mutate $HOME merely to shadow a tool
+  # that is already available.
+  if command -v gmake >/dev/null 2>&1; then
+    return 0
+  fi
 
   make_bin="$(command -v make 2>/dev/null || true)"
-  if [ -n "$make_bin" ]; then
-    ln -sf "$make_bin" "$compat_dir/gmake"
+  if [ -z "$make_bin" ]; then
+    return 0
   fi
+
+  compat_dir="$(coyote_nix_gmake_compat_dir)"
+  export COYOTE_NIX_GMAKE_COMPAT_DIR="$compat_dir"
+  mkdir -p "$compat_dir"
+  ln -sf "$make_bin" "$compat_dir/gmake"
 
   case ":${PATH:-}:" in
     *":$compat_dir:"*) ;;
@@ -279,7 +303,7 @@ coyote_nix_export_wrapper_env() {
 }
 
 coyote_nix_wrapper_shell_exports() {
-  local out ncurses6_lib ncurses6_libdir q_ncurses6_lib q_ncurses6_libdir q_license q_compat_dir license_file
+  local out ncurses6_lib ncurses6_libdir q_ncurses6_lib q_ncurses6_libdir q_license compat_dir q_compat_dir license_file
 
   out=""
   ncurses6_lib="${COYOTE_NIX_NCURSES6_LIB:-$coyote_nix_default_ncurses6_lib}"
@@ -300,10 +324,14 @@ coyote_nix_wrapper_shell_exports() {
     out="$out export XILINXD_LICENSE_FILE=$q_license; export XILINX_LICENSE_FILE=$q_license; export LM_LICENSE_FILE=$q_license;"
   fi
 
-  q_compat_dir="$(coyote_nix_shell_quote "$HOME/bin")"
-  out="$out mkdir -p $q_compat_dir;"
-  out="$out if command -v make >/dev/null 2>&1; then ln -sf \"\$(command -v make)\" $q_compat_dir/gmake; fi;"
+  compat_dir="$(coyote_nix_gmake_compat_dir)"
+  q_compat_dir="$(coyote_nix_shell_quote "$compat_dir")"
+  out="$out if ! command -v gmake >/dev/null 2>&1; then"
+  out="$out if command -v make >/dev/null 2>&1; then"
+  out="$out export COYOTE_NIX_GMAKE_COMPAT_DIR=$q_compat_dir; mkdir -p $q_compat_dir;"
+  out="$out ln -sf \"\$(command -v make)\" $q_compat_dir/gmake;"
   out="$out case \":\${PATH:-}:\" in *:$q_compat_dir:*) ;; *) export PATH=$q_compat_dir\"\${PATH:+:\$PATH}\" ;; esac;"
+  out="$out fi; fi;"
 
   printf '%s\n' "$out"
 }
