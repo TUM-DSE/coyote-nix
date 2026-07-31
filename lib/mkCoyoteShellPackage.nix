@@ -140,7 +140,13 @@ let
         exportCmakeSha256: $exportCmakeSha256,
         shellRoutedLockedDcpSha256: $shellRoutedLockedDcpSha256
       } | .artifacts = $artifacts[0]' \
-      ${shellMetadataBase} > "$out/metadata/shell.json"
+      ${shellMetadataBase} > "$out/metadata/shell-base.json"
+
+    bash ${../nix/tools/add-resident-service-metadata.sh} \
+      "$out/export.cmake" \
+      "$out/metadata/shell-base.json" \
+      "$out/metadata/shell.json"
+    rm "$out/metadata/shell-base.json"
     printf '%s\n' "$compatibility_id" > "$out/metadata/compatibility-id"
   '';
 

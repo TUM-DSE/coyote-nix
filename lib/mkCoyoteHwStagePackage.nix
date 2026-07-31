@@ -36,6 +36,8 @@ pkgs.stdenvNoCC.mkDerivation (
         cmake
         gnumake
         gcc
+        jq
+        (python3.withPackages (ps: [ ps.jinja2 ]))
         pkg-config
         perl
         which

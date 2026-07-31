@@ -40,12 +40,15 @@ coyote-nix.lib.mkCoyoteAppPackage
 coyote-nix.lib.mkCoyoteDriverPackage
 coyote-nix.lib.mkCoyoteDriverPackages
 coyote-nix.lib.mkCoyoteDevShell
+coyote-nix.lib.mkCoyoteSourceChecks
 coyote-nix.lib.mkApp
 ```
 
 ## Low-level hardware stage
 
-`mkCoyoteHwStagePackage` runs one Coyote hardware stage: configure with CMake, execute caller-provided build commands, check expected artifacts, and install caller-selected outputs.
+`mkCoyoteHwStagePackage` runs one Coyote hardware stage: configure with CMake, execute caller-provided build commands, check expected artifacts, and install caller-selected outputs. Its environment declares the Python/Jinja renderer and JSON tooling used by Coyote generation and package metadata.
+
+`mkCoyoteSourceChecks { pkgs; coyoteRoot; }` returns reusable Nix checks for Coyote's generic resident-service control source contract: control-enabled/stream-only/disabled generation on U280 and V80, AXI-Lite splitter simulation, and host API compilation.
 
 ```nix
 let

@@ -140,6 +140,21 @@
           touch $out
         '';
 
+        checks.resident-service-metadata =
+          pkgs.runCommand "resident-service-metadata"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.jq
+                pkgs.gnused
+              ];
+            }
+            ''
+              cd ${./.}
+              bash tests/resident-service-metadata.sh
+              touch $out
+            '';
+
         checks.xilinx-wrapper-gmake-compat =
           pkgs.runCommand "xilinx-wrapper-gmake-compat" { nativeBuildInputs = [ pkgs.bash ]; }
             ''
@@ -162,6 +177,7 @@
 
         checks.two-stage-packages-eval =
           assert coyoteNixLib ? mkCoyoteShellPackage;
+          assert coyoteNixLib ? mkCoyoteSourceChecks;
           assert coyoteNixLib ? mkCoyoteAppPackage;
           assert evalU280Shell.coyoteTwoStage.kind == "shell";
           assert
