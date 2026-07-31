@@ -149,7 +149,7 @@ The shell compatibility ID is SHA-256 over a versioned domain plus:
 - SHA-256 of `export.cmake`;
 - SHA-256 of `checkpoints/shell_routed_locked.dcp`.
 
-`shell.json` also records the FPGA part, flow settings, Coyote source store path, hardware source store path, static checkpoint path, caller provenance, and a hash manifest for installed artifacts. When supported by the Coyote source, its generic `residentService` object records the external service name and stream ABI plus optional control presence, ABI, interface version, base, size, address width, and data width. Older Coyote exports receive a disabled control object with zero dimensions.
+`shell.json` also records the FPGA part, flow settings, Coyote source store path, hardware source store path, static checkpoint path, caller provenance, and a hash manifest for installed artifacts. Its generic `applicationTopology` object records the exported region count, streams per region, application-interface version, and AXI data width. When supported by the Coyote source, the `residentService` object records the external service name and stream ABI, optional per-region slot-status presence/width, and optional control presence, ABI, interface version, base, size, address width, and data width. Older Coyote exports receive disabled optional objects with zero dimensions, but must still export positive application-topology dimensions.
 
 `app.json` records:
 

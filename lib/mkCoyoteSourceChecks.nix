@@ -57,6 +57,11 @@ let
         render_case control-v80 v80 \
           -DTEST_ENABLE_SERVICE:BOOL=ON \
           -DTEST_ENABLE_CONTROL:BOOL=ON
+        render_case slot-status-u280 u280 \
+          -DTEST_ENABLE_SERVICE:BOOL=ON \
+          -DTEST_ENABLE_CONTROL:BOOL=ON \
+          -DTEST_ENABLE_SLOT_STATUS:BOOL=ON \
+          -DTEST_N_REGIONS:STRING=2
         render_case stream-only-u280 u280 \
           -DTEST_ENABLE_SERVICE:BOOL=ON \
           -DTEST_ENABLE_CONTROL:BOOL=OFF
@@ -80,6 +85,13 @@ let
 
         grep -q 'inst_service_control_ccross' \
           "$TMPDIR/control-u280/coyote-resident-service-control-fixture_shell/hdl/shell_top.sv"
+        grep -q 's_slot_decoupled(decouple_uclk)' \
+          "$TMPDIR/slot-status-u280/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
+        grep -q 'set(EN_EXTERNAL_DYNAMIC_SERVICE_SLOT_STATUS 1)' \
+          "$TMPDIR/slot-status-u280/export.cmake"
+        grep -q 'set(N_REGIONS 2)' "$TMPDIR/slot-status-u280/export.cmake"
+        ! grep -q 's_slot_decoupled' \
+          "$TMPDIR/control-u280/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
         ! grep -q 's_axi_service_ctrl' \
           "$TMPDIR/stream-only-u280/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
         ! grep -q 'axil_address_splitter' \

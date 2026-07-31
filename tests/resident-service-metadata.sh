@@ -18,15 +18,27 @@ set(EXTERNAL_DYNAMIC_SERVICE_CONTROL_BASE 4096)
 set(EXTERNAL_DYNAMIC_SERVICE_CONTROL_BYTES 4096)
 set(EXTERNAL_DYNAMIC_SERVICE_CONTROL_ADDR_BITS 12)
 set(EXTERNAL_DYNAMIC_SERVICE_CONTROL_DATA_BITS 64)
+set(EN_EXTERNAL_DYNAMIC_SERVICE_SLOT_STATUS 1)
+set(N_REGIONS 2)
+set(N_STRM_AXI 1)
+set(COYOTE_APP_INTERFACE_VERSION 1)
+set(COYOTE_AXI_DATA_BITS 512)
 EOF
 
 bash "$repo_root/nix/tools/add-resident-service-metadata.sh" \
   "$tmp/control.cmake" "$tmp/base.json" "$tmp/control.json"
 jq -e '
-  .residentService == {
+  .applicationTopology == {
+    regionCount: 2,
+    streamsPerRegion: 1,
+    interfaceVersion: 1,
+    axiDataBits: 512
+  }
+  and .residentService == {
     enabled: true,
     name: "fixture-service",
     stream: {abi: "fixture-stream-v1", interfaceVersion: 1},
+    slotStatus: {enabled: true, width: 2},
     control: {
       enabled: true,
       abi: "fixture-control-v1",
@@ -44,11 +56,18 @@ set(EN_EXTERNAL_DYNAMIC_SERVICE 0)
 set(EXTERNAL_DYNAMIC_SERVICE_NAME "none")
 set(EXTERNAL_DYNAMIC_SERVICE_ABI "none")
 set(EXTERNAL_DYNAMIC_SERVICE_INTERFACE_VERSION 1)
+set(EN_EXTERNAL_DYNAMIC_SERVICE_SLOT_STATUS 0)
+set(N_REGIONS 1)
+set(N_STRM_AXI 1)
+set(COYOTE_APP_INTERFACE_VERSION 1)
+set(COYOTE_AXI_DATA_BITS 512)
 EOF
 bash "$repo_root/nix/tools/add-resident-service-metadata.sh" \
   "$tmp/legacy.cmake" "$tmp/base.json" "$tmp/legacy.json"
 jq -e '
-  .residentService.enabled == false
+  .applicationTopology.regionCount == 1
+  and .residentService.enabled == false
+  and .residentService.slotStatus == {enabled: false, width: 0}
   and .residentService.control.enabled == false
   and .residentService.control.bytes == 0
 ' "$tmp/legacy.json" >/dev/null
