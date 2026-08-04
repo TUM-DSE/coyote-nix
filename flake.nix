@@ -174,6 +174,21 @@
             touch $out
           '';
 
+        checks.deploy-hw-image-kind = pkgs.runCommand "deploy-hw-image-kind-check" { } ''
+          printf 'partial image\n' > "$TMPDIR/application.bin"
+          set +e
+          output="$(FPGA_BDF=0000:00:00.0 ${evalTools.deploy-hw}/bin/deploy-hw "$TMPDIR/application.bin" 2>&1)"
+          status=$?
+          set -e
+          test "$status" -ne 0
+          printf '%s\n' "$output" | grep -F 'deploy-hw requires a full .bit or .pdi image' >/dev/null
+          if printf '%s\n' "$output" | grep -F '[1/7]' >/dev/null; then
+            echo "ERROR: deploy-hw began side effects before rejecting a partial image" >&2
+            exit 1
+          fi
+          touch $out
+        '';
+
         checks.shellcheck = pkgs.runCommand "shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
           cd ${./.}
           shellcheck -s bash nix/tools/*.sh tests/*.sh

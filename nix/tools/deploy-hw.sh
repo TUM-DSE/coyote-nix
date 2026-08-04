@@ -158,6 +158,15 @@ if [ ! -f "$image" ]; then
   exit 1
 fi
 
+case "$image" in
+  *.bit|*.pdi) ;;
+  *)
+    echo "ERROR: deploy-hw requires a full .bit or .pdi image: $image" >&2
+    echo "Hint: load application partials with reconfigure-app instead." >&2
+    exit 1
+    ;;
+esac
+
 case "$step_timeout_s" in
   ''|*[!0-9]*)
     echo "ERROR: --timeout must be a non-negative integer (seconds)." >&2
