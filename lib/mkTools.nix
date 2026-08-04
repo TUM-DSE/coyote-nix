@@ -117,6 +117,34 @@ rec {
     body = builtins.readFile ../nix/tools/deploy-hw.sh;
   };
 
+  reconfigure-app = pkgs.stdenv.mkDerivation {
+    pname = "coyote-reconfigure-app";
+    version = "0.1.0";
+    dontUnpack = true;
+    buildInputs = [ pkgs.boost ];
+    buildPhase = ''
+      runHook preBuild
+      $CXX -std=c++20 -O2 -Wall -Wextra -Werror \
+        -isystem ${coyoteRootValue}/sw/include \
+        -c ${../nix/tools/reconfigure-app.cpp} -o reconfigure-app.o
+      $CXX -std=c++20 -O2 -Wall -Wextra -Wno-error=sign-compare \
+        -isystem ${coyoteRootValue}/sw/include \
+        -c ${coyoteRootValue}/sw/src/cRcnfg.cpp -o cRcnfg.o
+      $CXX reconfigure-app.o cRcnfg.o -pthread -lrt -o reconfigure-app
+      runHook postBuild
+    '';
+    installPhase = ''
+      runHook preInstall
+      install -Dm755 reconfigure-app "$out/bin/reconfigure-app"
+      runHook postInstall
+    '';
+    meta = {
+      description = "Load a Coyote application partial image through the active driver";
+      mainProgram = "reconfigure-app";
+      platforms = platforms;
+    };
+  };
+
   unload-driver = mkTool {
     name = "unload-driver";
     description = "Unload Coyote kernel driver if present.";
@@ -195,6 +223,7 @@ rec {
     checkXilinxEnv
     program-cli
     deploy-hw
+    reconfigure-app
     unload-driver
     hot-reset
     insert-driver

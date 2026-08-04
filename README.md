@@ -11,7 +11,7 @@ This repository provides generic Coyote/Xilinx/Nix mechanics that can be shared 
 Provided here:
 
 - Xilinx tool wrappers (`vivado`, `hw_server`, `vitis_hls`)
-- common Coyote shell tools (`program-cli`, `deploy-hw`, driver lifecycle helpers, hot reset, hugepages)
+- common Coyote shell tools (`program-cli`, `deploy-hw`, `reconfigure-app`, driver lifecycle helpers, hot reset, hugepages)
 - generic Coyote hardware stage derivation builder
 - generic U280/V80 Coyote board-flow builders
 - reusable U280/V80 two-stage PR shell-export and app-only builders
@@ -202,3 +202,13 @@ hot-reset
 set-hugepages
 insert-driver [driver.ko] image.bit|image.pdi
 ```
+
+It is only for full-device programming. Do not pass a U280 application `.bin` to `deploy-hw`.
+
+With a compatible shell already programmed and its Coyote driver active, load one application partial into a vFPGA with:
+
+```sh
+reconfigure-app --device 0 --vfpga 0 path/to/vfpga.bin
+```
+
+Versal application `.pdi` files are accepted as well. `reconfigure-app` calls Coyote's existing `cRcnfg::reconfigureApp` path; it does not unload the driver, program through JTAG, reset PCIe, or select a shell. Use `--dry-run` to validate the image path and IDs without opening a Coyote device.

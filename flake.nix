@@ -23,6 +23,32 @@
           coyoteRoot = ./.;
           xilinxShareRoot = "/nonexistent/xilinx";
         };
+        runtimeToolTestCoyoteRoot = pkgs.runCommand "coyote-runtime-tool-test-source" { } ''
+          mkdir -p "$out/sw/include/coyote" "$out/sw/src"
+          cat > "$out/sw/include/coyote/cRcnfg.hpp" <<'EOF'
+          #pragma once
+          #include <string>
+          namespace coyote {
+          class cRcnfg {
+          public:
+            explicit cRcnfg(unsigned int device = 0);
+            void reconfigureApp(std::string bitstream_path, int vfid);
+          };
+          }
+          EOF
+          cat > "$out/sw/src/cRcnfg.cpp" <<'EOF'
+          #include <coyote/cRcnfg.hpp>
+          namespace coyote {
+          cRcnfg::cRcnfg(unsigned int) { }
+          void cRcnfg::reconfigureApp(std::string, int) { }
+          }
+          EOF
+        '';
+        runtimeTestTools = coyoteNixLib.mkTools {
+          inherit pkgs;
+          coyoteRoot = runtimeToolTestCoyoteRoot;
+          xilinxShareRoot = "/nonexistent/xilinx";
+        };
         evalStageHelpers = import ./lib/coyoteHwStageHelpers.nix {
           inherit pkgs;
           tools = evalTools;
@@ -134,6 +160,20 @@
         ];
       in
       {
+        checks.reconfigure-app =
+          assert evalTools ? reconfigure-app;
+          pkgs.runCommand "reconfigure-app-check" { } ''
+            printf 'partial image\n' > "$TMPDIR/application.bin"
+            ${runtimeTestTools.reconfigure-app}/bin/reconfigure-app \
+              --dry-run --device 2 --vfpga 3 "$TMPDIR/application.bin" \
+              | grep -F "COYOTE_RECONFIGURE_APP_READY device=2 vfpga=3 image=$TMPDIR/application.bin" >/dev/null
+            if ${runtimeTestTools.reconfigure-app}/bin/reconfigure-app --dry-run "$TMPDIR/application.bit" >/dev/null 2>&1; then
+              echo "ERROR: reconfigure-app accepted a full-image extension" >&2
+              exit 1
+            fi
+            touch $out
+          '';
+
         checks.shellcheck = pkgs.runCommand "shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
           cd ${./.}
           shellcheck -s bash nix/tools/*.sh tests/*.sh
