@@ -49,6 +49,142 @@
           coyoteRoot = runtimeToolTestCoyoteRoot;
           xilinxShareRoot = "/nonexistent/xilinx";
         };
+        embeddedToolFixture = pkgs.runCommand "xilinx-embedded-tool-fixture" { } ''
+                    root="$out/2025.1/Vitis"
+                    mkdir -p "$root/bin" "$root/gnu/armr5/lin/gcc-arm-none-eabi/bin"
+                    : > "$root/.settings64-Vitis.sh"
+                    for tool in bootgen armr5-none-eabi-gcc armr5-none-eabi-readelf; do
+                      case "$tool" in
+                        armr5-*) dir="$root/gnu/armr5/lin/gcc-arm-none-eabi/bin" ;;
+                        *) dir="$root/bin" ;;
+                      esac
+                      cat > "$dir/$tool" <<EOF
+          #!${pkgs.bash}/bin/bash
+          printf '%s %s\\n' "\$(basename "\$0")" "\$*"
+          EOF
+                      chmod +x "$dir/$tool"
+                    done
+        '';
+        embeddedTestTools = coyoteNixLib.mkTools {
+          inherit pkgs;
+          coyoteRoot = runtimeToolTestCoyoteRoot;
+          xilinxShareRoot = embeddedToolFixture;
+        };
+        fakeXilinxShell = pkgs.writeShellScript "fake-xilinx-shell" ''
+          test "$1" = -c
+          command="$2"
+          shift 2
+          test "$1" = --
+          shift
+          exec ${pkgs.bash}/bin/bash -c "$command" -- "$@"
+        '';
+        fakeBootgen = pkgs.writeShellApplication {
+          name = "bootgen";
+          text = ''
+            test "''${COYOTE_NIX_XILINX_VERSION:-}" = 2025.1
+            test "$#" -eq 7
+            test "$1" = -arch && test "$2" = versal
+            test "$3" = -image && test "$4" = deployment.bif
+            test "$5" = -w && test "$6" = -o
+            test -f "$4" && test -f platform-base.pdi && test -f firmware.elf
+            grep -F 'type=bootimage, file=platform-base.pdi' "$4" >/dev/null
+            grep -F 'core=r5-0, file=firmware.elf' "$4" >/dev/null
+            printf 'fake bootgen output\n' > "$7"
+            sha256sum platform-base.pdi firmware.elf "$4" >> "$7"
+          '';
+        };
+        fakeR5ElfCheck = pkgs.writeShellApplication {
+          name = "coyote-r5-elf-check";
+          text = ''
+            test "$1" = --elf && test -f "$2"
+            test "$3" = --contract && test -f "$4"
+          '';
+        };
+        fakeR5Tools = evalTools // {
+          bootgen = fakeBootgen;
+          r5-elf-check = fakeR5ElfCheck;
+        };
+        fakePlatformContractId = "platform-contract-fixture";
+        fakePlatformContract = pkgs.writeText "platform-contract-fixture.json" (
+          builtins.toJSON {
+            api = "fixture";
+            platformContractId = fakePlatformContractId;
+          }
+        );
+        fakePlatform =
+          (pkgs.runCommand "r5-platform-fixture" { nativeBuildInputs = [ pkgs.jq ]; } ''
+            mkdir -p "$out/bitstreams" "$out/metadata"
+            printf 'base PDI fixture\n' > "$out/bitstreams/cyt_top_base.pdi"
+            cp ${fakePlatformContract} "$out/metadata/platform-contract.json"
+            base_sha="$(sha256sum "$out/bitstreams/cyt_top_base.pdi" | cut -d' ' -f1)"
+            jq -n --arg api 'coyote-nix.v80-r5-platform/v1' \
+              --arg platformId 'platform-fixture' \
+              --arg platformContractId ${pkgs.lib.escapeShellArg fakePlatformContractId} \
+              --arg xilinxVersion '2025.1' --arg subsystemId '0x1c000000' \
+              --arg basePdiPath 'bitstreams/cyt_top_base.pdi' --arg baseSha256 "$base_sha" \
+              '{api:$api,platformId:$platformId,platformContractId:$platformContractId,
+                xilinxVersion:$xilinxVersion,subsystemId:$subsystemId,
+                basePdi:{path:$basePdiPath,sha256:$baseSha256}}' > "$out/metadata/platform.json"
+          '')
+          // {
+            coyoteR5Platform = {
+              api = "coyote-nix.v80-r5-platform/v1";
+              platformId = "platform-fixture";
+              platformContractId = fakePlatformContractId;
+              subsystemId = "0x1c000000";
+              xilinxVersion = "2025.1";
+              basePdi = "bitstreams/cyt_top_base.pdi";
+              metadata = "metadata/platform.json";
+              contract = "metadata/platform-contract.json";
+            };
+          };
+        fakeFirmware =
+          (pkgs.runCommand "r5-firmware-fixture" { nativeBuildInputs = [ pkgs.jq ]; } ''
+            mkdir -p "$out/firmware" "$out/metadata"
+            printf 'ELF fixture\n' > "$out/firmware/r5.elf"
+            cp ${fakePlatformContract} "$out/metadata/platform-contract.json"
+            elf_sha="$(sha256sum "$out/firmware/r5.elf" | cut -d' ' -f1)"
+            firmware_id="$(printf '%s\\0%s\\0%s\\n' 'coyote-nix-r5-firmware-v1' \
+              'scratch-probe' "$elf_sha" | sha256sum | cut -d' ' -f1)"
+            printf '%s\n' "$firmware_id" > "$out/metadata/firmware-id"
+            jq -n --arg api 'coyote-nix.r5-firmware/v1' --arg firmwareAbi 'scratch-probe' \
+              --arg firmwareId "$firmware_id" \
+              --arg platformContractId ${pkgs.lib.escapeShellArg fakePlatformContractId} \
+              --arg elfPath 'firmware/r5.elf' --arg elfSha256 "$elf_sha" \
+              '{api:$api,firmwareAbi:$firmwareAbi,firmwareId:$firmwareId,
+                platformContractId:$platformContractId,elf:{path:$elfPath,sha256:$elfSha256}}' \
+              > "$out/metadata/firmware.json"
+          '')
+          // {
+            coyoteR5Firmware = {
+              api = "coyote-nix.r5-firmware/v1";
+              firmwareAbi = "scratch-probe";
+              platformContractId = fakePlatformContractId;
+              elf = "firmware/r5.elf";
+              metadata = "metadata/firmware.json";
+            };
+          };
+        fakeR5Deployment = coyoteNixLib.mkCoyoteR5BootPackage {
+          inherit pkgs;
+          tools = fakeR5Tools;
+          pname = "r5-deployment-fixture";
+          platformPackage = fakePlatform;
+          firmwarePackage = fakeFirmware;
+        };
+        mismatchedFirmware = fakeFirmware // {
+          coyoteR5Firmware = fakeFirmware.coyoteR5Firmware // {
+            platformContractId = "wrong-platform-contract";
+          };
+        };
+        mismatchedBootEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteR5BootPackage {
+            inherit pkgs;
+            tools = fakeR5Tools;
+            pname = "r5-deployment-mismatch";
+            platformPackage = fakePlatform;
+            firmwarePackage = mismatchedFirmware;
+          }).coyoteR5Deployment.api
+        );
         evalStageHelpers = import ./lib/coyoteHwStageHelpers.nix {
           inherit pkgs;
           tools = evalTools;
@@ -194,6 +330,55 @@
           shellcheck -s bash nix/tools/*.sh tests/*.sh
           touch $out
         '';
+
+        checks.xilinx-embedded-wrappers = pkgs.runCommand "xilinx-embedded-wrappers" { } ''
+          export COYOTE_NIX_XILINX_VERSION=2025.1
+          export COYOTE_NIX_XILINX_SHELL=${fakeXilinxShell}
+          test "$(${embeddedTestTools.embedded}/bin/armr5-none-eabi-gcc --version)" = \
+            'armr5-none-eabi-gcc --version'
+          test "$(${embeddedTestTools.embedded}/bin/armr5-none-eabi-readelf -h probe.elf)" = \
+            'armr5-none-eabi-readelf -h probe.elf'
+          test "$(${embeddedTestTools.embedded}/bin/bootgen -arch versal)" = \
+            'bootgen -arch versal'
+          if COYOTE_NIX_XILINX_VERSION=2024.2 \
+            ${embeddedTestTools.embedded}/bin/bootgen -help >/dev/null 2>&1; then
+            echo "ERROR: wrapper accepted an absent Vitis version" >&2
+            exit 1
+          fi
+          touch $out
+        '';
+
+        checks.r5-bif-policy = pkgs.runCommand "r5-bif-policy" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+          python3 ${./nix/tools/versal-r5-bif.py} --output good.bif
+          python3 ${./nix/tools/versal-r5-bif.py} --check good.bif
+          sed 's/delay_handoff//' good.bif > missing-delay.bif
+          ! python3 ${./nix/tools/versal-r5-bif.py} --check missing-delay.bif >/dev/null 2>&1
+          sed 's/core=r5-0/core=a72-0/' good.bif > wrong-core.bif
+          ! python3 ${./nix/tools/versal-r5-bif.py} --check wrong-core.bif >/dev/null 2>&1
+          ! python3 ${./nix/tools/versal-r5-bif.py} --output unsafe.bif \
+            --firmware-elf ../firmware.elf >/dev/null 2>&1
+          ! python3 ${./nix/tools/versal-r5-bif.py} --output unsafe.bif \
+            --firmware-elf 'firmware image.elf' >/dev/null 2>&1
+          ! python3 ${./nix/tools/versal-r5-bif.py} --output unsafe.bif \
+            --firmware-elf $'firmware.elf}\nimage { { core=a72-0' >/dev/null 2>&1
+          ! python3 ${./nix/tools/versal-r5-bif.py} --output wrong-subsystem.bif \
+            --subsystem-id 0x1c000001 >/dev/null 2>&1
+          touch $out
+        '';
+
+        checks.r5-boot-package =
+          assert !mismatchedBootEval.success;
+          pkgs.runCommand "r5-boot-package-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
+            test -s ${fakeR5Deployment}/bitstreams/cyt_top.pdi
+            grep -F 'type=bootimage, file=platform-base.pdi' \
+              ${fakeR5Deployment}/composition/deployment.bif >/dev/null
+            grep -F 'id = 0x1c000000, name=rpu_subsystem, delay_handoff' \
+              ${fakeR5Deployment}/composition/deployment.bif >/dev/null
+            grep -F 'core=r5-0, file=firmware.elf' \
+              ${fakeR5Deployment}/composition/deployment.bif >/dev/null
+            test "$(jq -r .policy.core ${fakeR5Deployment}/metadata/deployment.json)" = r5-0
+            touch $out
+          '';
 
         checks.coprocessor-metadata =
           pkgs.runCommand "coprocessor-metadata"

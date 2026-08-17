@@ -8,6 +8,8 @@
   mkCoyoteDriverPackages = import ./mkCoyoteDriverPackages.nix;
   mkCoyoteDevShell = import ./mkCoyoteDevShell.nix;
   mkCoyoteSourceChecks = import ./mkCoyoteSourceChecks.nix;
+  mkCoyoteR5FirmwarePackage = import ./mkCoyoteR5FirmwarePackage.nix;
+  mkCoyoteR5BootPackage = import ./mkCoyoteR5BootPackage.nix;
 
   mkApp = drv: bin: {
     type = "app";

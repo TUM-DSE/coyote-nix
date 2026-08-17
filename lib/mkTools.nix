@@ -78,13 +78,15 @@ let
     pkgs.writeShellApplication {
       inherit name;
       inheritPath = true;
-      runtimeInputs = with pkgs; [
-        bash
-        coreutils
-        gawk
-        gnumake
-        inetutils
-      ];
+      runtimeInputs =
+        (with pkgs; [
+          bash
+          coreutils
+          gawk
+          gnumake
+          inetutils
+        ])
+        ++ extraRuntimeInputs;
       text = builtins.replaceStrings [ "@XILINX_WRAPPER_LIB@" ] [ "${xilinxWrapperLib}" ] (
         builtins.readFile script
       );
@@ -219,6 +221,84 @@ rec {
     script = ../nix/tools/vitis_hls-wrapper.sh;
   };
 
+  r5-elf-check =
+    let
+      python = pkgs.python3.withPackages (packages: [ packages.pyelftools ]);
+    in
+    mkTool {
+      name = "coyote-r5-elf-check";
+      description = "Validate a freestanding Cortex-R5 ELF against a TCM platform contract.";
+      runtimeInputs = [ python ];
+      body = ''
+        exec ${python}/bin/python ${../nix/tools/check-r5-elf.py} "$@"
+      '';
+    };
+
+  r5-bif = mkTool {
+    name = "coyote-r5-bif";
+    description = "Render or validate the accepted Versal delayed-handoff R5 BIF policy.";
+    runtimeInputs = [ pkgs.python3 ];
+    body = ''
+      exec python3 ${../nix/tools/versal-r5-bif.py} "$@"
+    '';
+  };
+
+  armr5 =
+    let
+      names = [
+        "armr5-none-eabi-addr2line"
+        "armr5-none-eabi-ar"
+        "armr5-none-eabi-as"
+        "armr5-none-eabi-c++filt"
+        "armr5-none-eabi-gcc"
+        "armr5-none-eabi-gcc-ar"
+        "armr5-none-eabi-gcc-nm"
+        "armr5-none-eabi-gcc-ranlib"
+        "armr5-none-eabi-ld"
+        "armr5-none-eabi-nm"
+        "armr5-none-eabi-objcopy"
+        "armr5-none-eabi-objdump"
+        "armr5-none-eabi-ranlib"
+        "armr5-none-eabi-readelf"
+        "armr5-none-eabi-size"
+        "armr5-none-eabi-strings"
+        "armr5-none-eabi-strip"
+      ];
+      wrapper =
+        name:
+        mkXilinxWrapper {
+          inherit name;
+          description = "Run ${name} from the selected Vitis installation inside xilinx-shell.";
+          script = ../nix/tools/xilinx-embedded-wrapper.sh;
+        };
+    in
+    pkgs.symlinkJoin {
+      name = "xilinx-armr5-tools";
+      paths = map wrapper names;
+      meta = {
+        description = "Version-coherent Arm R5 compiler and binutils from Vitis";
+        platforms = platforms;
+      };
+    };
+
+  bootgen = mkXilinxWrapper {
+    name = "bootgen";
+    description = "Run Bootgen from the selected Vitis installation inside xilinx-shell.";
+    script = ../nix/tools/xilinx-embedded-wrapper.sh;
+  };
+
+  embedded = pkgs.symlinkJoin {
+    name = "xilinx-embedded-tools";
+    paths = [
+      armr5
+      bootgen
+    ];
+    meta = {
+      description = "Version-coherent Arm R5 and Bootgen tools from Vitis";
+      platforms = platforms;
+    };
+  };
+
   all = [
     checkXilinxEnv
     program-cli
@@ -232,5 +312,8 @@ rec {
     vivado
     hw_server
     vitis_hls
+    r5-elf-check
+    r5-bif
+    embedded
   ];
 }

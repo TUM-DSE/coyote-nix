@@ -37,6 +37,23 @@ coyote_nix_resolve_vivado_root_by_version() {
   return 1
 }
 
+coyote_nix_resolve_vitis_root_by_version() {
+  local root v p
+
+  v="$1"
+  root="$(coyote_nix_xilinx_share_root)"
+  for p in \
+    "$root/$v/Vitis" \
+    "$root/Vitis/$v"
+  do
+    if [ -d "$p" ]; then
+      printf '%s\n' "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
 coyote_nix_resolve_hls_root_by_version() {
   local root v p
 
@@ -180,6 +197,42 @@ coyote_nix_find_vitis_hls_bin() {
   for p in \
     "$root/$v/Vitis_HLS/bin/vitis_hls" \
     "$root/Vitis_HLS/$v/bin/vitis_hls"
+  do
+    if [ -x "$p" ]; then
+      printf '%s\n' "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
+coyote_nix_find_vitis_bin() {
+  local root v tool p
+
+  v="$1"
+  tool="$2"
+  root="$(coyote_nix_xilinx_share_root)"
+  for p in \
+    "$root/$v/Vitis/bin/$tool" \
+    "$root/Vitis/$v/bin/$tool"
+  do
+    if [ -x "$p" ]; then
+      printf '%s\n' "$p"
+      return 0
+    fi
+  done
+  return 1
+}
+
+coyote_nix_find_armr5_bin() {
+  local root v tool p
+
+  v="$1"
+  tool="$2"
+  root="$(coyote_nix_xilinx_share_root)"
+  for p in \
+    "$root/$v/Vitis/gnu/armr5/lin/gcc-arm-none-eabi/bin/$tool" \
+    "$root/Vitis/$v/gnu/armr5/lin/gcc-arm-none-eabi/bin/$tool"
   do
     if [ -x "$p" ]; then
       printf '%s\n' "$p"
