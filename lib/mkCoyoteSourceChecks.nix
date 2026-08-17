@@ -427,7 +427,9 @@ let
         grep -q 'versal_cips_0/pl0_resetn' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
 
         grep -Eq 'set cfg\(en_v80_r5_provider\)[[:space:]]+1' "$TMPDIR/provider-static/base.tcl"
-        grep -q 'r5_provider_clock_converter' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
+        grep -q 'r5_provider_clock_converter.*xilinx.com:ip:smartconnect:1.0' \
+          ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
+        ! grep -q 'xilinx.com:ip:axi_clock_converter' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
         grep -q 'get_bd_addr_segs r5_provider/Reg' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
         grep -q 'm_axi_r5_provider' ${coyoteRoot}/hw/templates/versal/static_top_tmplt.txt
         grep -q 's_axi_r5_provider_awaddr' ${coyoteRoot}/hw/templates/common/shell_top_tmplt.txt
