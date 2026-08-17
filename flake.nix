@@ -195,6 +195,21 @@
           touch $out
         '';
 
+        checks.coprocessor-metadata =
+          pkgs.runCommand "coprocessor-metadata"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.jq
+                pkgs.gnused
+              ];
+            }
+            ''
+              cd ${./.}
+              bash tests/coprocessor-metadata.sh
+              touch $out
+            '';
+
         checks.resident-service-metadata =
           pkgs.runCommand "resident-service-metadata"
             {

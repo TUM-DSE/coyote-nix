@@ -145,8 +145,12 @@ let
     bash ${../nix/tools/add-resident-service-metadata.sh} \
       "$out/export.cmake" \
       "$out/metadata/shell-base.json" \
+      "$out/metadata/shell-resident.json"
+    bash ${../nix/tools/add-coprocessor-metadata.sh} \
+      "$out/export.cmake" \
+      "$out/metadata/shell-resident.json" \
       "$out/metadata/shell.json"
-    rm "$out/metadata/shell-base.json"
+    rm "$out/metadata/shell-base.json" "$out/metadata/shell-resident.json"
     printf '%s\n' "$compatibility_id" > "$out/metadata/compatibility-id"
   '';
 
