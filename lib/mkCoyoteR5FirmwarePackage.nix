@@ -90,7 +90,7 @@ pkgs.stdenvNoCC.mkDerivation (
         ${pkgs.lib.escapeShellArg firmwareAbi} "$elf_sha" \
         | sha256sum | cut -d' ' -f1)"
       printf '%s\n' "$firmware_id" > "$out/metadata/firmware-id"
-      runtime_identity=''
+      runtime_identity=""
       ${pkgs.lib.optionalString (runtimeIdentity != null) ''
         runtime_identity=${pkgs.lib.escapeShellArg runtimeIdentity}
         printf '%s\n' "$runtime_identity" > "$out/metadata/runtime-identity"
