@@ -5,6 +5,7 @@
   src,
   platformContract,
   firmwareAbi,
+  runtimeIdentity ? null,
   version ? "0.1.0",
   makeTarget ? "all",
   elfPath ? "build/r5.elf",
@@ -36,6 +37,7 @@ assert
     tcmEcc = "platform-managed-unverified";
   };
 assert firmwareAbi != "";
+assert runtimeIdentity == null || builtins.match "[0-9a-f]{64}" runtimeIdentity != null;
 pkgs.stdenvNoCC.mkDerivation (
   {
     inherit pname version src;
@@ -88,13 +90,21 @@ pkgs.stdenvNoCC.mkDerivation (
         ${pkgs.lib.escapeShellArg firmwareAbi} "$elf_sha" \
         | sha256sum | cut -d' ' -f1)"
       printf '%s\n' "$firmware_id" > "$out/metadata/firmware-id"
+      runtime_identity=''
+      ${pkgs.lib.optionalString (runtimeIdentity != null) ''
+        runtime_identity=${pkgs.lib.escapeShellArg runtimeIdentity}
+        printf '%s\n' "$runtime_identity" > "$out/metadata/runtime-identity"
+      ''}
       jq -n --arg api 'coyote-nix.r5-firmware/v1' \
         --arg firmwareAbi ${pkgs.lib.escapeShellArg firmwareAbi} \
         --arg platformContractId ${pkgs.lib.escapeShellArg platformContractId} \
         --arg firmwareId "$firmware_id" --arg elfSha256 "$elf_sha" \
+        --arg runtimeIdentity "$runtime_identity" \
         '{api:$api, firmwareAbi:$firmwareAbi, platformContractId:$platformContractId,
           firmwareId:$firmwareId, elf:{path:"firmware/r5.elf",sha256:$elfSha256},
-          map:"firmware/r5.map", report:"metadata/elf-report.json"}' > "$out/metadata/firmware.json"
+          map:"firmware/r5.map", report:"metadata/elf-report.json"}
+          + (if $runtimeIdentity == "" then {} else {runtimeIdentity:$runtimeIdentity} end)' \
+        > "$out/metadata/firmware.json"
       (cd "$out" && find firmware analysis metadata -type f ! -name artifacts.sha256 -print0 \
         | sort -z | xargs -0 sha256sum) > "$out/metadata/artifacts.sha256"
       runHook postInstall
@@ -102,7 +112,7 @@ pkgs.stdenvNoCC.mkDerivation (
 
     passthru.coyoteR5Firmware = {
       api = "coyote-nix.r5-firmware/v1";
-      inherit firmwareAbi platformContract platformContractId;
+      inherit firmwareAbi platformContract platformContractId runtimeIdentity;
       elf = "firmware/r5.elf";
       map = "firmware/r5.map";
       metadata = "metadata/firmware.json";

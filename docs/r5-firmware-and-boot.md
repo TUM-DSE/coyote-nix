@@ -31,7 +31,9 @@ hard-float, non-ARM, non-executable, or out-of-TCM ELFs and retains:
 - ELF headers, attributes, section/program tables, symbols, sizes, and
   disassembly;
 - the exact platform source contract and validation report;
-- content hashes plus independent firmware and platform-contract identities.
+- content hashes plus independent firmware and platform-contract identities;
+- an optional caller-supplied 256-bit runtime identity, retained in metadata
+  when firmware publishes the same source/build identity through hardware.
 
 These checks prove ELF shape and bounds. They do not prove that an XSA grants
 TCM ownership or that hardware boots.

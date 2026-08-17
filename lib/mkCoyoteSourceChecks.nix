@@ -330,6 +330,7 @@ let
           pkgs.gnumake
           pkgs.stdenv.cc
           pkgs.tcl
+          pkgs.verible
           python
           fakeXilinxTools
         ];
@@ -357,6 +358,35 @@ let
 
         configure_case disabled 0
         configure_case enabled 1
+
+        cmake -S "$fixture" -B "$TMPDIR/provider-static" \
+          -DCYT_DIR=${coyoteRoot} -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 -DBUILD_STATIC:STRING=1 -DBUILD_SHELL:STRING=0 \
+          -DTEST_EN_PR:STRING=0 -DEN_SHELL_PBLOCK:STRING=0 \
+          -DTEST_N_COPROCESSOR_PORTS:STRING=1 -DTEST_ENABLE_R5_PROVIDER:BOOL=ON \
+          -DEN_V80_R5_PLATFORM:STRING=1
+        if cmake -S "$fixture" -B "$TMPDIR/provider-uclk" \
+          -DCYT_DIR=${coyoteRoot} -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 -DBUILD_STATIC:STRING=1 -DBUILD_SHELL:STRING=0 \
+          -DTEST_EN_PR:STRING=0 -DEN_SHELL_PBLOCK:STRING=0 -DEN_UCLK:STRING=1 \
+          -DTEST_N_COPROCESSOR_PORTS:STRING=1 -DTEST_ENABLE_R5_PROVIDER:BOOL=ON \
+          -DEN_V80_R5_PLATFORM:STRING=1; then
+          echo 'R5 provider unexpectedly accepted a separate application clock' >&2
+          exit 1
+        fi
+        cmake -S "$fixture" -B "$TMPDIR/provider-shell" \
+          -DCYT_DIR=${coyoteRoot} -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 -DBUILD_STATIC:STRING=0 -DBUILD_SHELL:STRING=1 \
+          -DTEST_EN_PR:STRING=1 -DEN_SHELL_PBLOCK:STRING=0 \
+          -DSTATIC_PATH:STRING="$TMPDIR/provider-static/checkpoints" \
+          -DTEST_N_COPROCESSOR_PORTS:STRING=1 -DTEST_ENABLE_R5_PROVIDER:BOOL=ON \
+          -DEN_V80_R5_PLATFORM:STRING=0
+        mkdir -p \
+          "$TMPDIR/provider-static/coyote-coprocessor-port-fixture_static/hdl/static" \
+          "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl" \
+          "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/xdc"
+        (cd "$TMPDIR/provider-static" && ${python}/bin/python write_hdl.py 0 0 0)
+        (cd "$TMPDIR/provider-shell" && ${python}/bin/python write_hdl.py 1 0 0)
 
         ! grep -q 'V80_R5_' "$TMPDIR/disabled/export.cmake"
         ! grep -q 'v80_r5\|platform_dir' "$TMPDIR/disabled/base.tcl"
@@ -395,6 +425,24 @@ let
         grep -q 'versal_cips_0/M_AXI_LPD' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
         grep -q 'r5_scratch_ctrl/S_AXI/Mem0' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
         grep -q 'versal_cips_0/pl0_resetn' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
+
+        grep -Eq 'set cfg\(en_v80_r5_provider\)[[:space:]]+1' "$TMPDIR/provider-static/base.tcl"
+        grep -q 'r5_provider_clock_converter' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
+        grep -q 'get_bd_addr_segs r5_provider/Reg' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
+        grep -q 'm_axi_r5_provider' ${coyoteRoot}/hw/templates/versal/static_top_tmplt.txt
+        grep -q 's_axi_r5_provider_awaddr' ${coyoteRoot}/hw/templates/common/shell_top_tmplt.txt
+        grep -q 'r5_coprocessor_provider_stack inst_r5_provider' \
+          "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/dynamic_top.sv"
+        grep -q 'r5_provider_axil_ccross inst_r5_provider_ccross' \
+          "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/shell_top.sv"
+        grep -q 's_axi_coprocessor_ctrl(axi_coprocessor_ctrl)' \
+          "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/shell_top.sv"
+        verible-verilog-syntax \
+          "$TMPDIR/provider-static/coyote-coprocessor-port-fixture_static/hdl/static/static_top.sv" \
+          "$TMPDIR/provider-static/coyote-coprocessor-port-fixture_static/hdl/static/cyt_top.sv" \
+          "$TMPDIR/provider-static/coyote-coprocessor-port-fixture_static/hdl/static/shell_top.sv" \
+          "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/dynamic_top.sv" \
+          "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/shell_top.sv"
 
         for invalid in u280 shell pr bad-boolean; do
           args=(
@@ -458,6 +506,39 @@ let
         touch "$out"
       '';
 
+  r5ProviderSimulation =
+    pkgs.runCommand "coyote-r5-provider-simulation"
+      {
+        nativeBuildInputs = [
+          pkgs.stdenv.cc
+          pkgs.python3
+          pkgs.verilator
+        ];
+      }
+      ''
+        set -euo pipefail
+        verilator --binary --timing --assert --top-module r5_packet_queue_provider_tb \
+          -Wall -Wno-fatal \
+          ${coyoteRoot}/hw/hdl/coprocessor/r5_packet_queue_provider.sv \
+          ${coyoteRoot}/hw/tests/r5_packet_queue_provider_tb.sv
+        ./obj_dir/Vr5_packet_queue_provider_tb
+        touch "$out"
+      '';
+
+  r5ProviderModel =
+    pkgs.runCommand "coyote-r5-provider-model"
+      {
+        nativeBuildInputs = [ pkgs.stdenv.cc ];
+      }
+      ''
+        set -euo pipefail
+        c++ -std=c++20 -O2 -Wall -Wextra -Werror \
+          ${coyoteRoot}/tests/coprocessor_ports/r5_provider_model_test.cpp \
+          -o r5-provider-model-test
+        ./r5-provider-model-test
+        touch "$out"
+      '';
+
   hostApiCompile =
     pkgs.runCommand "coyote-resident-service-control-host-api-compile"
       {
@@ -486,6 +567,8 @@ in
     coprocessorSimulation
     hostApiCompile
     r5PlatformRenderContract
+    r5ProviderModel
+    r5ProviderSimulation
     renderContract
     splitterSimulation
     ;
