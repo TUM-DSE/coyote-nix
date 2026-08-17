@@ -305,7 +305,10 @@ coyote_nix_export_wrapper_env() {
 coyote_nix_wrapper_shell_exports() {
   local out ncurses6_lib ncurses6_libdir q_ncurses6_lib q_ncurses6_libdir q_license compat_dir q_compat_dir license_file
 
-  out=""
+  # User Tcl-store caches can be stale, incomplete, or owned by another user.
+  # Prefer the version-coherent Tcl apps shipped with the selected installation;
+  # callers may explicitly opt back into local user data when needed.
+  out="export XILINX_LOCAL_USER_DATA=\"\${XILINX_LOCAL_USER_DATA:-no}\";"
   ncurses6_lib="${COYOTE_NIX_NCURSES6_LIB:-$coyote_nix_default_ncurses6_lib}"
   if [ -n "$ncurses6_lib" ]; then
     q_ncurses6_lib="$(coyote_nix_shell_quote "$ncurses6_lib")"

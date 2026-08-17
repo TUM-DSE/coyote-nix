@@ -56,5 +56,9 @@ bash -c '
   prelude=$(coyote_nix_wrapper_shell_exports)
   bash -c "$prelude
     test \"\$(command -v gmake)\" = \"$COYOTE_NIX_GMAKE_COMPAT_DIR/gmake\"
+    test \"\$XILINX_LOCAL_USER_DATA\" = no
     test ! -e \"$HOME/bin\""
+
+  XILINX_LOCAL_USER_DATA=yes bash -c "$prelude
+    test \"\$XILINX_LOCAL_USER_DATA\" = yes"
 '

@@ -322,6 +322,108 @@ let
         touch "$out"
       '';
 
+  r5PlatformRenderContract =
+    pkgs.runCommand "coyote-v80-r5-platform-render-contract"
+      {
+        nativeBuildInputs = [
+          pkgs.cmake
+          pkgs.gnumake
+          pkgs.stdenv.cc
+          pkgs.tcl
+          python
+          fakeXilinxTools
+        ];
+      }
+      ''
+        set -euo pipefail
+        fixture=${coyoteRoot}/tests/coprocessor_ports
+
+        configure_case() {
+          name="$1"
+          enabled="$2"
+          build="$TMPDIR/$name"
+          cmake -S "$fixture" -B "$build" \
+            -DCYT_DIR=${coyoteRoot} \
+            -DFDEV_NAME:STRING=v80 \
+            -DBUILD_APP:STRING=0 \
+            -DBUILD_STATIC:STRING=1 \
+            -DBUILD_SHELL:STRING=0 \
+            -DTEST_EN_PR:STRING=0 \
+            -DEN_SHELL_PBLOCK:STRING=0 \
+            -DTEST_N_COPROCESSOR_PORTS:STRING=0 \
+            -DTEST_REGISTER_PROVIDERS:BOOL=OFF \
+            -DEN_V80_R5_PLATFORM:STRING="$enabled"
+        }
+
+        configure_case disabled 0
+        configure_case enabled 1
+
+        ! grep -q 'V80_R5_' "$TMPDIR/disabled/export.cmake"
+        ! grep -q 'v80_r5\|platform_dir' "$TMPDIR/disabled/base.tcl"
+        test ! -e "$TMPDIR/disabled/export_platform.tcl"
+        cmake --build "$TMPDIR/disabled" --target help > "$TMPDIR/disabled-targets"
+        if grep -q '^\.\.\. platform$' "$TMPDIR/disabled-targets"; then
+          echo 'disabled build unexpectedly exposes the R5 platform target' >&2
+          exit 1
+        fi
+
+        grep -q 'set(EN_V80_R5_PLATFORM 1)' "$TMPDIR/enabled/export.cmake"
+        grep -q 'set(V80_R5_PROCESSOR psv_cortexr5_0)' "$TMPDIR/enabled/export.cmake"
+        grep -q 'set(V80_R5_LPD_DATA_BITS 32)' "$TMPDIR/enabled/export.cmake"
+        grep -q 'set(V80_R5_LPD_CLOCK_HZ 33333333)' "$TMPDIR/enabled/export.cmake"
+        grep -q 'set(V80_R5_SCRATCH_BASE 2147483648)' "$TMPDIR/enabled/export.cmake"
+        grep -q 'set(V80_R5_SCRATCH_BYTES 4096)' "$TMPDIR/enabled/export.cmake"
+        grep -q 'set(V80_R5_PLATFORM_XSA platform/cyt_top.xsa)' "$TMPDIR/enabled/export.cmake"
+        grep -Eq 'set cfg\(en_v80_r5_platform\)[[:space:]]+1' "$TMPDIR/enabled/base.tcl"
+        grep -q 'write_hw_platform -fixed -force' "$TMPDIR/enabled/export_platform.tcl"
+        grep -q 'V80_R5_PLATFORM_DESIGN_PASS' "$TMPDIR/enabled/check_v80_r5_platform.tcl"
+        cmake --build "$TMPDIR/enabled" --target help > "$TMPDIR/enabled-targets"
+        grep -q '^\.\.\. platform$' "$TMPDIR/enabled-targets"
+        grep -q '^\.\.\. platform-design-check$' "$TMPDIR/enabled-targets"
+
+        tclsh <<'EOF'
+        set handle [open "${coyoteRoot}/hw/bd/versal/cr_pci.tcl" r]
+        set source [read $handle]
+        close $handle
+        if {![info complete $source]} {
+          puts stderr "cr_pci.tcl is syntactically incomplete"
+          exit 1
+        }
+        EOF
+
+        grep -q 'CONFIG.PS_PMC_CONFIG_APPLIED {1}' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
+        grep -q 'versal_cips_0/M_AXI_LPD' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
+        grep -q 'r5_scratch_ctrl/S_AXI/Mem0' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
+        grep -q 'versal_cips_0/pl0_resetn' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
+
+        for invalid in u280 shell pr bad-boolean; do
+          args=(
+            -DCYT_DIR=${coyoteRoot}
+            -DFDEV_NAME:STRING=v80
+            -DBUILD_APP:STRING=0
+            -DBUILD_STATIC:STRING=1
+            -DBUILD_SHELL:STRING=0
+            -DTEST_EN_PR:STRING=0
+            -DEN_SHELL_PBLOCK:STRING=0
+            -DTEST_N_COPROCESSOR_PORTS:STRING=0
+            -DTEST_REGISTER_PROVIDERS:BOOL=OFF
+            -DEN_V80_R5_PLATFORM:STRING=1
+          )
+          case "$invalid" in
+            u280) args+=( -DFDEV_NAME:STRING=u280 ) ;;
+            shell) args+=( -DBUILD_STATIC:STRING=0 -DBUILD_SHELL:STRING=1 ) ;;
+            pr) args+=( -DTEST_EN_PR:STRING=1 ) ;;
+            bad-boolean) args+=( -DEN_V80_R5_PLATFORM:STRING=yes ) ;;
+          esac
+          if cmake -S "$fixture" -B "$TMPDIR/reject-$invalid" "''${args[@]}"; then
+            echo "invalid R5 platform case unexpectedly configured: $invalid" >&2
+            exit 1
+          fi
+        done
+
+        touch "$out"
+      '';
+
   coprocessorSimulation =
     pkgs.runCommand "coyote-coprocessor-port-gateway-simulation"
       {
@@ -383,6 +485,7 @@ in
     coprocessorRenderContract
     coprocessorSimulation
     hostApiCompile
+    r5PlatformRenderContract
     renderContract
     splitterSimulation
     ;
