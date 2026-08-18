@@ -412,12 +412,17 @@ let
         grep -q '^\.\.\. platform-design-check$' "$TMPDIR/enabled-targets"
 
         tclsh <<'EOF'
-        set handle [open "${coyoteRoot}/hw/bd/versal/cr_pci.tcl" r]
-        set source [read $handle]
-        close $handle
-        if {![info complete $source]} {
-          puts stderr "cr_pci.tcl is syntactically incomplete"
-          exit 1
+        foreach source_file {
+          "${coyoteRoot}/hw/bd/versal/cr_pci.tcl"
+          "${coyoteRoot}/scripts/ip_inst/common_infrastructure.tcl"
+        } {
+          set handle [open $source_file r]
+          set source [read $handle]
+          close $handle
+          if {![info complete $source]} {
+            puts stderr "$source_file is syntactically incomplete"
+            exit 1
+          }
         }
         EOF
 
@@ -438,6 +443,10 @@ let
           "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/dynamic_top.sv"
         grep -q 'r5_provider_axil_ccross inst_r5_provider_ccross' \
           "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/shell_top.sv"
+        grep -q 'addr_width <= 32 ? "4G" : "16E"' \
+          ${coyoteRoot}/scripts/ip_inst/common_infrastructure.tcl
+        grep -q 'create_bd_port -dir I -type clk -freq_hz' \
+          ${coyoteRoot}/scripts/ip_inst/common_infrastructure.tcl
         grep -q 's_axi_coprocessor_ctrl(axi_coprocessor_ctrl)' \
           "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/shell_top.sv"
         verible-verilog-syntax \
