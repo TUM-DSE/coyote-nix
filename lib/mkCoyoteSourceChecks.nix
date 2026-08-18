@@ -415,6 +415,7 @@ let
         foreach source_file {
           "${coyoteRoot}/hw/bd/versal/cr_pci.tcl"
           "${coyoteRoot}/scripts/ip_inst/common_infrastructure.tcl"
+          "${coyoteRoot}/scripts/checks/check_v80_r5_provider_project.tcl.in"
         } {
           set handle [open $source_file r]
           set source [read $handle]
@@ -439,6 +440,12 @@ let
         grep -q 'get_bd_addr_segs r5_provider/Reg' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
         grep -q 'm_axi_r5_provider' ${coyoteRoot}/hw/templates/versal/static_top_tmplt.txt
         grep -q 's_axi_r5_provider_awaddr' ${coyoteRoot}/hw/templates/common/shell_top_tmplt.txt
+        cmake --build "$TMPDIR/provider-static" --target help > "$TMPDIR/provider-static-targets"
+        cmake --build "$TMPDIR/provider-shell" --target help > "$TMPDIR/provider-shell-targets"
+        grep -q '^\.\.\. provider-project-design-check$' "$TMPDIR/provider-static-targets"
+        grep -q '^\.\.\. provider-project-design-check$' "$TMPDIR/provider-shell-targets"
+        grep -q 'V80_R5_PROVIDER_PROJECT_PASS' \
+          "$TMPDIR/provider-static/check_v80_r5_provider_project.tcl"
         grep -q 'r5_coprocessor_provider_stack inst_r5_provider' \
           "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/dynamic_top.sv"
         grep -q 'r5_provider_axil_ccross inst_r5_provider_ccross' \
@@ -446,6 +453,10 @@ let
         grep -q 'addr_width <= 32 ? "4G" : "16E"' \
           ${coyoteRoot}/scripts/ip_inst/common_infrastructure.tcl
         grep -q 'create_bd_port -dir I -type clk -freq_hz' \
+          ${coyoteRoot}/scripts/ip_inst/common_infrastructure.tcl
+        grep -q 'axil_clock_converter 64 64 $cfg(aclk_f) $cfg(uclk_f)' \
+          ${coyoteRoot}/scripts/ip_inst/common_infrastructure.tcl
+        grep -q 'axil_clock_converter_32 32 32 $cfg(sclk_f) $cfg(aclk_f)' \
           ${coyoteRoot}/scripts/ip_inst/common_infrastructure.tcl
         grep -q 's_axi_coprocessor_ctrl(axi_coprocessor_ctrl)' \
           "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/shell_top.sv"
@@ -537,6 +548,22 @@ let
         touch "$out"
       '';
 
+  r5ProviderStackLint =
+    pkgs.runCommand "coyote-r5-provider-stack-lint"
+      {
+        nativeBuildInputs = [ pkgs.verilator ];
+      }
+      ''
+        set -euo pipefail
+        verilator --lint-only --top-module r5_coprocessor_provider_stack \
+          -Wall -Wno-fatal \
+          ${coyoteRoot}/hw/hdl/coprocessor/coprocessor_port_gateway.sv \
+          ${coyoteRoot}/hw/hdl/coprocessor/coprocessor_control_target.sv \
+          ${coyoteRoot}/hw/hdl/coprocessor/r5_packet_queue_provider.sv \
+          ${coyoteRoot}/hw/hdl/coprocessor/r5_coprocessor_provider_stack.sv
+        touch "$out"
+      '';
+
   r5ProviderModel =
     pkgs.runCommand "coyote-r5-provider-model"
       {
@@ -548,6 +575,63 @@ let
           ${coyoteRoot}/tests/coprocessor_ports/r5_provider_model_test.cpp \
           -o r5-provider-model-test
         ./r5-provider-model-test
+        touch "$out"
+      '';
+
+  mkCoprocessorApplicationRender =
+    {
+      appSource,
+      pname ? "coyote-coprocessor-application-render",
+    }:
+    pkgs.runCommand pname
+      {
+        nativeBuildInputs = [
+          pkgs.cmake
+          pkgs.gnumake
+          pkgs.stdenv.cc
+          pkgs.verible
+          python
+          fakeXilinxTools
+        ];
+      }
+      ''
+        set -euo pipefail
+        fixture=${coyoteRoot}/tests/coprocessor_ports
+        shell_build="$TMPDIR/provider-shell"
+        cmake -S "$fixture" -B "$shell_build" \
+          -DCYT_DIR=${coyoteRoot} -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 -DBUILD_STATIC:STRING=0 -DBUILD_SHELL:STRING=1 \
+          -DTEST_EN_PR:STRING=1 -DEN_SHELL_PBLOCK:STRING=0 \
+          -DSTATIC_PATH:STRING=${coyoteRoot}/hw/checkpoints \
+          -DTEST_N_COPROCESSOR_PORTS:STRING=1 -DTEST_ENABLE_R5_PROVIDER:BOOL=ON
+        mkdir -p \
+          "$shell_build/coyote-coprocessor-port-fixture_shell/hdl" \
+          "$shell_build/coyote-coprocessor-port-fixture_shell/xdc"
+        (cd "$shell_build" && ${python}/bin/python write_hdl.py 1 0 0)
+
+        app_build="$TMPDIR/provider-app"
+        cmake -S ${appSource} -B "$app_build" \
+          -DCYT_DIR=${coyoteRoot} -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=1 -DBUILD_STATIC:STRING=0 -DBUILD_SHELL:STRING=0 \
+          -DSHELL_PATH:STRING="$shell_build"
+        wrapper_root="$app_build/coyote-coprocessor-application-fixture_config_0/user_c0_0/hdl"
+        mkdir -p "$wrapper_root/wrappers" \
+          "$app_build/coyote-coprocessor-application-fixture_config_0/user_c0_0/xdc"
+        (cd "$app_build" && ${python}/bin/python write_hdl.py 2 0 0)
+
+        grep -q '`include "vfpga_top.svh"' "$wrapper_root/wrappers/user_logic_c0_0.sv"
+        grep -q 'inst_coprocessor_fixture' ${appSource}/src/vfpga_top.svh
+        grep -q 'coprocessor_0_recv_tdata' "$wrapper_root/wrappers/user_wrapper_c0_0.sv"
+        {
+          echo 'module vfpga_top_syntax_fixture;'
+          cat ${appSource}/src/vfpga_top.svh
+          echo 'endmodule'
+        } > "$TMPDIR/vfpga_top_syntax_fixture.sv"
+        verible-verilog-syntax \
+          ${appSource}/src/coprocessor_application_fixture.sv \
+          "$TMPDIR/vfpga_top_syntax_fixture.sv" \
+          "$wrapper_root/wrappers/user_logic_c0_0.sv" \
+          "$wrapper_root/wrappers/user_wrapper_c0_0.sv"
         touch "$out"
       '';
 
@@ -578,9 +662,11 @@ in
     coprocessorRenderContract
     coprocessorSimulation
     hostApiCompile
+    mkCoprocessorApplicationRender
     r5PlatformRenderContract
     r5ProviderModel
     r5ProviderSimulation
+    r5ProviderStackLint
     renderContract
     splitterSimulation
     ;

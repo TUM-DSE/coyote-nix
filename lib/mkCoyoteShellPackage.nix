@@ -255,6 +255,7 @@ let
     appPartialExtension = boardProfile.twoStage.appPartialExtension;
     metadataPath = "metadata/shell.json";
     compatibilityIdPath = "metadata/compatibility-id";
+    staticPath = toString staticPath;
     inherit shellCmakeFlags;
   };
 
