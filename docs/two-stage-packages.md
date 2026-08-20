@@ -7,6 +7,20 @@
 
 They support `u280` and `v80`. They are additive: `mkCoyoteBoardPackages` and all of its existing package names and conventional full-image behavior remain unchanged.
 
+## V80 custom static checkpoints
+
+A provider-enabled or otherwise custom V80 static build emits generic internal checkpoints as `checkpoints/static/static_synthed.dcp` and `checkpoints/static_routed_locked.dcp`. Coyote's Versal dynamic flow deliberately selects immutable board/PCIe-specific names instead. Normalize a custom static package before supplying its `checkpoints` directory to a shell build:
+
+```nix
+v80Static = coyoteNix.lib.mkCoyoteV80StaticCheckpointPackage {
+  inherit pkgs;
+  staticPackage = customV80StaticBuild;
+  pcieGeneration = 5; # 4 and 5 are supported
+};
+```
+
+The result retains the complete source package and adds both `static_synthed_v80_genN.dcp` and `static_routed_locked_v80_genN.dcp`, plus checked provenance under `metadata/v80-static-checkpoints.json`. This prevents a custom static build from succeeding only for the subsequent dynamic shell flow to fail on a missing board-specific checkpoint alias.
+
 ## Shell API
 
 ```nix

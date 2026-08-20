@@ -3,6 +3,7 @@
   mkCoyoteHwStagePackage = import ./mkCoyoteHwStagePackage.nix;
   mkCoyoteBoardPackages = import ./mkCoyoteBoardPackages.nix;
   mkCoyoteShellPackage = import ./mkCoyoteShellPackage.nix;
+  mkCoyoteV80StaticCheckpointPackage = import ./mkCoyoteV80StaticCheckpointPackage.nix;
   mkCoyoteAppPackage = import ./mkCoyoteAppPackage.nix;
   mkCoyoteDriverPackage = import ./mkCoyoteDriverPackage.nix;
   mkCoyoteDriverPackages = import ./mkCoyoteDriverPackages.nix;

@@ -237,6 +237,25 @@
           board = "v80";
           xilinxVersion = "site-selected-v80-build-version";
         };
+        fakeV80StaticBuild = pkgs.runCommand "fake-v80-static-build" { } ''
+          mkdir -p "$out/checkpoints/static" "$out/reports"
+          printf 'synthesized static\n' > "$out/checkpoints/static/static_synthed.dcp"
+          printf 'routed locked static\n' > "$out/checkpoints/static_routed_locked.dcp"
+          printf 'retained report\n' > "$out/reports/static.rpt"
+        '';
+        evalV80StaticCheckpoints = coyoteNixLib.mkCoyoteV80StaticCheckpointPackage {
+          inherit pkgs;
+          staticPackage = fakeV80StaticBuild;
+          pcieGeneration = 5;
+          pname = "example-v80-static-checkpoints";
+        };
+        invalidV80StaticGenerationEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteV80StaticCheckpointPackage {
+            inherit pkgs;
+            staticPackage = fakeV80StaticBuild;
+            pcieGeneration = 3;
+          }).coyoteV80StaticCheckpoints.pcieGeneration
+        );
         evalU280App = coyoteNixLib.mkCoyoteAppPackage {
           inherit pkgs;
           tools = evalTools;
@@ -430,8 +449,29 @@
             touch $out
           '';
 
+        checks.v80-static-checkpoint-package =
+          assert !invalidV80StaticGenerationEval.success;
+          pkgs.runCommand "v80-static-checkpoint-package-check" { nativeBuildInputs = [ pkgs.jq ]; } ''
+            test -f ${evalV80StaticCheckpoints}/checkpoints/static_synthed_v80_gen5.dcp
+            test -f ${evalV80StaticCheckpoints}/checkpoints/static_routed_locked_v80_gen5.dcp
+            cmp ${fakeV80StaticBuild}/checkpoints/static/static_synthed.dcp \
+              ${evalV80StaticCheckpoints}/checkpoints/static_synthed_v80_gen5.dcp
+            cmp ${fakeV80StaticBuild}/checkpoints/static_routed_locked.dcp \
+              ${evalV80StaticCheckpoints}/checkpoints/static_routed_locked_v80_gen5.dcp
+            test -f ${evalV80StaticCheckpoints}/reports/static.rpt
+            jq -e '
+              .schemaVersion == 1
+              and .board == "v80"
+              and .pcieGeneration == 5
+              and .synthesizedCheckpoint == "checkpoints/static_synthed_v80_gen5.dcp"
+              and .routedCheckpoint == "checkpoints/static_routed_locked_v80_gen5.dcp"
+            ' ${evalV80StaticCheckpoints}/metadata/v80-static-checkpoints.json >/dev/null
+            touch "$out"
+          '';
+
         checks.two-stage-packages-eval =
           assert coyoteNixLib ? mkCoyoteShellPackage;
+          assert coyoteNixLib ? mkCoyoteV80StaticCheckpointPackage;
           assert coyoteNixLib ? mkCoyoteSourceChecks;
           assert coyoteNixLib ? mkCoyoteAppPackage;
           assert evalU280Shell.coyoteTwoStage.kind == "shell";
