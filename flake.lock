@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "coyote": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787039872,
+        "narHash": "sha256-YYELn7UNeezNl0PqCANvesfUhT5sWR0VHrTsSi7iI4U=",
+        "owner": "taugoust",
+        "repo": "Coyote",
+        "rev": "a576d424eac3cdd8ec2dec78ef737b016b52d533",
+        "type": "github"
+      },
+      "original": {
+        "owner": "taugoust",
+        "repo": "Coyote",
+        "rev": "a576d424eac3cdd8ec2dec78ef737b016b52d533",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -36,6 +53,7 @@
     },
     "root": {
       "inputs": {
+        "coyote": "coyote",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs"
       }

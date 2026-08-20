@@ -4,12 +4,24 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
+    coyote = {
+      url = "github:taugoust/Coyote/a576d424eac3cdd8ec2dec78ef737b016b52d533";
+      flake = false;
+    };
   };
 
   outputs =
-    { nixpkgs, flake-utils, ... }:
+    {
+      nixpkgs,
+      flake-utils,
+      coyote,
+      ...
+    }:
     let
-      coyoteNixLib = import ./lib;
+      coyoteNixLib = (import ./lib) // {
+        defaultCoyote = coyote;
+        defaultCoyoteRevision = coyote.rev;
+      };
       linuxSystems = builtins.filter (
         system: builtins.match ".*-linux" system != null
       ) flake-utils.lib.defaultSystems;
@@ -22,6 +34,10 @@
           inherit pkgs;
           coyoteRoot = ./.;
           xilinxShareRoot = "/nonexistent/xilinx";
+        };
+        defaultCoyoteSourceChecks = coyoteNixLib.mkCoyoteSourceChecks {
+          inherit pkgs;
+          coyoteRoot = coyote;
         };
         runtimeToolTestCoyoteRoot = pkgs.runCommand "coyote-runtime-tool-test-source" { } ''
           mkdir -p "$out/sw/include/coyote" "$out/sw/src"
@@ -315,6 +331,17 @@
         ];
       in
       {
+        checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
+        checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
+        checks.coyote-resident-control-host-api = defaultCoyoteSourceChecks.hostApiCompile;
+        checks.coyote-coprocessor-render = defaultCoyoteSourceChecks.coprocessorRenderContract;
+        checks.coyote-coprocessor-simulation = defaultCoyoteSourceChecks.coprocessorSimulation;
+        checks.coyote-coprocessor-host-api = defaultCoyoteSourceChecks.coprocessorHostApi;
+        checks.coyote-r5-platform-render = defaultCoyoteSourceChecks.r5PlatformRenderContract;
+        checks.coyote-r5-provider-model = defaultCoyoteSourceChecks.r5ProviderModel;
+        checks.coyote-r5-provider-simulation = defaultCoyoteSourceChecks.r5ProviderSimulation;
+        checks.coyote-r5-provider-stack-lint = defaultCoyoteSourceChecks.r5ProviderStackLint;
+
         checks.reconfigure-app =
           assert evalTools ? reconfigure-app;
           pkgs.runCommand "reconfigure-app-check" { } ''

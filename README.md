@@ -6,6 +6,17 @@ This repository provides generic Coyote/Xilinx/Nix mechanics that can be shared 
 
 `coyote-nix` does not provide preconfigured Vivado/Vitis packages by itself. A consuming project must provide a Xilinx installation path via `xilinxShareRoot` when constructing tools or hardware builds.
 
+## Coyote compatibility pin
+
+The flake pins the exact Coyote revision used by its checks and exposes it as `lib.defaultCoyote`. Consumers should normally follow this tested source instead of selecting Coyote and `coyote-nix` independently:
+
+```nix
+coyote-nix.url = "github:TUM-DSE/coyote-nix/<revision>";
+coyote.follows = "coyote-nix/coyote";
+```
+
+A consumer may point `coyote` elsewhere when it intentionally needs another source revision. Such an override is outside the default tested pairing.
+
 ## Scope
 
 Provided here:
@@ -35,7 +46,10 @@ The flake exposes:
 coyote-nix.lib.mkTools
 coyote-nix.lib.mkCoyoteHwStagePackage
 coyote-nix.lib.mkCoyoteBoardPackages
+coyote-nix.lib.defaultCoyote
+coyote-nix.lib.defaultCoyoteRevision
 coyote-nix.lib.mkCoyoteShellPackage
+coyote-nix.lib.mkCoyoteV80StaticCheckpointPackage
 coyote-nix.lib.mkCoyoteAppPackage
 coyote-nix.lib.mkCoyoteDriverPackage
 coyote-nix.lib.mkCoyoteDriverPackages
