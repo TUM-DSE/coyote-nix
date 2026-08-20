@@ -621,6 +621,7 @@ let
 
         grep -q '`include "vfpga_top.svh"' "$wrapper_root/wrappers/user_logic_c0_0.sv"
         grep -q 'inst_coprocessor_fixture' ${appSource}/src/vfpga_top.svh
+        test -f ${appSource}/src/hdl/coprocessor_application_fixture.sv
         grep -q 'coprocessor_0_recv_tdata' "$wrapper_root/wrappers/user_wrapper_c0_0.sv"
         {
           echo 'module vfpga_top_syntax_fixture;'
@@ -628,7 +629,7 @@ let
           echo 'endmodule'
         } > "$TMPDIR/vfpga_top_syntax_fixture.sv"
         verible-verilog-syntax \
-          ${appSource}/src/coprocessor_application_fixture.sv \
+          ${appSource}/src/hdl/coprocessor_application_fixture.sv \
           "$TMPDIR/vfpga_top_syntax_fixture.sv" \
           "$wrapper_root/wrappers/user_logic_c0_0.sv" \
           "$wrapper_root/wrappers/user_wrapper_c0_0.sv"
