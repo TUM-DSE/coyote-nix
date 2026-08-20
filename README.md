@@ -15,7 +15,7 @@ coyote-nix.url = "github:TUM-DSE/coyote-nix/<revision>";
 coyote.follows = "coyote-nix/coyote";
 ```
 
-A consumer may point `coyote` elsewhere when it intentionally needs another source revision. Such an override is outside the default tested pairing.
+A consumer may point `coyote` elsewhere when it intentionally needs another source revision. Such an override is outside the default tested pairing. The default pin proves the declared source and package checks only; it does not by itself claim complete FPGA synthesis or routing acceptance.
 
 ## Scope
 

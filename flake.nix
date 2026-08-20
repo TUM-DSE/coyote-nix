@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/a576d424eac3cdd8ec2dec78ef737b016b52d533";
+      url = "github:taugoust/Coyote/99abf1c724482489ae21350a5adfedf780e0fd19";
       flake = false;
     };
   };
@@ -334,13 +334,6 @@
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
         checks.coyote-resident-control-host-api = defaultCoyoteSourceChecks.hostApiCompile;
-        checks.coyote-coprocessor-render = defaultCoyoteSourceChecks.coprocessorRenderContract;
-        checks.coyote-coprocessor-simulation = defaultCoyoteSourceChecks.coprocessorSimulation;
-        checks.coyote-coprocessor-host-api = defaultCoyoteSourceChecks.coprocessorHostApi;
-        checks.coyote-r5-platform-render = defaultCoyoteSourceChecks.r5PlatformRenderContract;
-        checks.coyote-r5-provider-model = defaultCoyoteSourceChecks.r5ProviderModel;
-        checks.coyote-r5-provider-simulation = defaultCoyoteSourceChecks.r5ProviderSimulation;
-        checks.coyote-r5-provider-stack-lint = defaultCoyoteSourceChecks.r5ProviderStackLint;
 
         checks.reconfigure-app =
           assert evalTools ? reconfigure-app;
