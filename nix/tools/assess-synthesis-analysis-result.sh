@@ -37,7 +37,10 @@ if ! jq -e '
   .schemaVersion == 1
   and .kind == "coyote-synthesis-analysis"
   and .predictiveOnly == true
-  and .assessmentScope == "resident-shell-synthesis"
+  and (
+    .assessmentScope == "resident-shell-synthesis"
+    or .assessmentScope == "module-out-of-context"
+  )
   and (.architecture | type == "string" and length > 0)
   and (.part | type == "string" and length > 0)
   and (.vivadoVersion | type == "string" and length > 0)
