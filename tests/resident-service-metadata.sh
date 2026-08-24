@@ -19,8 +19,18 @@ set(EXTERNAL_DYNAMIC_SERVICE_CONTROL_BYTES 4096)
 set(EXTERNAL_DYNAMIC_SERVICE_CONTROL_ADDR_BITS 12)
 set(EXTERNAL_DYNAMIC_SERVICE_CONTROL_DATA_BITS 64)
 set(EN_EXTERNAL_DYNAMIC_SERVICE_SLOT_STATUS 1)
+set(EN_EXTERNAL_DYNAMIC_SERVICE_PEER_ENDPOINTS 1)
+set(EXTERNAL_DYNAMIC_SERVICE_PEER_INTERFACE_VERSION 1)
+set(EN_PEER 1)
+set(PEER_BACKEND "aurora_qsfp1")
+set(PEER_CONNECTOR "QSFP1")
+set(PEER_FLOW_CONTROL_MODE "finite-rx-fifo")
+set(COYOTE_PEER_INTERFACE_VERSION 1)
+set(N_PEER_LINKS 1)
+set(N_PEER_AXI 1)
 set(N_REGIONS 2)
 set(N_STRM_AXI 1)
+set(N_HOST_STRM_AXI 1)
 set(COYOTE_APP_INTERFACE_VERSION 1)
 set(COYOTE_AXI_DATA_BITS 512)
 EOF
@@ -31,6 +41,7 @@ jq -e '
   .applicationTopology == {
     regionCount: 2,
     streamsPerRegion: 1,
+    hostStreamsPerRegion: 1,
     interfaceVersion: 1,
     axiDataBits: 512
   }
@@ -39,6 +50,7 @@ jq -e '
     name: "fixture-service",
     stream: {abi: "fixture-stream-v1", interfaceVersion: 1},
     slotStatus: {enabled: true, width: 2},
+    peerEndpoints: {enabled: true, interfaceVersion: 1, count: 1},
     control: {
       enabled: true,
       abi: "fixture-control-v1",
@@ -48,6 +60,18 @@ jq -e '
       addressBits: 12,
       dataBits: 64
     }
+  }
+  and .peerTransport == {
+    enabled: true,
+    backend: "aurora_qsfp1",
+    connector: "QSFP1",
+    flowControl: "finite-rx-fifo",
+    owner: "resident-service",
+    interfaceVersion: 1,
+    links: 1,
+    endpoints: 1,
+    streamBits: 512,
+    backpressure: "finite-rx-fifo"
   }
 ' "$tmp/control.json" >/dev/null
 
@@ -67,8 +91,11 @@ bash "$repo_root/nix/tools/add-resident-service-metadata.sh" \
 jq -e '
   .applicationTopology.regionCount == 1
   and .residentService.enabled == false
+  and .applicationTopology.hostStreamsPerRegion == 1
   and .residentService.slotStatus == {enabled: false, width: 0}
+  and .residentService.peerEndpoints.enabled == false
   and .residentService.control.enabled == false
+  and .peerTransport.enabled == false
   and .residentService.control.bytes == 0
 ' "$tmp/legacy.json" >/dev/null
 
@@ -77,5 +104,12 @@ sed 's/set(EN_EXTERNAL_DYNAMIC_SERVICE 1)/set(EN_EXTERNAL_DYNAMIC_SERVICE 0)/' \
 if bash "$repo_root/nix/tools/add-resident-service-metadata.sh" \
   "$tmp/malformed.cmake" "$tmp/base.json" "$tmp/malformed.json"; then
   echo "malformed control metadata unexpectedly succeeded" >&2
+  exit 1
+fi
+
+sed '/set(PEER_FLOW_CONTROL_MODE/d' "$tmp/control.cmake" > "$tmp/malformed-peer.cmake"
+if bash "$repo_root/nix/tools/add-resident-service-metadata.sh" \
+  "$tmp/malformed-peer.cmake" "$tmp/base.json" "$tmp/malformed-peer.json"; then
+  echo "peer metadata without flow-control mode unexpectedly succeeded" >&2
   exit 1
 fi

@@ -62,6 +62,10 @@ let
           -DTEST_ENABLE_CONTROL:BOOL=ON \
           -DTEST_ENABLE_SLOT_STATUS:BOOL=ON \
           -DTEST_N_REGIONS:STRING=2
+        render_case peer-u280 u280 \
+          -DTEST_ENABLE_SERVICE:BOOL=ON \
+          -DTEST_ENABLE_CONTROL:BOOL=ON \
+          -DTEST_ENABLE_PEER:BOOL=ON
         render_case stream-only-u280 u280 \
           -DTEST_ENABLE_SERVICE:BOOL=ON \
           -DTEST_ENABLE_CONTROL:BOOL=OFF
@@ -90,6 +94,22 @@ let
         grep -q 'set(EN_EXTERNAL_DYNAMIC_SERVICE_SLOT_STATUS 1)' \
           "$TMPDIR/slot-status-u280/export.cmake"
         grep -q 'set(N_REGIONS 2)' "$TMPDIR/slot-status-u280/export.cmake"
+        grep -q 's_axis_peer_recv(s_axis_peer_recv)' \
+          "$TMPDIR/peer-u280/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
+        grep -q 'm_axis_peer_send(m_axis_peer_send)' \
+          "$TMPDIR/peer-u280/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
+        grep -q 'set(EN_EXTERNAL_DYNAMIC_SERVICE_PEER_ENDPOINTS 1)' \
+          "$TMPDIR/peer-u280/export.cmake"
+        grep -q 'set(PEER_BACKEND aurora_qsfp1)' \
+          "$TMPDIR/peer-u280/export.cmake"
+        grep -q 'set(PEER_CONNECTOR QSFP1)' \
+          "$TMPDIR/peer-u280/export.cmake"
+        grep -q 'set(PEER_FLOW_CONTROL_MODE finite-rx-fifo)' \
+          "$TMPDIR/peer-u280/export.cmake"
+        grep -q 'set(COYOTE_PEER_INTERFACE_VERSION 1)' \
+          "$TMPDIR/peer-u280/export.cmake"
+        ! grep -q 'axis_peer_recv_tdata' \
+          "$TMPDIR/peer-u280/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
         ! grep -q 's_slot_decoupled' \
           "$TMPDIR/control-u280/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
         ! grep -q 's_axi_service_ctrl' \
