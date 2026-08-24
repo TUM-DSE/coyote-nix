@@ -3,17 +3,17 @@
     "coyote": {
       "flake": false,
       "locked": {
-        "lastModified": 1785511077,
-        "narHash": "sha256-uYbtCyoqjaBYSnwinkYp6h3u+jYWJEZXBWt39gj4BjU=",
+        "lastModified": 1787567197,
+        "narHash": "sha256-Z9Kseo5hZFAaz3Bylbr0NKbuSo0p6Dfwq528xbUMH/Y=",
         "owner": "taugoust",
         "repo": "Coyote",
-        "rev": "99abf1c724482489ae21350a5adfedf780e0fd19",
+        "rev": "3611e7319cf804fa6ec073dd0e89ec0fb22df246",
         "type": "github"
       },
       "original": {
         "owner": "taugoust",
         "repo": "Coyote",
-        "rev": "99abf1c724482489ae21350a5adfedf780e0fd19",
+        "rev": "3611e7319cf804fa6ec073dd0e89ec0fb22df246",
         "type": "github"
       }
     },

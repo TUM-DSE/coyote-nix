@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/99abf1c724482489ae21350a5adfedf780e0fd19";
+      url = "github:taugoust/Coyote/3611e7319cf804fa6ec073dd0e89ec0fb22df246";
       flake = false;
     };
   };
@@ -242,6 +242,7 @@
           pname = "example-u280-shell";
           board = "u280";
           xilinxVersion = "site-selected-u280-build-version";
+          timingOracle.enforce = true;
         };
         evalV80Shell = coyoteNixLib.mkCoyoteShellPackage {
           inherit pkgs;
@@ -252,7 +253,29 @@
           pname = "example-v80-shell";
           board = "v80";
           xilinxVersion = "site-selected-v80-build-version";
+          timingOracle = {
+            enforce = true;
+            rejectRqaBelow = 2;
+            passRqaAtLeast = 5;
+            maxPaths = 64;
+          };
         };
+        invalidTimingOracleEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteShellPackage {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = ./.;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "invalid-v80-shell";
+            board = "v80";
+            xilinxVersion = "site-selected-v80-build-version";
+            timingOracle = {
+              rejectRqaBelow = 4;
+              passRqaAtLeast = 3;
+            };
+          }).coyoteTwoStage.timingOracle.policy
+        );
         fakeV80StaticBuild = pkgs.runCommand "fake-v80-static-build" { } ''
           mkdir -p "$out/checkpoints/static" "$out/reports"
           printf 'synthesized static\n' > "$out/checkpoints/static/static_synthed.dcp"
@@ -322,10 +345,14 @@
         twoStagePhaseScripts = [
           (phaseScript "u280-shell-build-phase.sh" evalU280Shell.buildPhase)
           (phaseScript "u280-shell-install-phase.sh" evalU280Shell.installPhase)
+          (phaseScript "u280-shell-timing-oracle-build-phase.sh" evalU280Shell.coyoteTwoStage.stages.timingOracle.buildPhase)
+          (phaseScript "u280-shell-timing-oracle-install-phase.sh" evalU280Shell.coyoteTwoStage.stages.timingOracle.installPhase)
           (phaseScript "u280-app-build-phase.sh" evalU280App.buildPhase)
           (phaseScript "u280-app-install-phase.sh" evalU280App.installPhase)
           (phaseScript "v80-shell-build-phase.sh" evalV80Shell.buildPhase)
           (phaseScript "v80-shell-install-phase.sh" evalV80Shell.installPhase)
+          (phaseScript "v80-shell-timing-oracle-build-phase.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.buildPhase)
+          (phaseScript "v80-shell-timing-oracle-install-phase.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.installPhase)
           (phaseScript "v80-app-build-phase.sh" evalV80App.buildPhase)
           (phaseScript "v80-app-install-phase.sh" evalV80App.installPhase)
         ];
@@ -434,6 +461,20 @@
               touch $out
             '';
 
+        checks.timing-oracle-result =
+          pkgs.runCommand "timing-oracle-result-check"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.jq
+              ];
+            }
+            ''
+              cd ${./.}
+              bash tests/timing-oracle-result.sh nix/tools/check-timing-oracle-result.sh
+              touch $out
+            '';
+
         checks.resident-service-metadata =
           pkgs.runCommand "resident-service-metadata"
             {
@@ -494,6 +535,7 @@
           assert coyoteNixLib ? mkCoyoteV80StaticCheckpointPackage;
           assert coyoteNixLib ? mkCoyoteSourceChecks;
           assert coyoteNixLib ? mkCoyoteAppPackage;
+          assert !invalidTimingOracleEval.success;
           assert evalU280Shell.coyoteTwoStage.kind == "shell";
           assert
             evalU280Shell.coyoteTwoStage.stageNames == [
@@ -503,6 +545,10 @@
               "bitgen"
             ];
           assert evalU280Shell.coyoteTwoStage.stages ? routed;
+          assert evalU280Shell.coyoteTwoStage.stages ? timingOracle;
+          assert evalU280Shell.coyoteTwoStage.stages ? timingGate;
+          assert evalU280Shell.coyoteTwoStage.timingOracle.policy.enforce;
+          assert evalU280Shell.coyoteTwoStage.timingOracle.policy.rejectRqaBelow == 3;
           assert evalU280Shell.coyoteTwoStage.enShellPblock;
           assert evalV80Shell.coyoteTwoStage.kind == "shell";
           assert
@@ -512,6 +558,12 @@
               "bitgen"
             ];
           assert !(evalV80Shell.coyoteTwoStage.stages ? routed);
+          assert evalV80Shell.coyoteTwoStage.stages ? timingOracle;
+          assert evalV80Shell.coyoteTwoStage.stages ? timingGate;
+          assert evalV80Shell.coyoteTwoStage.timingOracle.policy.enforce;
+          assert evalV80Shell.coyoteTwoStage.timingOracle.policy.rejectRqaBelow == 2;
+          assert evalV80Shell.coyoteTwoStage.timingOracle.policy.passRqaAtLeast == 5;
+          assert evalV80Shell.coyoteTwoStage.timingOracle.policy.maxPaths == 64;
           assert !evalV80Shell.coyoteTwoStage.enShellPblock;
           assert evalU280App.coyoteTwoStage.kind == "app";
           assert evalU280App.coyoteTwoStage.shellPath == toString evalU280Shell;

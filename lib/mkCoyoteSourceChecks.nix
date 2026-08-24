@@ -23,6 +23,7 @@ let
           pkgs.cmake
           pkgs.gnumake
           pkgs.stdenv.cc
+          pkgs.tcl
           python
           fakeXilinxTools
         ];
@@ -98,6 +99,32 @@ let
           "$TMPDIR/stream-only-u280/coyote-resident-service-control-fixture_shell/hdl/shell_top.sv"
         ! grep -q 'inst_external_dynamic_service' \
           "$TMPDIR/no-service-v80/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
+
+        for build in "$TMPDIR/control-u280" "$TMPDIR/control-v80"; do
+          test -f "$build/timing_oracle.tcl"
+          cmake --build "$build" --target help | grep -q 'timing_oracle'
+          ${pkgs.tcl}/bin/tclsh \
+            ${coyoteRoot}/tests/timing_oracle/template_contract.tcl \
+            "$build/timing_oracle.tcl"
+          grep -q 'set cfg(timing_oracle_reject_rqa_below) 3' "$build/base.tcl"
+          grep -q 'set cfg(timing_oracle_pass_rqa_at_least) 4' "$build/base.tcl"
+          grep -q 'set cfg(timing_oracle_max_paths) 100' "$build/base.tcl"
+          grep -q 'set(TIMING_ORACLE_REJECT_RQA_BELOW 3)' "$build/export.cmake"
+          grep -q 'set(TIMING_ORACLE_PASS_RQA_AT_LEAST 4)' "$build/export.cmake"
+          grep -q 'set(TIMING_ORACLE_MAX_PATHS 100)' "$build/export.cmake"
+        done
+
+        if cmake -S "$fixture" -B "$TMPDIR/invalid-timing-oracle-policy" \
+          -DCYT_DIR=${coyoteRoot} \
+          -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 \
+          -DBUILD_STATIC:STRING=0 \
+          -DBUILD_SHELL:STRING=1 \
+          -DSTATIC_PATH=${coyoteRoot}/hw/checkpoints \
+          -DTIMING_ORACLE_REJECT_RQA_BELOW:STRING=0; then
+          echo 'invalid timing-oracle policy unexpectedly configured' >&2
+          exit 1
+        fi
 
         if cmake -S "$fixture" -B "$TMPDIR/malformed-control-abi" \
           -DCYT_DIR=${coyoteRoot} \
