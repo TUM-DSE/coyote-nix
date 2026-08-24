@@ -12,6 +12,7 @@
   staticPath ? "${coyoteRoot}/hw/checkpoints",
   cmakeFlags ? [ ],
   provenance ? { },
+  timingOracle ? { },
 }:
 
 let
@@ -42,6 +43,30 @@ let
     ;
 
   enShellPblock = if boardProfile.twoStage.enShellPblock then "1" else "0";
+  timingOraclePolicy =
+    let
+      enforce = timingOracle.enforce or false;
+      rejectRqaBelow = timingOracle.rejectRqaBelow or 3;
+      passRqaAtLeast = timingOracle.passRqaAtLeast or 4;
+      maxPaths = timingOracle.maxPaths or 100;
+    in
+    if !builtins.isBool enforce then
+      throw "coyote-nix: timingOracle.enforce must be a Boolean"
+    else if !builtins.isInt rejectRqaBelow || rejectRqaBelow < 1 || rejectRqaBelow > 5 then
+      throw "coyote-nix: timingOracle.rejectRqaBelow must be an integer from 1 through 5"
+    else if !builtins.isInt passRqaAtLeast || passRqaAtLeast < rejectRqaBelow || passRqaAtLeast > 5 then
+      throw "coyote-nix: timingOracle.passRqaAtLeast must be an integer from rejectRqaBelow through 5"
+    else if !builtins.isInt maxPaths || maxPaths < 1 then
+      throw "coyote-nix: timingOracle.maxPaths must be a positive integer"
+    else
+      {
+        inherit
+          enforce
+          rejectRqaBelow
+          passRqaAtLeast
+          maxPaths
+          ;
+      };
   shellCmakeFlags = cmakeFlags ++ [
     "-DFDEV_NAME:STRING=${boardProfile.platform}"
     "-DBUILD_APP:STRING=0"
@@ -50,6 +75,9 @@ let
     "-DEN_PR:STRING=1"
     "-DEN_SHELL_PBLOCK:STRING=${enShellPblock}"
     "-DSTATIC_PATH=${toString staticPath}"
+    "-DTIMING_ORACLE_REJECT_RQA_BELOW:STRING=${toString timingOraclePolicy.rejectRqaBelow}"
+    "-DTIMING_ORACLE_PASS_RQA_AT_LEAST:STRING=${toString timingOraclePolicy.passRqaAtLeast}"
+    "-DTIMING_ORACLE_MAX_PATHS:STRING=${toString timingOraclePolicy.maxPaths}"
   ];
 
   shellExpectedBitstreams = boardProfile.twoStage.shellExpectedBitstreams;
@@ -181,6 +209,97 @@ let
     description = "Coyote ${boardProfile.platform} PR shell synthesis stage";
   };
 
+  timingOracleMetadata = pkgs.writeText "${pname}-timing-oracle-package.json" (
+    builtins.toJSON {
+      schemaVersion = 1;
+      api = "coyote-nix.timing-oracle/v1";
+      kind = "coyote-shell-timing-oracle";
+      predictiveOnly = true;
+      inherit version xilinxVersion;
+      board = boardProfile.board;
+      platform = boardProfile.platform;
+      fpgaArchitecture = boardProfile.fpgaArchitecture;
+      fpgaPart = boardProfile.fpgaPart;
+      policy = timingOraclePolicy;
+      provenance = {
+        coyoteSource = toString coyoteRoot;
+        hardwareSource = toString hwSource;
+        staticPath = toString staticPath;
+        caller = provenance;
+      };
+    }
+  );
+
+  timingOracleStage = mkStage {
+    pname = "${pname}-timing-oracle";
+    board = boardProfile;
+    inherit xilinxVersion;
+    cmakeFlags = shellCmakeFlags;
+    preBuildSetup = copyPreviousStageSetup synth { };
+    buildCommands = [
+      "make project"
+      "make timing_oracle"
+    ];
+    expectedPaths = [
+      "checkpoints/timing_oracle/shell_linked.dcp"
+      "checkpoints/timing_oracle/shell_opted.dcp"
+      "reports/timing_oracle/summary.json"
+      "reports/timing_oracle/post_opt_qor_assessment.rpt"
+    ];
+    nativeBuildInputs = [
+      pkgs.bash
+      pkgs.jq
+    ];
+    extraInstallPhase = ''
+      ${installCheckpointReports {
+        copyAllCheckpoints = true;
+        copyAllReports = true;
+      }}
+      mkdir -p "$out/metadata"
+      bash ${../nix/tools/check-timing-oracle-result.sh} --validate-only \
+        "$out/reports/timing_oracle/summary.json"
+      jq -s '.[0] + { package: .[1] }' \
+        "$out/reports/timing_oracle/summary.json" \
+        ${timingOracleMetadata} \
+        > "$out/metadata/timing-oracle.json"
+      jq -r '.classification' "$out/metadata/timing-oracle.json" \
+        > "$out/metadata/classification"
+    '';
+    extraAttrs = {
+      passthru.coyoteTimingOracle = {
+        schemaVersion = 1;
+        api = "coyote-nix.timing-oracle/v1";
+        inherit (boardProfile) board fpgaArchitecture fpgaPart;
+        inherit xilinxVersion;
+        policy = timingOraclePolicy;
+        metadata = "metadata/timing-oracle.json";
+        classification = "metadata/classification";
+      };
+    };
+    description = "Coyote ${boardProfile.platform} predictive shell timing oracle";
+  };
+
+  timingOracleGate =
+    pkgs.runCommand "${pname}-timing-oracle-gate"
+      {
+        nativeBuildInputs = [
+          pkgs.bash
+          pkgs.jq
+        ];
+      }
+      ''
+        summary=${timingOracleStage}/metadata/timing-oracle.json
+        COYOTE_TIMING_ORACLE_PATH=${timingOracleStage} \
+          bash ${../nix/tools/check-timing-oracle-result.sh} "$summary"
+        mkdir -p "$out/metadata"
+        cp "$summary" "$out/metadata/timing-oracle.json"
+        cp ${timingOracleStage}/metadata/classification "$out/metadata/classification"
+      '';
+
+  timingGateDependency = lib.optionalString timingOraclePolicy.enforce ''
+    test -e ${timingOracleGate}/metadata/timing-oracle.json
+  '';
+
   routed =
     if boardProfile.fpgaArchitecture == "ultrascale_plus" then
       mkStage {
@@ -188,7 +307,10 @@ let
         board = boardProfile;
         inherit xilinxVersion;
         cmakeFlags = shellCmakeFlags;
-        preBuildSetup = copyPreviousStageSetup synth { };
+        preBuildSetup = ''
+          ${timingGateDependency}
+          ${copyPreviousStageSetup synth { }}
+        '';
         buildCommands = [
           "make project"
           "make shell"
@@ -213,7 +335,10 @@ let
     board = boardProfile;
     inherit xilinxVersion;
     cmakeFlags = shellCmakeFlags;
-    preBuildSetup = copyPreviousStageSetup preDynamicStage { };
+    preBuildSetup = ''
+      ${lib.optionalString (boardProfile.fpgaArchitecture == "versal") timingGateDependency}
+      ${copyPreviousStageSetup preDynamicStage { }}
+    '';
     buildCommands = [
       "make project"
       "make app"
@@ -257,6 +382,13 @@ let
     compatibilityIdPath = "metadata/compatibility-id";
     staticPath = toString staticPath;
     inherit shellCmakeFlags;
+    timingOracle = {
+      policy = timingOraclePolicy;
+      stage = timingOracleStage;
+      gate = timingOracleGate;
+      metadata = "metadata/timing-oracle.json";
+      classification = "metadata/classification";
+    };
   };
 
   final = mkStage {
@@ -278,6 +410,8 @@ let
       passthru.coyoteTwoStage = contract // {
         stages = {
           inherit synth dynamic;
+          timingOracle = timingOracleStage;
+          timingGate = timingOracleGate;
         }
         // lib.optionalAttrs (routed != null) { inherit routed; };
       };

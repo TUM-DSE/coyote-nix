@@ -45,6 +45,14 @@ coyote-nix.lib.mkCoyoteShellPackage {
   provenance = {
     projectRevision = self.rev or self.dirtyRev or "dirty";
   };
+
+  # Optional predictive gate before full-quality implementation.
+  timingOracle = {
+    enforce = true;
+    rejectRqaBelow = 3;
+    passRqaAtLeast = 4;
+    maxPaths = 100;
+  };
 }
 ```
 
@@ -71,6 +79,28 @@ A stable config-0/seed application and an application floorplan still have to be
 | V80 | synth -> Versal dynamic PR flow -> bitgen | `cyt_top.pdi` | none (nested DFX is unsupported) | `config_*/vfpga_*.pdi` |
 
 Both flows run Coyote's `make app` dynamic target after synthesis (and, for U280, after ordinary shell routing). Bit generation is invoked from the generated `bitgen.tcl` directly, retaining the existing coyote-nix handling for Vivado failures after artifact creation.
+
+### Predictive timing oracle
+
+Every shell package exposes two additional diagnostic stages through `coyoteTwoStage.stages`:
+
+- `timingOracle`: copies the synthesis result, runs Coyote's `make timing_oracle`, and retains linked/optimized checkpoints, optional `RuntimeOptimized` placement, RQA reports/CSV data, estimated timing, and enriched `metadata/timing-oracle.json`.
+- `timingGate`: accepts `PASS` and `MARGINAL`, but exits nonzero for `FAIL` while printing the oracle store path and compact reasons.
+
+The oracle stage itself succeeds for all valid classifications so a rejected candidate's reports can be installed and durably rooted. Build the oracle output explicitly before the gate when diagnostics must survive a rejection. If `timingOracle.enforce = true`, the U280 routed-shell stage or V80 dynamic stage depends on `timingGate`; normal full-quality implementation starts only after the predictive candidate is not classified `FAIL`.
+
+The cheap placement checkpoint is never supplied to sign-off implementation. The normal flow starts again from the synthesis/link boundary and retains final route, DRC, and timing as the physical authority.
+
+Versal assesses the fully linked application-DFX configuration 0. UltraScale+ assesses the linked shell before nested DFX subdivision, because subdivision follows ordinary shell routing; calibrate board-family thresholds independently.
+
+Useful aliases in a consuming flake are:
+
+```nix
+packages.${system}.project-v80-shell-timing-oracle =
+  shell.coyoteTwoStage.stages.timingOracle;
+packages.${system}.project-v80-shell-timing-check =
+  shell.coyoteTwoStage.stages.timingGate;
+```
 
 ### Shell output
 
