@@ -46,7 +46,18 @@ coyote-nix.lib.mkCoyoteShellPackage {
     projectRevision = self.rev or self.dirtyRev or "dirty";
   };
 
-  # Optional predictive gate before full-quality implementation.
+  # Optional fast synthesized-shell analysis before DFX linking/placement.
+  synthesisAnalysis = {
+    enable = true;
+    enforce = true;
+    rejectSetupWnsBelow = 0.0;
+    passSetupWnsAtLeast = 0.5;
+    maximumLogicLevels = null;
+    maxPaths = 100;
+    maxFanoutNets = 100;
+  };
+
+  # Optional stronger predictive gate before full-quality implementation.
   timingOracle = {
     enforce = true;
     rejectRqaBelow = 3;
@@ -75,10 +86,31 @@ A stable config-0/seed application and an application floorplan still have to be
 
 | Board | Internal stages | Boot image | Shell partial | Seed app partial |
 |---|---|---|---|---|
-| U280 | synth -> routed shell -> dynamic PR flow -> bitgen | `cyt_top.bit` | `shell_top.bin` | `config_*/vfpga_*.bin` |
-| V80 | synth -> Versal dynamic PR flow -> bitgen | `cyt_top.pdi` | none (nested DFX is unsupported) | `config_*/vfpga_*.pdi` |
+| U280 | optional shell synthesis analysis -> seed synthesis -> routed shell -> dynamic PR flow -> bitgen | `cyt_top.bit` | `shell_top.bin` | `config_*/vfpga_*.bin` |
+| V80 | optional shell synthesis analysis -> seed synthesis -> Versal dynamic PR flow -> bitgen | `cyt_top.pdi` | none (nested DFX is unsupported) | `config_*/vfpga_*.pdi` |
 
 Both flows run Coyote's `make app` dynamic target after synthesis (and, for U280, after ordinary shell routing). Bit generation is invoked from the generated `bitgen.tcl` directly, retaining the existing coyote-nix handling for Vivado failures after artifact creation.
+
+### Fast synthesized-shell analysis
+
+When `synthesisAnalysis.enable = true`, the shell package exposes:
+
+- `synthesisAnalysisRaw`: synthesizes only the resident shell and runs Coyote's `make synthesis_analysis`; it does not synthesize the seed application or read the external static checkpoint. It retains the shell DCP plus estimated setup/hold timing, critical paths, utilization, check-timing, and high-fanout reports.
+- `synthesisAnalysis`: applies configurable WNS and optional logic-level policy in a lightweight derivation and retains `metadata/synthesis-analysis.json` plus links to the raw reports/checkpoint.
+- `synthesisGate`: accepts `PASS` and `MARGINAL`, and rejects `FAIL` while preserving the inspectable analysis output.
+
+Policy is separate from Vivado evidence so threshold changes do not repeat shell or seed synthesis. The ordinary `synth` stage reuses the already synthesized resident-shell DCP and synthesizes only the seed application, independent of policy. When enforcement is enabled, the stronger linked oracle checks `synthesisGate` before starting. The external static checkpoint is introduced only by that linked oracle/implementation flow, so resident-shell and seed synthesis do not wait for static realization.
+
+A negative post-synthesis setup WNS is a conservative early rejection signal, not routed evidence. Positive estimated slack does not account for placement or congestion and must proceed through the linked oracle and full implementation.
+
+Useful aliases are:
+
+```nix
+packages.${system}.project-v80-shell-synthesis-analysis =
+  shell.coyoteTwoStage.stages.synthesisAnalysis;
+packages.${system}.project-v80-shell-synthesis-check =
+  shell.coyoteTwoStage.stages.synthesisGate;
+```
 
 ### Predictive timing oracle
 

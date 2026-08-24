@@ -26,7 +26,8 @@ Provided here:
 - generic Coyote hardware stage derivation builder
 - generic U280/V80 Coyote board-flow builders
 - reusable U280/V80 two-stage PR shell-export and app-only builders
-- rootable Vivado QoR/post-place timing-oracle reports with an optional rejecting implementation gate
+- fast shell-only post-synthesis timing analysis with reusable checkpoints and a policy-only gate
+- rootable linked Vivado QoR/post-place timing-oracle reports with an optional rejecting implementation gate
 - generic Coyote kernel driver derivation and matrix builders
 - reusable dev shell construction
 

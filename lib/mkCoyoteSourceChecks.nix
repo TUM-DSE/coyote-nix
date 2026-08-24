@@ -101,8 +101,17 @@ let
           "$TMPDIR/no-service-v80/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
 
         for build in "$TMPDIR/control-u280" "$TMPDIR/control-v80"; do
+          cmake --build "$build" --target help > "$build/target-help.txt"
+          test -f "$build/synthesis_analysis.tcl"
+          grep -q 'synthesis_analysis' "$build/target-help.txt"
+          ${pkgs.tcl}/bin/tclsh \
+            ${coyoteRoot}/tests/synthesis_analysis/template_contract.tcl \
+            "$build/synthesis_analysis.tcl"
+          grep -q 'set cfg(synthesis_analysis_max_paths) 100' "$build/base.tcl"
+          grep -q 'set cfg(synthesis_analysis_max_fanout_nets) 100' "$build/base.tcl"
+
           test -f "$build/timing_oracle.tcl"
-          cmake --build "$build" --target help | grep -q 'timing_oracle'
+          grep -q 'timing_oracle' "$build/target-help.txt"
           ${pkgs.tcl}/bin/tclsh \
             ${coyoteRoot}/tests/timing_oracle/template_contract.tcl \
             "$build/timing_oracle.tcl"
@@ -113,6 +122,18 @@ let
           grep -q 'set(TIMING_ORACLE_PASS_RQA_AT_LEAST 4)' "$build/export.cmake"
           grep -q 'set(TIMING_ORACLE_MAX_PATHS 100)' "$build/export.cmake"
         done
+
+        if cmake -S "$fixture" -B "$TMPDIR/invalid-synthesis-analysis-policy" \
+          -DCYT_DIR=${coyoteRoot} \
+          -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 \
+          -DBUILD_STATIC:STRING=0 \
+          -DBUILD_SHELL:STRING=1 \
+          -DSTATIC_PATH=${coyoteRoot}/hw/checkpoints \
+          -DSYNTHESIS_ANALYSIS_MAX_PATHS:STRING=0; then
+          echo 'invalid synthesis-analysis policy unexpectedly configured' >&2
+          exit 1
+        fi
 
         if cmake -S "$fixture" -B "$TMPDIR/invalid-timing-oracle-policy" \
           -DCYT_DIR=${coyoteRoot} \

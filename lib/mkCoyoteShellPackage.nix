@@ -12,6 +12,7 @@
   staticPath ? "${coyoteRoot}/hw/checkpoints",
   cmakeFlags ? [ ],
   provenance ? { },
+  synthesisAnalysis ? { },
   timingOracle ? { },
 }:
 
@@ -43,6 +44,47 @@ let
     ;
 
   enShellPblock = if boardProfile.twoStage.enShellPblock then "1" else "0";
+  isNumber = value: builtins.isInt value || builtins.isFloat value;
+  synthesisAnalysisPolicy =
+    let
+      enable = synthesisAnalysis.enable or false;
+      enforce = synthesisAnalysis.enforce or false;
+      rejectSetupWnsBelow = synthesisAnalysis.rejectSetupWnsBelow or 0.0;
+      passSetupWnsAtLeast = synthesisAnalysis.passSetupWnsAtLeast or 0.5;
+      maximumLogicLevels = synthesisAnalysis.maximumLogicLevels or null;
+      maxPaths = synthesisAnalysis.maxPaths or 100;
+      maxFanoutNets = synthesisAnalysis.maxFanoutNets or 100;
+    in
+    if !builtins.isBool enable then
+      throw "coyote-nix: synthesisAnalysis.enable must be a Boolean"
+    else if !builtins.isBool enforce then
+      throw "coyote-nix: synthesisAnalysis.enforce must be a Boolean"
+    else if enforce && !enable then
+      throw "coyote-nix: synthesisAnalysis.enforce requires synthesisAnalysis.enable"
+    else if !isNumber rejectSetupWnsBelow then
+      throw "coyote-nix: synthesisAnalysis.rejectSetupWnsBelow must be a number"
+    else if !isNumber passSetupWnsAtLeast || passSetupWnsAtLeast < rejectSetupWnsBelow then
+      throw "coyote-nix: synthesisAnalysis.passSetupWnsAtLeast must be a number at least as large as rejectSetupWnsBelow"
+    else if
+      maximumLogicLevels != null && (!builtins.isInt maximumLogicLevels || maximumLogicLevels < 1)
+    then
+      throw "coyote-nix: synthesisAnalysis.maximumLogicLevels must be null or a positive integer"
+    else if !builtins.isInt maxPaths || maxPaths < 1 then
+      throw "coyote-nix: synthesisAnalysis.maxPaths must be a positive integer"
+    else if !builtins.isInt maxFanoutNets || maxFanoutNets < 1 then
+      throw "coyote-nix: synthesisAnalysis.maxFanoutNets must be a positive integer"
+    else
+      {
+        inherit
+          enable
+          enforce
+          rejectSetupWnsBelow
+          passSetupWnsAtLeast
+          maximumLogicLevels
+          maxPaths
+          maxFanoutNets
+          ;
+      };
   timingOraclePolicy =
     let
       enforce = timingOracle.enforce or false;
@@ -67,13 +109,22 @@ let
           maxPaths
           ;
       };
-  shellCmakeFlags = cmakeFlags ++ [
+  shellBaseCmakeFlags = cmakeFlags ++ [
     "-DFDEV_NAME:STRING=${boardProfile.platform}"
     "-DBUILD_APP:STRING=0"
     "-DBUILD_STATIC:STRING=0"
     "-DBUILD_SHELL:STRING=1"
     "-DEN_PR:STRING=1"
     "-DEN_SHELL_PBLOCK:STRING=${enShellPblock}"
+  ];
+  shellSynthesisCmakeFlags = shellBaseCmakeFlags ++ [
+    # Synthesis and its fast analysis do not read the routed/fixed static DCP.
+    # Avoid making this stage wait for an unrelated static realization.
+    "-DSTATIC_PATH=${coyoteRoot}/hw/checkpoints"
+    "-DSYNTHESIS_ANALYSIS_MAX_PATHS:STRING=${toString synthesisAnalysisPolicy.maxPaths}"
+    "-DSYNTHESIS_ANALYSIS_MAX_FANOUT_NETS:STRING=${toString synthesisAnalysisPolicy.maxFanoutNets}"
+  ];
+  shellCmakeFlags = shellBaseCmakeFlags ++ [
     "-DSTATIC_PATH=${toString staticPath}"
     "-DTIMING_ORACLE_REJECT_RQA_BELOW:STRING=${toString timingOraclePolicy.rejectRqaBelow}"
     "-DTIMING_ORACLE_PASS_RQA_AT_LEAST:STRING=${toString timingOraclePolicy.passRqaAtLeast}"
@@ -182,11 +233,138 @@ let
     printf '%s\n' "$compatibility_id" > "$out/metadata/compatibility-id"
   '';
 
+  synthesisAnalysisRaw = mkStage {
+    pname = "${pname}-synthesis-analysis-raw";
+    board = boardProfile;
+    inherit xilinxVersion;
+    cmakeFlags = shellSynthesisCmakeFlags;
+    buildCommands = [
+      "make project"
+      "make synthesis_analysis"
+    ];
+    expectedPaths = [
+      "checkpoints/shell/shell_synthed.dcp"
+      "reports/synthesis_analysis/summary.json"
+      "reports/synthesis_analysis/timing_summary.rpt"
+      "reports/synthesis_analysis/check_timing.rpt"
+      "reports/synthesis_analysis/utilization.rpt"
+      "reports/synthesis_analysis/high_fanout_nets.rpt"
+    ];
+    nativeBuildInputs = [
+      pkgs.bash
+      pkgs.jq
+    ];
+    extraInstallPhase = ''
+      ${installCheckpointReports {
+        checkpointDirs = [ "shell" ];
+        reportDirs = [ "synthesis_analysis" ];
+      }}
+      mkdir -p "$out/metadata"
+      install -m0644 \
+        "$out/reports/synthesis_analysis/summary.json" \
+        "$out/metadata/raw-analysis.json"
+    '';
+    description = "Coyote ${boardProfile.platform} fast resident-shell synthesis analysis";
+  };
+
+  synthesisAnalysisMetadata = pkgs.writeText "${pname}-synthesis-analysis-package.json" (
+    builtins.toJSON {
+      schemaVersion = 1;
+      api = "coyote-nix.synthesis-analysis/v1";
+      kind = "coyote-shell-synthesis-assessment-package";
+      predictiveOnly = true;
+      inherit version xilinxVersion;
+      board = boardProfile.board;
+      platform = boardProfile.platform;
+      fpgaArchitecture = boardProfile.fpgaArchitecture;
+      fpgaPart = boardProfile.fpgaPart;
+      policy = synthesisAnalysisPolicy;
+      provenance = {
+        coyoteSource = toString coyoteRoot;
+        hardwareSource = toString hwSource;
+        caller = provenance;
+      };
+    }
+  );
+  maximumLogicLevelsArg =
+    if synthesisAnalysisPolicy.maximumLogicLevels == null then
+      "null"
+    else
+      toString synthesisAnalysisPolicy.maximumLogicLevels;
+  synthesisAnalysisStage =
+    pkgs.runCommand "${pname}-synthesis-analysis"
+      {
+        nativeBuildInputs = [
+          pkgs.bash
+          pkgs.jq
+        ];
+        passthru.coyoteSynthesisAnalysis = {
+          schemaVersion = 1;
+          api = "coyote-nix.synthesis-analysis/v1";
+          inherit (boardProfile) board fpgaArchitecture fpgaPart;
+          inherit xilinxVersion;
+          policy = synthesisAnalysisPolicy;
+          metadata = "metadata/synthesis-analysis.json";
+          classification = "metadata/classification";
+          raw = synthesisAnalysisRaw;
+        };
+      }
+      ''
+        mkdir -p "$out/metadata"
+        ln -s ${synthesisAnalysisRaw}/checkpoints "$out/checkpoints"
+        ln -s ${synthesisAnalysisRaw}/reports "$out/reports"
+        if [ -d ${synthesisAnalysisRaw}/logs ]; then
+          ln -s ${synthesisAnalysisRaw}/logs "$out/logs"
+        fi
+        bash ${../nix/tools/assess-synthesis-analysis-result.sh} \
+          ${synthesisAnalysisRaw}/metadata/raw-analysis.json \
+          "$TMPDIR/assessment.json" \
+          '${toString synthesisAnalysisPolicy.rejectSetupWnsBelow}' \
+          '${toString synthesisAnalysisPolicy.passSetupWnsAtLeast}' \
+          '${maximumLogicLevelsArg}'
+        jq -s '.[0] + { package: .[1] }' \
+          "$TMPDIR/assessment.json" \
+          ${synthesisAnalysisMetadata} \
+          > "$out/metadata/synthesis-analysis.json"
+        bash ${../nix/tools/check-synthesis-assessment-result.sh} --validate-only \
+          "$out/metadata/synthesis-analysis.json"
+        jq -r '.classification' "$out/metadata/synthesis-analysis.json" \
+          > "$out/metadata/classification"
+      '';
+
+  synthesisAnalysisGate =
+    pkgs.runCommand "${pname}-synthesis-analysis-gate"
+      {
+        nativeBuildInputs = [
+          pkgs.bash
+          pkgs.jq
+        ];
+      }
+      ''
+        assessment=${synthesisAnalysisStage}/metadata/synthesis-analysis.json
+        COYOTE_SYNTHESIS_ANALYSIS_PATH=${synthesisAnalysisStage} \
+          bash ${../nix/tools/check-synthesis-assessment-result.sh} "$assessment"
+        mkdir -p "$out/metadata"
+        cp "$assessment" "$out/metadata/synthesis-analysis.json"
+        cp ${synthesisAnalysisStage}/metadata/classification \
+          "$out/metadata/classification"
+      '';
+
+  synthesisAnalysisGateDependency =
+    lib.optionalString (synthesisAnalysisPolicy.enable && synthesisAnalysisPolicy.enforce)
+      ''
+        test -e ${synthesisAnalysisGate}/metadata/synthesis-analysis.json
+      '';
+  synthesisAnalysisReuseSetup = lib.optionalString synthesisAnalysisPolicy.enable (
+    copyPreviousStageSetup synthesisAnalysisRaw { }
+  );
+
   synth = mkStage {
     pname = "${pname}-synth";
     board = boardProfile;
     inherit xilinxVersion;
-    cmakeFlags = shellCmakeFlags;
+    cmakeFlags = shellSynthesisCmakeFlags;
+    preBuildSetup = synthesisAnalysisReuseSetup;
     buildCommands = [
       "make project"
       "make synth"
@@ -235,7 +413,10 @@ let
     board = boardProfile;
     inherit xilinxVersion;
     cmakeFlags = shellCmakeFlags;
-    preBuildSetup = copyPreviousStageSetup synth { };
+    preBuildSetup = ''
+      ${synthesisAnalysisGateDependency}
+      ${copyPreviousStageSetup synth { }}
+    '';
     buildCommands = [
       "make project"
       "make timing_oracle"
@@ -381,7 +562,15 @@ let
     metadataPath = "metadata/shell.json";
     compatibilityIdPath = "metadata/compatibility-id";
     staticPath = toString staticPath;
-    inherit shellCmakeFlags;
+    inherit shellCmakeFlags shellSynthesisCmakeFlags;
+    synthesisAnalysis = {
+      policy = synthesisAnalysisPolicy;
+      raw = synthesisAnalysisRaw;
+      stage = synthesisAnalysisStage;
+      gate = synthesisAnalysisGate;
+      metadata = "metadata/synthesis-analysis.json";
+      classification = "metadata/classification";
+    };
     timingOracle = {
       policy = timingOraclePolicy;
       stage = timingOracleStage;
@@ -412,6 +601,11 @@ let
           inherit synth dynamic;
           timingOracle = timingOracleStage;
           timingGate = timingOracleGate;
+        }
+        // lib.optionalAttrs synthesisAnalysisPolicy.enable {
+          synthesisAnalysisRaw = synthesisAnalysisRaw;
+          synthesisAnalysis = synthesisAnalysisStage;
+          synthesisGate = synthesisAnalysisGate;
         }
         // lib.optionalAttrs (routed != null) { inherit routed; };
       };
