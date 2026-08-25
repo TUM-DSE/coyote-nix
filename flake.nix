@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/882780949952cda257b4c71c779eedd7305f977f";
+      url = "github:taugoust/Coyote/f4a1c66e90292d607eba7298df250d667611d571";
       flake = false;
     };
   };
@@ -215,6 +215,7 @@
           ];
           output = "$out/artifacts.json";
         };
+        bitgenCompletionSnippet = evalStageHelpers.finalBitgenCommand [ "cyt_top.bit" ];
         evalBoardPackages = coyoteNixLib.mkCoyoteBoardPackages {
           inherit pkgs;
           tools = evalTools;
@@ -420,6 +421,7 @@
       in
       {
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
+        checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
         checks.coyote-resident-control-host-api = defaultCoyoteSourceChecks.hostApiCompile;
 
@@ -706,6 +708,69 @@
               touch $out
             '';
 
+        checks.bitgen-completion-contract =
+          pkgs.runCommand "bitgen-completion-contract"
+            {
+              nativeBuildInputs = [ pkgs.bash ];
+            }
+            ''
+              mkdir -p fake-bin
+              cat > fake-bin/vivado <<'EOF'
+              #!${pkgs.bash}/bin/bash
+              mkdir -p "$build_dir/bitstreams"
+              case "$BITGEN_TEST_MODE" in
+                success)
+                  touch "$build_dir/bitstreams/cyt_top.bit" "$build_dir/bitstreams/complete"
+                  exit 0
+                  ;;
+                cleanup-failure)
+                  touch "$build_dir/bitstreams/cyt_top.bit" "$build_dir/bitstreams/complete"
+                  exit 1
+                  ;;
+                artifact-only)
+                  touch "$build_dir/bitstreams/cyt_top.bit"
+                  exit 1
+                  ;;
+                no-marker-success)
+                  touch "$build_dir/bitstreams/cyt_top.bit"
+                  exit 0
+                  ;;
+                stale-failure)
+                  exit 1
+                  ;;
+              esac
+              exit 2
+              EOF
+              chmod +x fake-bin/vivado
+              export PATH="$PWD/fake-bin:$PATH"
+              run_case() {
+                mode="$1"
+                build_dir="$TMPDIR/$mode"
+                export mode build_dir BITGEN_TEST_MODE="$mode"
+                mkdir -p "$build_dir"
+                : > "$build_dir/bitgen.tcl"
+                bash -c ${pkgs.lib.escapeShellArg bitgenCompletionSnippet}
+              }
+              run_case success
+              run_case cleanup-failure
+              if run_case artifact-only; then
+                echo 'bitgen unexpectedly accepted an artifact without a completion marker' >&2
+                exit 1
+              fi
+              if run_case no-marker-success; then
+                echo 'bitgen unexpectedly accepted a successful exit without a completion marker' >&2
+                exit 1
+              fi
+              mkdir -p "$TMPDIR/stale-failure/bitstreams"
+              touch "$TMPDIR/stale-failure/bitstreams/cyt_top.bit" \
+                "$TMPDIR/stale-failure/bitstreams/complete"
+              if run_case stale-failure; then
+                echo 'bitgen unexpectedly accepted stale artifacts and completion marker' >&2
+                exit 1
+              fi
+              touch "$out"
+            '';
+
         checks.two-stage-artifact-manifest-unit =
           pkgs.runCommand "two-stage-artifact-manifest-unit"
             {
@@ -744,6 +809,10 @@
           fi
           grep -F 'example-v80-shell-synthesis-analysis-raw' \
             ${phaseScript "v80-synth-reuse-contract.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null
+          grep -F 'cp -a ' \
+            ${phaseScript "v80-synth-preserve-checkpoint-times.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null
+          grep -F '.imported-stage-timestamp' \
+            ${phaseScript "v80-synth-normalize-checkpoint-times.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null
           if grep -F 'example-v80-shell-synthesis-analysis-gate' \
             ${phaseScript "v80-synth-policy-independence.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null; then
             echo 'shell synthesis unexpectedly depends on synthesis classification policy' >&2
@@ -758,6 +827,12 @@
           fi
           grep -F '/nonexistent/external-static-marker' \
             ${phaseScript "v80-oracle-static-contract.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.buildPhase} >/dev/null
+          grep -F '.postPlace != null' \
+            ${phaseScript "v80-oracle-placement-artifact-contract.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.installPhase} >/dev/null
+          grep -F 'bitstreams/complete' \
+            ${phaseScript "v80-shell-bitgen-completion-contract.sh" evalV80Shell.buildPhase} >/dev/null
+          grep -F 'bitstreams/complete' \
+            ${phaseScript "u280-app-bitgen-completion-contract.sh" evalU280App.buildPhase} >/dev/null
           touch $out
         '';
 

@@ -244,11 +244,14 @@ let
     ];
     expectedPaths = [
       "checkpoints/shell/shell_synthed.dcp"
+      "reports/synthesis_analysis/complete"
       "reports/synthesis_analysis/summary.json"
       "reports/synthesis_analysis/timing_summary.rpt"
       "reports/synthesis_analysis/check_timing.rpt"
       "reports/synthesis_analysis/utilization.rpt"
       "reports/synthesis_analysis/high_fanout_nets.rpt"
+      "reports/synthesis_analysis/setup_paths.rpt"
+      "reports/synthesis_analysis/hold_paths.rpt"
     ];
     nativeBuildInputs = [
       pkgs.bash
@@ -257,7 +260,10 @@ let
     extraInstallPhase = ''
       ${installCheckpointReports {
         checkpointDirs = [ "shell" ];
-        reportDirs = [ "synthesis_analysis" ];
+        reportDirs = [
+          "shell"
+          "synthesis_analysis"
+        ];
       }}
       mkdir -p "$out/metadata"
       install -m0644 \
@@ -424,6 +430,7 @@ let
     expectedPaths = [
       "checkpoints/timing_oracle/shell_linked.dcp"
       "checkpoints/timing_oracle/shell_opted.dcp"
+      "reports/timing_oracle/complete"
       "reports/timing_oracle/summary.json"
       "reports/timing_oracle/post_opt_qor_assessment.rpt"
     ];
@@ -439,6 +446,19 @@ let
       mkdir -p "$out/metadata"
       bash ${../nix/tools/check-timing-oracle-result.sh} --validate-only \
         "$out/reports/timing_oracle/summary.json"
+      if jq -e '.postPlace != null' \
+          "$out/reports/timing_oracle/summary.json" >/dev/null; then
+        for artifact in \
+          checkpoints/timing_oracle/shell_placed_runtime_optimized.dcp \
+          reports/timing_oracle/post_place_qor_assessment.rpt \
+          reports/timing_oracle/post_place_utilization.rpt \
+          reports/timing_oracle/post_place_timing_summary.rpt; do
+          if [ ! -f "$out/$artifact" ]; then
+            echo "ERROR: timing oracle summary declares placement but artifact is missing: $artifact" >&2
+            exit 1
+          fi
+        done
+      fi
       jq -s '.[0] + { package: .[1] }' \
         "$out/reports/timing_oracle/summary.json" \
         ${timingOracleMetadata} \

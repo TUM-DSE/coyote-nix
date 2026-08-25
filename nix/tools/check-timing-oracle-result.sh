@@ -31,6 +31,25 @@ if ! jq -e '
       and (.postPlace.setupWnsNs == null or (.postPlace.setupWnsNs | type == "number"))
       and (.postPlace.setupTnsNs == null or (.postPlace.setupTnsNs | type == "number"))
       and (.postPlace.holdWnsNs == null or (.postPlace.holdWnsNs | type == "number"))
+      and (.postPlace.criticalPath | type == "object")
+      and (.postPlace.criticalPath.startpoint | type == "string")
+      and (.postPlace.criticalPath.endpoint | type == "string")
+      and (.postPlace.criticalPath.pathGroup | type == "string")
+      and (.postPlace.criticalPath.logicLevels == null
+           or (.postPlace.criticalPath.logicLevels | type == "number"))
+    )
+  )
+  and (
+    .classification == "FAIL"
+    or (
+      .postPlace != null
+      and (.postPlace.setupWnsNs | type == "number")
+      and (.postPlace.setupTnsNs | type == "number")
+      and (.postPlace.holdWnsNs | type == "number")
+      and (.postPlace.criticalPath.startpoint | length > 0)
+      and (.postPlace.criticalPath.endpoint | length > 0)
+      and (.postPlace.criticalPath.pathGroup | length > 0)
+      and (.postPlace.criticalPath.logicLevels | type == "number")
     )
   )
   and (.reasons | type == "array" and length > 0)

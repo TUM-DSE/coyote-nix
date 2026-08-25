@@ -74,13 +74,16 @@ rec {
       mkdir -p \
         ${lib.concatStringsSep " \\\n        " mkdirs}
       if [ -d ${previousStage}/checkpoints ]; then
-        cp -r ${previousStage}/checkpoints/. "$build_dir/checkpoints/"
+        cp -a ${previousStage}/checkpoints/. "$build_dir/checkpoints/"
+        touch "$build_dir/.imported-stage-timestamp"
+        find "$build_dir/checkpoints" -type f \
+          -exec touch -r "$build_dir/.imported-stage-timestamp" {} +
       fi
       if [ -d ${previousStage}/reports ]; then
-        cp -r ${previousStage}/reports/. "$build_dir/reports/"
+        cp -a ${previousStage}/reports/. "$build_dir/reports/"
       fi
       if [ -d ${previousStage}/logs ]; then
-        cp -r ${previousStage}/logs/. "$build_dir/logs/"
+        cp -a ${previousStage}/logs/. "$build_dir/logs/"
       fi
       chmod -R u+w "$build_dir/checkpoints" "$build_dir/reports" "$build_dir/logs"
     '';
@@ -128,10 +131,20 @@ rec {
   '';
 
   finalBitgenCommand = artifacts: ''
+    rm -f "$build_dir/bitstreams/complete"
     set +e
     vivado -mode tcl -source "$build_dir/bitgen.tcl" -notrace
     vivado_status=$?
     set -e
+
+    completion_marker="$build_dir/bitstreams/complete"
+    if [ ! -f "$completion_marker" ]; then
+      echo "ERROR: Vivado bitgen did not produce its completion marker: $completion_marker" >&2
+      if [ "$vivado_status" -ne 0 ]; then
+        exit "$vivado_status"
+      fi
+      exit 1
+    fi
 
     if [ "$vivado_status" -ne 0 ]; then
       missing_artifacts=0
@@ -146,8 +159,8 @@ rec {
         exit "$vivado_status"
       fi
 
-      echo "WARNING: Vivado bitgen exited with status $vivado_status, but all expected final artifacts exist; continuing." >&2
-      echo "WARNING: This usually indicates a Vivado post-bitgen cleanup/crash after artifact generation; inspect $build_dir/vivado.log if needed." >&2
+      echo "WARNING: Vivado bitgen exited with status $vivado_status after writing its completion marker and all expected final artifacts; continuing." >&2
+      echo "WARNING: This indicates a failure after the Tcl flow completed; inspect $build_dir/vivado.log." >&2
     fi
   '';
 

@@ -16,6 +16,24 @@ let
     done
   '';
 
+  routeValidationContract =
+    pkgs.runCommand "coyote-routed-flow-validation-contract"
+      {
+        nativeBuildInputs = [ pkgs.tcl ];
+      }
+      ''
+        set -euo pipefail
+        tclsh ${coyoteRoot}/tests/route_validation/template_contract.tcl \
+          ${coyoteRoot}/scripts/base.tcl.in \
+          ${coyoteRoot}/scripts/impl/pnr_shell.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_app.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_dyn_ultrascale_plus.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_dyn_versal.tcl.in \
+          ${coyoteRoot}/scripts/impl/bitgen.tcl.in \
+          ${coyoteRoot}/cmake/FindCoyoteHW.cmake
+        touch "$out"
+      '';
+
   renderContract =
     pkgs.runCommand "coyote-resident-service-control-render-contract"
       {
@@ -102,6 +120,8 @@ let
 
         for build in "$TMPDIR/control-u280" "$TMPDIR/control-v80"; do
           cmake --build "$build" --target help > "$build/target-help.txt"
+          cmake --build "$build" --target project
+          test -f "$build/.coyote_project.stamp"
           test -f "$build/synthesis_analysis.tcl"
           grep -q 'synthesis_analysis' "$build/target-help.txt"
           ${pkgs.tcl}/bin/tclsh \
@@ -717,6 +737,7 @@ in
     r5ProviderSimulation
     r5ProviderStackLint
     renderContract
+    routeValidationContract
     splitterSimulation
     ;
 }
