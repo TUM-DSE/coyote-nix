@@ -1,0 +1,8 @@
+| Tool Version : Vivado v2025.1 (64-bit) |
+| Device : xcv80-lsva4737-2MHP-e-S |
+| Site Type      | Used | Fixed | Prohibited | Available | Util% |
+| CLB LUTs*      | 1,234 | 0 | 0 | 100000 | 1.23 |
+| Registers      | 2345 | 0 | 0 | 200000 | 1.17 |
+| Block RAM Tile | 12.5 | 0 | 0 | 1000 | 1.25 |
+| URAM           | 3 | 0 | 0 | 100 | 3.00 |
+| DSP Slices     | 4 | 0 | 0 | 2000 | 0.20 |

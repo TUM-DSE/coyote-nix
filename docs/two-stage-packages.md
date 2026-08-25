@@ -124,6 +124,18 @@ inputs -> link -> opt -> place -> route -> validate -> validationGate -> [DFX fi
 
 Each stage contains `metadata/stage.json` and `metadata/complete`. The manifest hashes every declared artifact and binds the exact phase, implementation unit, canonical context, predecessor manifest/outcome, strategy, and resources. Consumers validate and import only declared roles; undeclared files in a predecessor cannot leak into the next physical phase.
 
+New package graphs use the strict `coyote-nix.implementation-stage/v2` manifest ABI; the validator retains read-only compatibility with historical v1 artifacts. Every non-input v2 stage must contain:
+
+- `metadata/execution.json` and raw `metadata/gnu-time.txt` for build-command wall time, user/system CPU, peak RSS, requested cores, exit status, and post-command scratch size;
+- `logs/command.stdout.log` and `logs/command.stderr.log` for the exact measured command scope;
+- `metadata/telemetry.json`, using `coyote-nix.implementation-telemetry/v1`, with canonical integer units and explicit unavailable/not-applicable observations;
+- phase-local timing and utilization reports for opt/place/route/validate, RQA reports for opt/place, route status for route/validate, and bitstream DRC for validation;
+- `metadata/primary-tool.json` on image stages, preserving Vivado's original nonzero exit when the existing completion-marker exception accepts post-completion cleanup failure.
+
+`recipeId` hashes context, phase, unit, predecessor recipe, strategy, and requested resources but excludes measured runtime. `manifestId` identifies the exact realized evidence and therefore includes telemetry and logs. FPGA realization is not assumed bit-for-bit deterministic: a cache stores one evidence-bearing realization of the pinned recipe, while the recipe ID remains stable for comparisons. Later implementation phases consume authoritative checkpoint/image roles, not normalized metrics or future selection policy.
+
+Telemetry is factual rather than an acceptance decision. Validation still emits accepted/rejected evidence and the separate validation gate applies policy. Finalize/image telemetry describes only those commands; predecessor timing is not relabeled as a new measurement. A normally failed Nix derivation cannot publish `$out`, so transient tool/license/OOM failures remain retryable and may have only `nix log`/`--keep-failed` evidence. A future immutable failed-attempt bundle requires an explicit non-substitutable diagnostic mode rather than converting ordinary failures into cached successes.
+
 The immutable packaged graph currently supports the QShell MVP topology of exactly one configuration and one region. The legacy Coyote aggregate flow remains available for multi-configuration/multi-region projects until per-unit DFX bundle staging is added; immutable package constructors reject any explicitly different topology and Coyote's staged link target verifies the generated topology before invoking Vivado.
 
 ### Fast synthesized-shell analysis

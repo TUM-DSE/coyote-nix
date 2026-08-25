@@ -202,6 +202,19 @@ rec {
     set -e
 
     completion_marker="$build_dir/bitstreams/complete"
+    mkdir -p "$build_dir/metadata"
+    ${pkgs.jq}/bin/jq -n \
+      --arg tool vivado \
+      --argjson exitCode "$vivado_status" \
+      --argjson completionMarkerObserved "$([ -f "$completion_marker" ] && echo true || echo false)" \
+      '{
+        schemaVersion: 1,
+        kind: "coyote-primary-tool-invocation",
+        tool: $tool,
+        exitCode: $exitCode,
+        completionMarkerObserved: $completionMarkerObserved,
+        anomaly: (if $exitCode != 0 and $completionMarkerObserved then "post-completion-nonzero-exit" else null end)
+      }' > "$build_dir/metadata/primary-tool.json"
     if [ ! -f "$completion_marker" ]; then
       echo "ERROR: Vivado bitgen did not produce its completion marker: $completion_marker" >&2
       if [ "$vivado_status" -ne 0 ]; then

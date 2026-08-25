@@ -188,17 +188,47 @@ let
       flags = shellImplementationBaseFlags;
     });
     toolId = implementation.xilinxInstallationId or "vivado-${xilinxVersion}@${toString xilinxShareRoot}";
+    toolVersion = xilinxVersion;
   };
   implementationContext = implementationContextWithoutId // {
     id = builtins.hashString "sha256" (builtins.toJSON implementationContextWithoutId);
   };
-  mkImplementationSpec = { name, phase, predecessorPath ? null, artifacts, strategy ? { }, outcome ? "complete", outcomePath ? null, unit ? "config_0" }:
+  mkImplementationSpec =
+    {
+      name,
+      phase,
+      predecessorPath ? null,
+      artifacts,
+      strategy ? { },
+      outcome ? "complete",
+      outcomePath ? null,
+      unit ? "config_0",
+      telemetryPhysicalPath ? null,
+    }:
+    let
+      telemetryArtifacts = lib.optionals (phase != "inputs") ([
+        { role = "execution-evidence"; path = "metadata/execution.json"; }
+        { role = "raw-resource-measurement"; path = "metadata/gnu-time.txt"; }
+        { role = "command-stdout"; path = "logs/command.stdout.log"; }
+        { role = "command-stderr"; path = "logs/command.stderr.log"; }
+        { role = "normalized-telemetry"; path = "metadata/telemetry.json"; }
+      ] ++ lib.optionals (telemetryPhysicalPath != null) [
+        { role = "physical-observations"; path = telemetryPhysicalPath; }
+      ]);
+    in
     pkgs.writeText "${pname}-${name}-stage-spec.json" (builtins.toJSON {
-      inherit phase artifacts strategy outcome unit;
+      schemaVersion = 2;
+      inherit phase strategy outcome unit;
+      artifacts = artifacts ++ telemetryArtifacts;
       context = implementationContext;
       resources.cores = checkedImplementationCores;
       predecessorPath = if predecessorPath == null then null else toString predecessorPath;
       outcomePath = outcomePath;
+      telemetry = if phase == "inputs" then null else {
+        path = "metadata/telemetry.json";
+        executionPath = "metadata/execution.json";
+        physicalPath = telemetryPhysicalPath;
+      };
     });
   shellMetadataBase = pkgs.writeText "${pname}-shell-metadata-base.json" (
     builtins.toJSON {
@@ -630,19 +660,30 @@ let
   };
 
   mkPhysicalStage = { name, unit, phase, predecessor, predecessorPhase, predecessorRole, inputPath, outputPath, outputRole, strategy, extraFlags }:
-    let spec = mkImplementationSpec {
+    let
+      reportPrefix = if phase == "validate" then "shell" else "shell_${phase}";
+      reportDirectory = if unit == "config_0" then "reports/config_0" else "reports";
+      reportSuffix = if unit == "config_0" then "_c0" else "";
+      physicalPath = "${reportDirectory}/${reportPrefix}_physical${reportSuffix}.json";
+      phaseArtifacts = [
+        { role = "${phase}-utilization-report"; path = "${reportDirectory}/${reportPrefix}_utilization${reportSuffix}.rpt"; }
+        { role = "${phase}-timing-summary-report"; path = "${reportDirectory}/${reportPrefix}_timing_summary${reportSuffix}.rpt"; }
+      ] ++ lib.optionals (builtins.elem phase [ "opt" "place" ]) [
+        { role = "${phase}-qor-assessment-report"; path = "${reportDirectory}/${reportPrefix}_qor_assessment${reportSuffix}.rpt"; }
+      ] ++ lib.optionals (builtins.elem phase [ "route" "validate" ]) [
+        { role = "${phase}-route-status-report"; path = "${reportDirectory}/${reportPrefix}_route_status${reportSuffix}.rpt"; }
+      ];
+      spec = mkImplementationSpec {
       inherit phase strategy unit;
       name = "${name}-${phase}";
       predecessorPath = predecessor;
-      artifacts = [ { role = outputRole; path = outputPath; } ] ++ lib.optionals (phase == "validate") [
-        { role = "utilization-report"; path = "reports/shell_utilization.rpt"; }
-        { role = "route-status-report"; path = "reports/shell_route_status.rpt"; }
-        { role = "timing-summary-report"; path = "reports/shell_timing_summary.rpt"; }
+      artifacts = [ { role = outputRole; path = outputPath; } ] ++ phaseArtifacts ++ lib.optionals (phase == "validate") [
         { role = "bitstream-drc-report"; path = "reports/shell_drc_bitstream_checks.rpt"; }
         { role = "validation-result"; path = "reports/validation.json"; }
       ];
       outcome = if phase == "validate" then "accepted" else "complete";
       outcomePath = if phase == "validate" then "reports/validation.json" else null;
+      telemetryPhysicalPath = physicalPath;
     };
     in mkStage {
       pname = "${pname}-${name}-${phase}";
@@ -655,7 +696,10 @@ let
         "-DIMPLEMENTATION_INPUT_DCP:FILEPATH=$build_dir/${inputPath}"
         "-DIMPLEMENTATION_OUTPUT_DCP:FILEPATH=$build_dir/${outputPath}"
         "-DIMPLEMENTATION_COMPLETION_PATH:FILEPATH=$build_dir/checkpoints/${name}_${phase}_complete"
-        "-DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH=$build_dir/reports/validation.json"
+        "-DIMPLEMENTATION_REPORT_DIR:PATH=$build_dir/${reportDirectory}"
+        "-DIMPLEMENTATION_REPORT_SUFFIX:STRING=${reportSuffix}"
+        "-DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH=$build_dir/${reportDirectory}/validation.json"
+        "-DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH=$build_dir/${physicalPath}"
       ] ++ extraFlags;
       preBuildSetup = importImplementationStageArtifacts {
         previousStage = predecessor;
@@ -664,21 +708,20 @@ let
         expectedContext = implementationContext.id;
       };
       buildCommands = [ "make physical_stage" ];
-      expectedPaths = [ outputPath "checkpoints/${name}_${phase}_complete" ] ++ lib.optionals (phase == "validate") [
-        "reports/shell_utilization.rpt"
-        "reports/shell_route_status.rpt"
-        "reports/shell_timing_summary.rpt"
-        "reports/shell_drc_bitstream_checks.rpt"
-        "reports/validation.json"
-      ];
+      expectedPaths = [ outputPath "checkpoints/${name}_${phase}_complete" physicalPath ]
+        ++ map (artifact: artifact.path) phaseArtifacts
+        ++ lib.optionals (phase == "validate") [
+          "${reportDirectory}/shell_drc_bitstream_checks${reportSuffix}.rpt"
+          "${reportDirectory}/validation.json"
+        ];
       nativeBuildInputs = [ pkgs.python3 ];
       extraInstallPhase = ''
-        mkdir -p "$out/$(dirname ${outputPath})" "$out/metadata"
+        mkdir -p "$out/$(dirname ${outputPath})" "$out/metadata" "$out/${reportDirectory}"
         cp "$build_dir/${outputPath}" "$out/${outputPath}"
+        cp "$build_dir/${reportDirectory}/"*.rpt "$out/${reportDirectory}/"
+        cp "$build_dir/${physicalPath}" "$out/${physicalPath}"
         ${lib.optionalString (phase == "validate") ''
-          mkdir -p "$out/reports"
-          cp "$build_dir/reports/"*.rpt "$out/reports/"
-          cp "$build_dir/reports/validation.json" "$out/reports/"
+          cp "$build_dir/${reportDirectory}/validation.json" "$out/${reportDirectory}/"
         ''}
         ${writeImplementationStageManifest { inherit spec; }}
       '';
@@ -796,6 +839,7 @@ let
     strategy.enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming;
     outcome = "accepted";
     outcomePath = "reports/config_0/validation.json";
+    telemetryPhysicalPath = "reports/config_0/shell_physical_c0.json";
     artifacts = [
       { role = "validated-checkpoint"; path = "checkpoints/config_0/shell_routed_c0.dcp"; }
       { role = "utilization-report"; path = "reports/config_0/shell_utilization_c0.rpt"; }
@@ -819,6 +863,7 @@ let
       "-DIMPLEMENTATION_LABEL:STRING=config_0_routed_shell"
       "-DIMPLEMENTATION_DRC_NAME:STRING=config_0_bitstream_gate"
       "-DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH=$build_dir/reports/config_0/validation.json"
+      "-DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH=$build_dir/reports/config_0/shell_physical_c0.json"
       "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming == null then "project" else if checkedImplementationEnforceTiming then "1" else "0"}"
     ];
     preBuildSetup = importImplementationStageArtifacts {
@@ -827,6 +872,7 @@ let
     buildCommands = [ "make physical_stage" ];
     expectedPaths = [
       "checkpoints/config_0/shell_routed_c0.dcp"
+      "reports/config_0/shell_physical_c0.json"
       "reports/config_0/validation.json"
     ];
     nativeBuildInputs = [ pkgs.python3 ];
@@ -926,7 +972,7 @@ let
       classification = "metadata/classification";
     };
     physical = {
-      api = "coyote-nix.implementation-stage/v1";
+      api = "coyote-nix.implementation-stage/v2";
       context = implementationContext;
       resources.cores = checkedImplementationCores;
       directives = implementationDirectives;
@@ -963,10 +1009,12 @@ let
     predecessorPath = dynamic;
     strategy = { };
     outcome = "accepted";
-    artifacts = map (artifact: {
+    artifacts = (map (artifact: {
       role = "image-${builtins.replaceStrings [ "/" "." ] [ "-" "-" ] artifact}";
       path = "bitstreams/${artifact}";
-    }) shellExpectedBitstreams;
+    }) shellExpectedBitstreams) ++ [
+      { role = "primary-tool-invocation"; path = "metadata/primary-tool.json"; }
+    ];
   };
 
   final = mkStage {

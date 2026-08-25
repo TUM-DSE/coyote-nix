@@ -99,7 +99,9 @@ let
           -DIMPLEMENTATION_PHASE:STRING=opt \
           -DIMPLEMENTATION_INPUT_DCP:FILEPATH="$TMPDIR/immutable-v80/checkpoints/input.dcp" \
           -DIMPLEMENTATION_OUTPUT_DCP:FILEPATH="$TMPDIR/immutable-v80/checkpoints/output.dcp" \
-          -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$TMPDIR/immutable-v80/checkpoints/opt_complete"
+          -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$TMPDIR/immutable-v80/checkpoints/opt_complete" \
+          -DIMPLEMENTATION_REPORT_DIR:PATH="$TMPDIR/immutable-v80/reports" \
+          -DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH="$TMPDIR/immutable-v80/reports/physical.json"
         cmake --build "$TMPDIR/immutable-v80" --target help \
           > "$TMPDIR/immutable-v80/target-help.txt"
         grep -q '^... physical_stage$' "$TMPDIR/immutable-v80/target-help.txt"
@@ -124,7 +126,9 @@ let
           -DIMPLEMENTATION_PHASE:STRING=route \
           -DIMPLEMENTATION_INPUT_DCP:FILEPATH="$TMPDIR/alias.dcp" \
           -DIMPLEMENTATION_OUTPUT_DCP:FILEPATH="$TMPDIR/alias.dcp" \
-          -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$TMPDIR/complete"; then
+          -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$TMPDIR/complete" \
+          -DIMPLEMENTATION_REPORT_DIR:PATH="$TMPDIR/alias-reports" \
+          -DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH="$TMPDIR/alias-reports/physical.json"; then
           echo 'aliased immutable input/output unexpectedly configured' >&2
           exit 1
         fi

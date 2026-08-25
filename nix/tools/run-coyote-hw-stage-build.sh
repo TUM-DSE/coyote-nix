@@ -33,10 +33,10 @@ configure_build() {
   comp_cores="${COYOTE_NIX_HW_CORES:-$(nproc)}"
   cmake "$src" \
     -DFDEV_NAME="$FDEV_NAME" \
-    -DCOMP_CORES="$comp_cores" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.10 \
     -DCMAKE_POLICY_DEFAULT_CMP0167=OLD \
-    "${cmake_extra_flags[@]}"
+    "${cmake_extra_flags[@]}" \
+    -DCOMP_CORES="$comp_cores"
 }
 
 resolve_vivado_root() {
@@ -136,6 +136,62 @@ run_shell_fragment() {
   fi
 }
 
+run_measured_build_commands() {
+  local command_status scratch_bytes time_file
+
+  mkdir -p "$build_dir/logs" "$build_dir/metadata"
+  time_file="$build_dir/metadata/gnu-time.txt"
+  : > "$build_dir/logs/command.stdout.log"
+  : > "$build_dir/logs/command.stderr.log"
+
+  set +e
+  "$COYOTE_NIX_TIME" \
+    --output="$time_file" \
+    --format='wallSeconds=%e\nuserCpuSeconds=%U\nsystemCpuSeconds=%S\nmaxRssKiB=%M\nexitCode=%x' \
+    bash -euo pipefail "$build_commands" \
+    > >(tee "$build_dir/logs/command.stdout.log") \
+    2> >(tee "$build_dir/logs/command.stderr.log" >&2)
+  command_status=$?
+  wait
+  set -e
+
+  scratch_bytes="$(du -sb "$build_dir" | cut -f1)"
+  jq -Rn \
+    --arg scope build-commands \
+    --argjson requestedCores "${COYOTE_NIX_HW_CORES}" \
+    --argjson scratchBytes "$scratch_bytes" \
+    --argjson observedExitCode "$command_status" \
+    --rawfile measured "$time_file" \
+    '
+      ($measured | split("\n") | map(select(length > 0) | split("=") | {(.[0]): .[1]}) | add) as $m
+      | {
+          schemaVersion: 1,
+          kind: "coyote-stage-execution",
+          measurementScope: $scope,
+          status: (if $observedExitCode == 0 then "completed" else "failed" end),
+          exitCode: $observedExitCode,
+          wallSeconds: $m.wallSeconds,
+          userCpuSeconds: $m.userCpuSeconds,
+          systemCpuSeconds: $m.systemCpuSeconds,
+          maxRssKiB: ($m.maxRssKiB | tonumber),
+          requestedCores: $requestedCores,
+          scratchBytesAfterCommand: $scratchBytes
+        }
+    ' > "$build_dir/metadata/execution.json"
+
+  if [ -f "$build_dir/metadata/primary-tool.json" ]; then
+    jq --slurpfile primary "$build_dir/metadata/primary-tool.json" \
+      '. + { primaryTool: $primary[0] }' \
+      "$build_dir/metadata/execution.json" \
+      > "$build_dir/metadata/execution.json.tmp"
+    mv "$build_dir/metadata/execution.json.tmp" "$build_dir/metadata/execution.json"
+  fi
+
+  if [ "$command_status" -ne 0 ]; then
+    return "$command_status"
+  fi
+}
+
 check_timing_constraints() {
   if [ -f "$build_dir/vivado.log" ] && \
     grep -Pe '\d+ constraint not met\.|Timing constraints are not met\.' "$build_dir/vivado.log" >/dev/null; then
@@ -161,7 +217,7 @@ configure_build
 patch_sim_dpi_link
 patch_base_tcl
 run_shell_fragment "$pre_build_setup"
-run_shell_fragment "$build_commands"
+run_measured_build_commands
 if [ "${COYOTE_NIX_CHECK_TIMING_LOG:-1}" = 1 ]; then
   check_timing_constraints
 fi

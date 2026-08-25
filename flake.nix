@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/5fd927adec05d95fff376a9a962f90f4beb24396";
+      url = "github:taugoust/Coyote/develop";
       flake = false;
     };
   };
@@ -688,7 +688,7 @@
           assert evalU280Shell.coyoteTwoStage.timingOracle.policy.enforce;
           assert evalU280Shell.coyoteTwoStage.timingOracle.policy.rejectRqaBelow == 3;
           assert evalU280Shell.coyoteTwoStage.enShellPblock;
-          assert evalU280Shell.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v1";
+          assert evalU280Shell.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
           assert evalU280Shell.coyoteTwoStage.physical.units ? shell;
           assert evalU280Shell.coyoteTwoStage.physical.units.shell ? link;
           assert evalU280Shell.coyoteTwoStage.physical.units.shell ? opt;
@@ -744,7 +744,7 @@
           assert evalV80App.coyoteTwoStage.kind == "app";
           assert evalV80App.coyoteTwoStage.shellPath == toString evalV80Shell;
           assert builtins.elem "-DEN_SHELL_PBLOCK:STRING=0" evalV80App.coyoteTwoStage.appCmakeFlags;
-          assert evalV80App.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v1";
+          assert evalV80App.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
           assert evalV80App.coyoteTwoStage.stages ? implementationInputs;
           assert evalV80App.coyoteTwoStage.stages ? link;
           assert evalV80App.coyoteTwoStage.stages ? opt;
@@ -791,7 +791,7 @@
         checks.bitgen-completion-contract =
           pkgs.runCommand "bitgen-completion-contract"
             {
-              nativeBuildInputs = [ pkgs.bash ];
+              nativeBuildInputs = [ pkgs.bash pkgs.jq ];
             }
             ''
               mkdir -p fake-bin
@@ -832,7 +832,11 @@
                 bash -c ${pkgs.lib.escapeShellArg bitgenCompletionSnippet}
               }
               run_case success
+              jq -e '.exitCode == 0 and .completionMarkerObserved and .anomaly == null' \
+                "$TMPDIR/success/metadata/primary-tool.json" >/dev/null
               run_case cleanup-failure
+              jq -e '.exitCode == 1 and .completionMarkerObserved and .anomaly == "post-completion-nonzero-exit"' \
+                "$TMPDIR/cleanup-failure/metadata/primary-tool.json" >/dev/null
               if run_case artifact-only; then
                 echo 'bitgen unexpectedly accepted an artifact without a completion marker' >&2
                 exit 1
@@ -854,11 +858,38 @@
         checks.implementation-stage-manifest-contract =
           pkgs.runCommand "implementation-stage-manifest-contract"
             {
-              nativeBuildInputs = [ pkgs.python3 ];
+              nativeBuildInputs = [ pkgs.python3 pkgs.jq ];
             }
             ''
               bash ${./tests/implementation-stage-manifest.sh} \
-                ${./nix/tools/coyote-implementation-stage.py}
+                ${./nix/tools/coyote-implementation-stage.py} \
+                ${./tests/fixtures}
+              touch "$out"
+            '';
+
+        checks.stage-execution-evidence =
+          pkgs.runCommand "stage-execution-evidence-contract"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.cmake
+                pkgs.coreutils
+                pkgs.gawk
+                pkgs.gnugrep
+                pkgs.gnused
+                pkgs.jq
+                pkgs.time
+              ];
+            }
+            ''
+              export FDEV_NAME=fixture
+              export COYOTE_NIX_HW_CORES=3
+              export COYOTE_NIX_TIME=${pkgs.time}/bin/time
+              export COYOTE_NIX_CHECK_TIMING_LOG=0
+              export COYOTE_NIX_XILINX_SHARE_ROOT="$TMPDIR/xilinx"
+              export COYOTE_NIX_XILINX_VERSION=fixture
+              bash ${./tests/stage-execution-evidence.sh} \
+                ${./nix/tools/run-coyote-hw-stage-build.sh}
               touch "$out"
             '';
 
@@ -924,6 +955,14 @@
             ${phaseScript "v80-shell-bitgen-completion-contract.sh" evalV80Shell.buildPhase} >/dev/null
           grep -F 'bitstreams/complete' \
             ${phaseScript "u280-app-bitgen-completion-contract.sh" evalU280App.buildPhase} >/dev/null
+          grep -F 'IMPLEMENTATION_TELEMETRY_PATH' \
+            ${phaseScript "v80-route-telemetry-contract.sh" evalV80Shell.coyoteTwoStage.stages.route.buildPhase} >/dev/null
+          grep -F 'reports/config_0/shell_route_physical_c0.json' \
+            ${phaseScript "v80-route-report-layout.sh" evalV80Shell.coyoteTwoStage.stages.route.buildPhase} >/dev/null
+          grep -F 'metadata/primary-tool.json' \
+            ${phaseScript "v80-image-primary-tool-contract.sh" evalV80Shell.installPhase} >/dev/null
+          grep -F 'metadata/execution.json' \
+            ${phaseScript "v80-route-execution-contract.sh" evalV80Shell.coyoteTwoStage.stages.route.installPhase} >/dev/null
           touch $out
         '';
 

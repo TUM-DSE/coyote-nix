@@ -1,0 +1,8 @@
+| Tool Version : Vivado v2023.2 (64-bit) |
+| Device : xcu280-fsvh2892-2L-e |
+| Site Type        | Used | Fixed | Prohibited | Available | Util% |
+| Slice LUTs*      | 12,345 | 0 | 0 | 1079040 | 1.14 |
+| Slice Registers  | 23,456 | 0 | 0 | 2158080 | 1.09 |
+| Block RAM Tile   | 321.5 | 0 | 0 | 2016 | 15.95 |
+| URAM             | 64 | 0 | 0 | 960 | 6.67 |
+| DSPs             | 128 | 0 | 0 | 9024 | 1.42 |
