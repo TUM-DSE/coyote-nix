@@ -162,5 +162,7 @@ patch_sim_dpi_link
 patch_base_tcl
 run_shell_fragment "$pre_build_setup"
 run_shell_fragment "$build_commands"
-check_timing_constraints
+if [ "${COYOTE_NIX_CHECK_TIMING_LOG:-1}" = 1 ]; then
+  check_timing_constraints
+fi
 check_expected_artifacts

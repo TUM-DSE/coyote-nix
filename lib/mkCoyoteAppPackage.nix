@@ -11,6 +11,7 @@
   board ? null,
   cmakeFlags ? [ ],
   provenance ? { },
+  implementation ? { },
 }:
 
 let
@@ -54,9 +55,13 @@ let
   inherit (stageHelpers)
     copyPreviousStageSetup
     finalBitgenCommand
+    implementationStageTool
+    importImplementationStageArtifacts
     installCheckpointReports
+    mkImplementationStageGate
     mkStage
     writeArtifactManifest
+    writeImplementationStageManifest
     ;
 
   enShellPblock = if boardProfile.twoStage.enShellPblock then "1" else "0";
@@ -71,6 +76,81 @@ let
   ];
 
   appExpectedBitstreams = boardProfile.twoStage.appExpectedBitstreams;
+  isImplementationPolicyFlag = flag:
+    builtins.match "^-DSHELL_PATH(:[^=]+)?=.*$" flag != null;
+  appImplementationBaseFlags = builtins.filter (flag: !isImplementationPolicyFlag flag) appCmakeFlags ++ [
+    "-DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON"
+  ];
+  implementationEnforceTiming = implementation.enforceTiming or null;
+  checkedImplementationEnforceTiming =
+    if implementationEnforceTiming == null || builtins.isBool implementationEnforceTiming then
+      implementationEnforceTiming
+    else
+      throw "coyote-nix: implementation.enforceTiming must be a Boolean when specified";
+  effectiveFlagValue = name: flags:
+    let matches = builtins.filter (entry: entry != null) (map (flag:
+      builtins.match "^-D${name}(:[^=]+)?=(.*)$" flag) flags);
+    in if matches == [ ] then null else builtins.elemAt (lib.last matches) 1;
+  flagIsTrue = value: builtins.elem value [ "1" "ON" "TRUE" "YES" ];
+  optimizedCompatibility = flagIsTrue (effectiveFlagValue "BUILD_OPT" cmakeFlags);
+  defaultDirectives = {
+    opt = "project";
+    place = "project";
+    physOpt = "project";
+    route = "project";
+    postRoutePhysOpt = "project";
+    finalRoute = "project";
+  };
+  implementationDirectives = defaultDirectives // (implementation.directives or { });
+  implementationTopology = implementation.topology or { configurations = 1; regions = 1; };
+  checkedImplementationTopology =
+    if implementationTopology == { configurations = 1; regions = 1; } then implementationTopology else
+      throw "coyote-nix: immutable physical staging currently supports exactly one configuration and one region";
+  implementationCores = implementation.resources.cores or 8;
+  checkedImplementationCores =
+    if builtins.isInt implementationCores && implementationCores > 0 then
+      implementationCores
+    else
+      throw "coyote-nix: implementation.resources.cores must be a positive integer";
+  implementationContextWithoutId = {
+    board = boardProfile.board;
+    architecture = boardProfile.fpgaArchitecture;
+    part = boardProfile.fpgaPart;
+    flow = "build-app";
+    topology = checkedImplementationTopology;
+    sourceId = builtins.hashString "sha256" (toString hwSource);
+    coyoteSourceId = builtins.hashString "sha256" (toString coyoteRoot);
+    constraintsId = builtins.hashString "sha256" (builtins.toJSON {
+      source = toString hwSource;
+      flags = appImplementationBaseFlags;
+    });
+    toolId = implementation.xilinxInstallationId or "vivado-${xilinxVersion}@${toString xilinxShareRoot}";
+  };
+  implementationContext = implementationContextWithoutId // {
+    id = builtins.hashString "sha256" (builtins.toJSON implementationContextWithoutId);
+  };
+  implementationContextJson = builtins.toJSON implementationContext;
+  mkImplementationSpec =
+    {
+      name,
+      phase,
+      artifactRole ? null,
+      artifactPath ? null,
+      artifacts ? null,
+      predecessorPath ? null,
+      strategy ? { },
+      outcome ? "complete",
+      outcomePath ? null,
+    }:
+    pkgs.writeText "${pname}-${name}-stage-spec.json" (builtins.toJSON {
+      inherit phase outcome strategy;
+      unit = "config_0";
+      context = implementationContext;
+      resources.cores = checkedImplementationCores;
+      artifacts = if artifacts != null then artifacts else [ { role = artifactRole; path = artifactPath; } ];
+      predecessorPath = if predecessorPath == null then null else toString predecessorPath;
+      outcomePath = outcomePath;
+    });
   validateShellPackage = ''
     if [ ! -f ${shellPackage}/export.cmake ]; then
       echo "ERROR: shell package does not contain export.cmake: ${shellPackage}" >&2
@@ -172,8 +252,8 @@ let
       exit 1
     fi
 
-    cp ${shellPackage}/metadata/shell.json "$out/metadata/shell.json"
-    cp ${shellPackage}/metadata/compatibility-id "$out/metadata/shell-compatibility-id"
+    cp ${implementationInputs}/metadata/shell.json "$out/metadata/shell.json"
+    cp ${implementationInputs}/metadata/compatibility-id "$out/metadata/shell-compatibility-id"
 
     ${writeArtifactManifest {
       roots = [
@@ -240,29 +320,233 @@ let
     description = "Coyote ${boardProfile.platform} BUILD_APP synthesis stage";
   };
 
-  routed = mkStage {
-    pname = "${pname}-routed";
+  inputBundleSpec = pkgs.writeText "${pname}-implementation-inputs-spec.json" (builtins.toJSON {
+    phase = "inputs";
+    unit = "config_0";
+    context = implementationContext;
+    strategy = { };
+    resources.cores = checkedImplementationCores;
+    outcome = "complete";
+    predecessorPath = null;
+    artifacts = [
+      { role = "shell-contract"; path = "export.cmake"; }
+      { role = "locked-shell-checkpoint"; path = "checkpoints/shell_routed_locked.dcp"; }
+      { role = "user-synthesized-checkpoint"; path = "checkpoints/config_0/user_synthed_c0_0.dcp"; }
+      { role = "shell-metadata"; path = "metadata/shell.json"; }
+      { role = "shell-compatibility-id"; path = "metadata/compatibility-id"; }
+    ];
+  });
+
+  implementationInputs = pkgs.runCommand "${pname}-implementation-inputs"
+    {
+      nativeBuildInputs = [ pkgs.python3 ];
+      passthru.coyoteImplementationStage = {
+        api = "coyote-nix.implementation-stage/v1";
+        phase = "inputs";
+        context = implementationContext;
+      };
+    }
+    ''
+      mkdir -p "$out/checkpoints/config_0" "$out/metadata"
+      cp ${shellPackage}/export.cmake "$out/export.cmake"
+      cp ${shellPackage}/checkpoints/shell_routed_locked.dcp \
+        "$out/checkpoints/shell_routed_locked.dcp"
+      cp ${synth}/checkpoints/config_0/user_synthed_c0_0.dcp \
+        "$out/checkpoints/config_0/user_synthed_c0_0.dcp"
+      cp ${shellPackage}/metadata/shell.json "$out/metadata/shell.json"
+      cp ${shellPackage}/metadata/compatibility-id "$out/metadata/compatibility-id"
+      ${pkgs.python3}/bin/python ${implementationStageTool} write \
+        ${inputBundleSpec} "$out" "$out"
+    '';
+
+  linkSpec = mkImplementationSpec {
+    name = "link";
+    phase = "link";
+    artifactRole = "linked-checkpoint";
+    artifactPath = "checkpoints/config_0/shell_linked_c0.dcp";
+    predecessorPath = implementationInputs;
+  };
+
+  link = mkStage {
+    pname = "${pname}-link";
     board = boardProfile;
     inherit xilinxVersion;
-    cmakeFlags = appCmakeFlags;
-    preBuildSetup = ''
-      ${validateShellPackage}
-      ${copyPreviousStageSetup synth { }}
-    '';
-    buildCommands = [
-      "make project"
-      "make app"
-    ];
-    expectedPaths = [
-      "checkpoints/config_0/shell_routed_c0.dcp"
-    ];
-    nativeBuildInputs = stageNativeBuildInputs;
-    extraInstallPhase = installCheckpointReports {
-      copyAllCheckpoints = true;
-      copyAllReports = true;
+    cores = checkedImplementationCores;
+    cmakeFlags = appImplementationBaseFlags ++ [ "-DSHELL_PATH=${implementationInputs}" ];
+    preBuildSetup = importImplementationStageArtifacts {
+      previousStage = implementationInputs;
+      roles = [ "user-synthesized-checkpoint" ];
+      expectedPhase = "inputs";
+      expectedContext = implementationContext.id;
     };
-    description = "Coyote ${boardProfile.platform} BUILD_APP routed stage";
+    buildCommands = [ "make app_link" ];
+    expectedPaths = [
+      "checkpoints/app_link_complete"
+      "checkpoints/config_0/shell_linked_c0.dcp"
+    ];
+    nativeBuildInputs = stageNativeBuildInputs ++ [ pkgs.python3 ];
+    extraInstallPhase = ''
+      mkdir -p "$out/checkpoints/config_0" "$out/metadata"
+      cp "$build_dir/checkpoints/config_0/shell_linked_c0.dcp" \
+        "$out/checkpoints/config_0/shell_linked_c0.dcp"
+      ${writeImplementationStageManifest { spec = linkSpec; }}
+    '';
+    description = "Coyote ${boardProfile.platform} BUILD_APP immutable link stage";
   };
+
+  mkPhysicalStage =
+    {
+      phase,
+      predecessor,
+      predecessorPhase,
+      predecessorRole,
+      inputPath,
+      outputPath,
+      outputRole,
+      extraFlags ? [ ],
+      strategy ? { },
+      reports ? false,
+    }:
+    let
+      spec = mkImplementationSpec {
+        name = phase;
+        inherit phase;
+        artifactRole = outputRole;
+        artifactPath = outputPath;
+        artifacts = if reports then [
+          { role = outputRole; path = outputPath; }
+          { role = "utilization-report"; path = "reports/config_0/shell_utilization_c0.rpt"; }
+          { role = "route-status-report"; path = "reports/config_0/shell_route_status_c0.rpt"; }
+          { role = "timing-summary-report"; path = "reports/config_0/shell_timing_summary_c0.rpt"; }
+          { role = "bitstream-drc-report"; path = "reports/config_0/shell_drc_bitstream_checks_c0.rpt"; }
+          { role = "validation-result"; path = "reports/config_0/validation.json"; }
+        ] else null;
+        predecessorPath = predecessor;
+        inherit strategy;
+        outcome = if phase == "validate" then "accepted" else "complete";
+        outcomePath = if reports then "reports/config_0/validation.json" else null;
+      };
+    in
+    mkStage {
+      pname = "${pname}-${phase}";
+      board = boardProfile;
+      inherit xilinxVersion;
+      cores = checkedImplementationCores;
+      checkTimingLog = false;
+      cmakeFlags = appImplementationBaseFlags ++ [
+        "-DSHELL_PATH=${implementationInputs}"
+        "-DIMPLEMENTATION_PHASE:STRING=${phase}"
+        "-DIMPLEMENTATION_INPUT_DCP:FILEPATH=$build_dir/${inputPath}"
+        "-DIMPLEMENTATION_OUTPUT_DCP:FILEPATH=$build_dir/${outputPath}"
+        "-DIMPLEMENTATION_COMPLETION_PATH:FILEPATH=$build_dir/checkpoints/config_0/${phase}_complete"
+        "-DIMPLEMENTATION_REPORT_DIR:PATH=$build_dir/reports/config_0"
+        "-DIMPLEMENTATION_REPORT_SUFFIX:STRING=_c0"
+        "-DIMPLEMENTATION_LABEL:STRING=config_0_routed_application"
+        "-DIMPLEMENTATION_DRC_NAME:STRING=config_0_bitstream_gate"
+        "-DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH=$build_dir/reports/config_0/validation.json"
+      ] ++ extraFlags;
+      preBuildSetup = importImplementationStageArtifacts {
+        previousStage = predecessor;
+        roles = [ predecessorRole ];
+        expectedPhase = predecessorPhase;
+        expectedContext = implementationContext.id;
+      };
+      buildCommands = [ "make physical_stage" ];
+      expectedPaths = [
+        outputPath
+        "checkpoints/config_0/${phase}_complete"
+      ] ++ lib.optionals reports [
+        "reports/config_0/shell_utilization_c0.rpt"
+        "reports/config_0/shell_route_status_c0.rpt"
+        "reports/config_0/shell_timing_summary_c0.rpt"
+        "reports/config_0/shell_drc_bitstream_checks_c0.rpt"
+        "reports/config_0/validation.json"
+      ];
+      nativeBuildInputs = stageNativeBuildInputs ++ [ pkgs.python3 ];
+      extraInstallPhase = ''
+        mkdir -p "$out/$(dirname ${outputPath})" "$out/metadata"
+        cp "$build_dir/${outputPath}" "$out/${outputPath}"
+        ${lib.optionalString reports ''
+          mkdir -p "$out/reports/config_0"
+          cp "$build_dir/reports/config_0/"*.rpt "$out/reports/config_0/"
+          cp "$build_dir/reports/config_0/validation.json" "$out/reports/config_0/"
+        ''}
+        ${writeImplementationStageManifest { inherit spec; }}
+      '';
+      description = "Coyote ${boardProfile.platform} BUILD_APP immutable ${phase} stage";
+    };
+
+  opt = mkPhysicalStage {
+    phase = "opt";
+    predecessor = link;
+    predecessorPhase = "link";
+    predecessorRole = "linked-checkpoint";
+    inputPath = "checkpoints/config_0/shell_linked_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+    outputRole = "optimized-checkpoint";
+    strategy.opt = implementationDirectives.opt;
+    extraFlags = [ "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}" ];
+  };
+
+  place = mkPhysicalStage {
+    phase = "place";
+    predecessor = opt;
+    predecessorPhase = "opt";
+    predecessorRole = "optimized-checkpoint";
+    inputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+    outputRole = "placed-checkpoint";
+    strategy = {
+      place = implementationDirectives.place;
+      physOpt = implementationDirectives.physOpt;
+    };
+    extraFlags = [
+      "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}"
+      "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}"
+    ];
+  };
+
+  route = mkPhysicalStage {
+    phase = "route";
+    predecessor = place;
+    predecessorPhase = "place";
+    predecessorRole = "placed-checkpoint";
+    inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+    outputRole = "routed-checkpoint";
+    strategy = {
+      route = implementationDirectives.route;
+      postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
+      finalRoute = implementationDirectives.finalRoute;
+    };
+    extraFlags = [
+      "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}"
+      "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}"
+      "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}"
+    ];
+  };
+
+  validate = mkPhysicalStage {
+    phase = "validate";
+    predecessor = route;
+    predecessorPhase = "route";
+    predecessorRole = "routed-checkpoint";
+    inputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_routed_c0.dcp";
+    outputRole = "validated-checkpoint";
+    reports = true;
+    strategy.enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming;
+    extraFlags = lib.optionals (checkedImplementationEnforceTiming != null) [
+      "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming then "1" else "0"}"
+    ];
+  };
+
+  validationGate = mkImplementationStageGate {
+    pname = "${pname}-validation-gate";
+    stage = validate;
+    expectedContext = implementationContext.id;
+  };
+  routed = validationGate;
 
   contract = {
     schemaVersion = 1;
@@ -286,25 +570,64 @@ let
       "app-route"
       "bitgen"
     ];
+    physical = {
+      api = "coyote-nix.implementation-stage/v1";
+      context = implementationContext;
+      resources.cores = checkedImplementationCores;
+      directives = implementationDirectives;
+      stages = {
+        inputs = implementationInputs;
+        inherit link opt place route validate;
+        gate = validationGate;
+        image = "self";
+      };
+    };
+  };
+
+  imageSpec = mkImplementationSpec {
+    name = "image";
+    phase = "image";
+    artifactRole = null;
+    artifactPath = null;
+    predecessorPath = validate;
+    strategy = { };
+    outcome = "accepted";
+    artifacts = map (artifact: {
+      role = "image-${builtins.replaceStrings [ "/" "." ] [ "-" "-" ] artifact}";
+      path = "bitstreams/${artifact}";
+    }) appExpectedBitstreams;
   };
 
   final = mkStage {
     inherit pname xilinxVersion;
     board = boardProfile;
-    cmakeFlags = appCmakeFlags;
+    cores = checkedImplementationCores;
+    cmakeFlags = appImplementationBaseFlags ++ [ "-DSHELL_PATH=${implementationInputs}" ];
     preBuildSetup = ''
-      ${validateShellPackage}
-      ${copyPreviousStageSetup routed { }}
+      test -e ${validationGate}/metadata/outcome
+      ${importImplementationStageArtifacts {
+        previousStage = validate;
+        roles = [ "validated-checkpoint" ];
+        expectedPhase = "validate";
+        expectedContext = implementationContext.id;
+      }}
+      mkdir -p "$build_dir/reports/config_0"
+      cp -a ${validate}/reports/config_0/. "$build_dir/reports/config_0/"
     '';
     buildCommands = [
       (finalBitgenCommand appExpectedBitstreams)
     ];
     expectedPaths = map (artifact: "bitstreams/${artifact}") appExpectedBitstreams;
     nativeBuildInputs = stageNativeBuildInputs;
-    extraInstallPhase = installAppExport;
+    extraInstallPhase = ''
+      ${installAppExport}
+      ${writeImplementationStageManifest { spec = imageSpec; }}
+    '';
     extraAttrs = {
       passthru.coyoteTwoStage = contract // {
-        stages = { inherit synth routed; };
+        stages = {
+          inherit synth routed link opt place route validate validationGate implementationInputs;
+        };
       };
     };
     description = "Coyote ${boardProfile.platform} BUILD_APP partial artifacts";

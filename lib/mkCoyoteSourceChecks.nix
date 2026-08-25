@@ -26,6 +26,11 @@ let
         tclsh ${coyoteRoot}/tests/route_validation/template_contract.tcl \
           ${coyoteRoot}/scripts/base.tcl.in \
           ${coyoteRoot}/scripts/impl/pnr_shell.tcl.in \
+          ${coyoteRoot}/scripts/impl/physical_stage.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_app_link.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_dyn_link_ultrascale_plus.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_dyn_link_versal.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_dyn_finalize.tcl.in \
           ${coyoteRoot}/scripts/dyn/flow_app.tcl.in \
           ${coyoteRoot}/scripts/dyn/flow_dyn_ultrascale_plus.tcl.in \
           ${coyoteRoot}/scripts/dyn/flow_dyn_versal.tcl.in \
@@ -87,6 +92,42 @@ let
         render_case no-service-v80 v80 \
           -DTEST_ENABLE_SERVICE:BOOL=OFF \
           -DTEST_ENABLE_CONTROL:BOOL=OFF
+        render_case immutable-v80 v80 \
+          -DTEST_ENABLE_SERVICE:BOOL=ON \
+          -DTEST_ENABLE_CONTROL:BOOL=ON \
+          -DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON \
+          -DIMPLEMENTATION_PHASE:STRING=opt \
+          -DIMPLEMENTATION_INPUT_DCP:FILEPATH="$TMPDIR/immutable-v80/checkpoints/input.dcp" \
+          -DIMPLEMENTATION_OUTPUT_DCP:FILEPATH="$TMPDIR/immutable-v80/checkpoints/output.dcp" \
+          -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$TMPDIR/immutable-v80/checkpoints/opt_complete"
+        cmake --build "$TMPDIR/immutable-v80" --target help \
+          > "$TMPDIR/immutable-v80/target-help.txt"
+        grep -q '^... physical_stage$' "$TMPDIR/immutable-v80/target-help.txt"
+        if grep -Eq '^... (dynamic_link|dynamic_finalize)$' "$TMPDIR/immutable-v80/target-help.txt"; then
+          echo 'single physical phase unexpectedly exposes a competing link/finalize producer' >&2
+          exit 1
+        fi
+        if grep -q '^... app$' "$TMPDIR/immutable-v80/target-help.txt"; then
+          echo 'immutable build unexpectedly exposes legacy aggregate app target' >&2
+          exit 1
+        fi
+        test -f "$TMPDIR/immutable-v80/physical_stage.tcl"
+        grep -F 'set phase "opt"' "$TMPDIR/immutable-v80/physical_stage.tcl" >/dev/null
+
+        if cmake -S "$fixture" -B "$TMPDIR/invalid-immutable-alias" \
+          -DCYT_DIR=${coyoteRoot} \
+          -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 \
+          -DBUILD_STATIC:STRING=0 \
+          -DBUILD_SHELL:STRING=1 \
+          -DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON \
+          -DIMPLEMENTATION_PHASE:STRING=route \
+          -DIMPLEMENTATION_INPUT_DCP:FILEPATH="$TMPDIR/alias.dcp" \
+          -DIMPLEMENTATION_OUTPUT_DCP:FILEPATH="$TMPDIR/alias.dcp" \
+          -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$TMPDIR/complete"; then
+          echo 'aliased immutable input/output unexpectedly configured' >&2
+          exit 1
+        fi
 
         for build in "$TMPDIR/control-u280" "$TMPDIR/control-v80"; do
           grep -q 'axil_address_splitter' \

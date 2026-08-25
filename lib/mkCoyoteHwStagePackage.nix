@@ -17,6 +17,8 @@
   extraInstallPhase ? "",
   description ? "Coyote hardware build stage for ${platform}",
   nativeBuildInputs ? [ ],
+  cores ? 8,
+  checkTimingLog ? true,
   extraAttrs ? { },
 }:
 
@@ -53,6 +55,8 @@ pkgs.stdenvNoCC.mkDerivation (
     COYOTE_NIX_XILINX_VERSION = xilinxVersion;
     COYOTE_NIX_XILINX_SHARE_ROOT = toString xilinxShareRoot;
     COYOTE_NIX_NCURSES6_LIB = "${pkgs.ncurses6}/lib/libtinfo.so.6";
+    COYOTE_NIX_HW_CORES = toString cores;
+    COYOTE_NIX_CHECK_TIMING_LOG = if checkTimingLog then "1" else "0";
     __impureHostDeps = [
       (toString xilinxShareRoot)
     ];

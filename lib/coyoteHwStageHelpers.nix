@@ -25,6 +25,8 @@ rec {
       extraInstallPhase ? "",
       description ? "Coyote hardware build stage for ${board.platform}",
       nativeBuildInputs ? [ ],
+      cores ? 8,
+      checkTimingLog ? true,
       extraAttrs ? { },
     }:
     mkCoyoteHwStagePackage {
@@ -45,11 +47,73 @@ rec {
         extraInstallPhase
         description
         nativeBuildInputs
+        cores
+        checkTimingLog
         extraAttrs
         ;
       platform = board.platform;
       coyotePlatform = board.coyotePlatform;
     };
+
+  implementationStageTool = ../nix/tools/coyote-implementation-stage.py;
+
+  writeImplementationStageManifest =
+    {
+      spec,
+      artifactRoot ? "$out",
+      outputDir ? "$out",
+    }:
+    ''
+      ${pkgs.python3}/bin/python ${implementationStageTool} write \
+        ${spec} ${artifactRoot} ${outputDir}
+    '';
+
+  importImplementationStageArtifacts =
+    {
+      previousStage,
+      destination ? "$build_dir",
+      roles ? [ ],
+      expectedPhase ? null,
+      expectedContext ? null,
+    }:
+    ''
+      ${pkgs.python3}/bin/python ${implementationStageTool} validate ${previousStage}${lib.optionalString (expectedPhase != null) " --phase ${lib.escapeShellArg expectedPhase}"}${lib.optionalString (expectedContext != null) " --context ${lib.escapeShellArg expectedContext}"}
+      ${pkgs.python3}/bin/python ${implementationStageTool} import \
+        ${previousStage} ${destination} \
+        ${lib.concatMapStringsSep " " lib.escapeShellArg roles}
+      if [ -d ${destination}/checkpoints ]; then
+        chmod -R u+w ${destination}/checkpoints
+        touch ${destination}/.imported-stage-timestamp
+        find ${destination}/checkpoints -type f \
+          -exec touch -r ${destination}/.imported-stage-timestamp {} +
+      fi
+    '';
+
+  mkImplementationStageGate =
+    {
+      pname,
+      stage,
+      expectedContext,
+    }:
+    pkgs.runCommand pname { nativeBuildInputs = [ pkgs.jq pkgs.python3 ]; } ''
+      ${pkgs.python3}/bin/python ${implementationStageTool} validate \
+        ${stage} --phase validate --context ${lib.escapeShellArg expectedContext}
+      outcome="$(${pkgs.jq}/bin/jq -r '.outcome' ${stage}/metadata/stage.json)"
+      if [ "$outcome" != accepted ]; then
+        echo "ERROR: implementation validation outcome is $outcome; evidence: ${stage}" >&2
+        ${pkgs.jq}/bin/jq -r '.artifacts[] | select(.role == "validation-result") | .path' \
+          ${stage}/metadata/stage.json >&2 || true
+        exit 1
+      fi
+      mkdir -p "$out/metadata"
+      for directory in checkpoints reports logs; do
+        if [ -e ${stage}/"$directory" ]; then
+          ln -s ${stage}/"$directory" "$out/$directory"
+        fi
+      done
+      cp ${stage}/metadata/stage.json "$out/metadata/validation-stage.json"
+      printf '%s\n' accepted > "$out/metadata/outcome"
+    '';
 
   copyPreviousStageSetup =
     previousStage:

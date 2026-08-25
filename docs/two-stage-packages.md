@@ -89,7 +89,42 @@ A stable config-0/seed application and an application floorplan still have to be
 | U280 | optional shell synthesis analysis -> seed synthesis -> routed shell -> dynamic PR flow -> bitgen | `cyt_top.bit` | `shell_top.bin` | `config_*/vfpga_*.bin` |
 | V80 | optional shell synthesis analysis -> seed synthesis -> Versal dynamic PR flow -> bitgen | `cyt_top.pdi` | none (nested DFX is unsupported) | `config_*/vfpga_*.pdi` |
 
-Both flows run Coyote's `make app` dynamic target after synthesis (and, for U280, after ordinary shell routing). Bit generation is invoked from the generated `bitgen.tcl` directly, retaining the existing coyote-nix handling for Vivado failures after artifact creation.
+The package graph uses immutable physical stages rather than Coyote's legacy aggregate `make shell`/`make app` targets. U280 first implements the outer shell and then configuration 0; V80 implements configuration 0 directly. Bit generation remains a separate final image stage and retains the existing handling for Vivado failures after artifact creation.
+
+### Immutable physical stages
+
+Shell and application constructors accept an optional implementation recipe:
+
+```nix
+implementation = {
+  resources.cores = 8;
+  directives = {
+    opt = "Explore";
+    place = "AggressiveExplore";
+    physOpt = "AggressiveExplore";
+    route = "AggressiveExplore";
+    postRoutePhysOpt = "AggressiveExplore";
+    finalRoute = "";
+  };
+  enforceTiming = true;
+  xilinxInstallationId = "site-manifest-sha256"; # recommended when available
+  topology = { configurations = 1; regions = 1; };
+};
+```
+
+Omitted directives reproduce the effective legacy `BUILD_OPT` board defaults. Repeated legacy CMake policy flags are interpreted with CMake's last-assignment-wins behavior. Cores, phase directives, timing policy, source/constraint/static identity, Coyote source, board/part, Xilinx version/installation identity, and the exact predecessor manifest all participate in stage identity.
+
+The physical contract is available under `coyoteTwoStage.physical` and the rootable derivations under `coyoteTwoStage.stages`:
+
+```text
+inputs -> link -> opt -> place -> route -> validate -> validationGate -> [DFX finalize] -> image
+```
+
+`place` includes pre-route physical optimization. `route` keeps post-route physical optimization and its mandatory final reroute atomic. `validate` reopens the route read-only, retains route/timing/DRC evidence, and emits `accepted` or `rejected`; the separate gate rejects only after that evidence is rootable. Shell DFX locking/recombination runs afterward as an explicit `finalize` stage, so a finalization failure cannot destroy the retained validation result. Image generation requires an accepted validation/finalization manifest.
+
+Each stage contains `metadata/stage.json` and `metadata/complete`. The manifest hashes every declared artifact and binds the exact phase, implementation unit, canonical context, predecessor manifest/outcome, strategy, and resources. Consumers validate and import only declared roles; undeclared files in a predecessor cannot leak into the next physical phase.
+
+The immutable packaged graph currently supports the QShell MVP topology of exactly one configuration and one region. The legacy Coyote aggregate flow remains available for multi-configuration/multi-region projects until per-unit DFX bundle staging is added; immutable package constructors reject any explicitly different topology and Coyote's staged link target verifies the generated topology before invoking Vivado.
 
 ### Fast synthesized-shell analysis
 
@@ -195,7 +230,7 @@ SHELL_PATH=<exact shellPackage store path>
 
 The Nix dependency and the `SHELL_PATH` value therefore identify the same immutable package. Before each build stage, the helper verifies that the package has `export.cmake`, `shell_routed_locked.dcp`, valid shell metadata, and matching artifact hashes.
 
-The app graph is `synth -> app route -> bitgen` on both boards. Its installed bitstream tree is deliberately filtered to `config_*` directories, so it cannot publish `cyt_top` boot images or `shell_top` partials.
+The app graph is `synth -> immutable input bundle -> link -> opt -> place -> route -> validate -> gate -> image` on both boards. Its installed bitstream tree is deliberately filtered to `config_*` directories, so it cannot publish `cyt_top` boot images or `shell_top` partials. Intermediate checkpoints and reports belong to their independently rootable stage outputs; the final package retains the accepted routed checkpoint, validation evidence, application partials, and compatibility metadata.
 
 ### App output
 
