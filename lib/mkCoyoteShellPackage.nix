@@ -141,11 +141,22 @@ let
   shellImplementationBaseFlags = shellCmakeFlags ++ [
     "-DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON"
   ];
-  effectiveFlagValue = name: flags:
-    let matches = builtins.filter (entry: entry != null) (map (flag:
-      builtins.match "^-D${name}(:[^=]+)?=(.*)$" flag) flags);
-    in if matches == [ ] then null else builtins.elemAt (lib.last matches) 1;
-  flagIsTrue = value: builtins.elem value [ "1" "ON" "TRUE" "YES" ];
+  effectiveFlagValue =
+    name: flags:
+    let
+      matches = builtins.filter (entry: entry != null) (
+        map (flag: builtins.match "^-D${name}(:[^=]+)?=(.*)$" flag) flags
+      );
+    in
+    if matches == [ ] then null else builtins.elemAt (lib.last matches) 1;
+  flagIsTrue =
+    value:
+    builtins.elem value [
+      "1"
+      "ON"
+      "TRUE"
+      "YES"
+    ];
   optimizedCompatibility = flagIsTrue (effectiveFlagValue "BUILD_OPT" cmakeFlags);
   implementationEnforceTiming = implementation.enforceTiming or null;
   checkedImplementationEnforceTiming =
@@ -162,26 +173,49 @@ let
     finalRoute = "project";
   };
   implementationDirectives = defaultDirectives // (implementation.directives or { });
-  implementationTopology = implementation.topology or { configurations = 1; regions = 1; };
+  implementationTopology =
+    implementation.topology or {
+      configurations = 1;
+      regions = 1;
+    };
   checkedImplementationTopology =
-    if implementationTopology == { configurations = 1; regions = 1; } then implementationTopology else
+    if
+      implementationTopology == {
+        configurations = 1;
+        regions = 1;
+      }
+    then
+      implementationTopology
+    else
       throw "coyote-nix: immutable physical staging currently supports exactly one configuration and one region";
   implementationCores = implementation.resources.cores or 8;
-  checkedImplementationCores = if builtins.isInt implementationCores && implementationCores > 0 then
-    implementationCores
-  else
-    throw "coyote-nix: implementation.resources.cores must be a positive integer";
+  checkedImplementationCores =
+    if builtins.isInt implementationCores && implementationCores > 0 then
+      implementationCores
+    else
+      throw "coyote-nix: implementation.resources.cores must be a positive integer";
   incrementalReference = implementation.incrementalReference or null;
   checkedIncrementalReference =
-    if incrementalReference == null then null
+    if incrementalReference == null then
+      null
     else if boardProfile.board != "u280" then
       throw "coyote-nix: incremental implementation references support only U280"
     else if !lib.isDerivation incrementalReference then
       throw "coyote-nix: implementation.incrementalReference must be an immutable Nix derivation"
-    else incrementalReference;
+    else
+      incrementalReference;
   effectivePcieGeneration = effectiveFlagValue "PCIE_GEN" cmakeFlags;
-  implementationPcieGeneration = if effectivePcieGeneration == null then "4" else
-    if builtins.elem effectivePcieGeneration [ "4" "5" ] then effectivePcieGeneration else
+  implementationPcieGeneration =
+    if effectivePcieGeneration == null then
+      "4"
+    else if
+      builtins.elem effectivePcieGeneration [
+        "4"
+        "5"
+      ]
+    then
+      effectivePcieGeneration
+    else
       throw "coyote-nix: PCIE_GEN must be 4 or 5";
   implementationContextWithoutId = {
     board = boardProfile.board;
@@ -191,18 +225,23 @@ let
     topology = checkedImplementationTopology;
     sourceId = builtins.hashString "sha256" (toString hwSource);
     coyoteSourceId = builtins.hashString "sha256" (toString coyoteRoot);
-    constraintsId = builtins.hashString "sha256" (builtins.toJSON {
-      source = toString hwSource;
-      static = toString staticPath;
-      flags = shellImplementationBaseFlags;
-    });
-    toolId = implementation.xilinxInstallationId or "vivado-${xilinxVersion}@${toString xilinxShareRoot}";
+    constraintsId = builtins.hashString "sha256" (
+      builtins.toJSON {
+        source = toString hwSource;
+        static = toString staticPath;
+        flags = shellImplementationBaseFlags;
+      }
+    );
+    toolId =
+      implementation.xilinxInstallationId or "vivado-${xilinxVersion}@${toString xilinxShareRoot}";
     toolVersion = xilinxVersion;
   };
   implementationContext = implementationContextWithoutId // {
     id = builtins.hashString "sha256" (builtins.toJSON implementationContextWithoutId);
   };
-  implementationContextFile = pkgs.writeText "${pname}-implementation-context.json" (builtins.toJSON implementationContext);
+  implementationContextFile = pkgs.writeText "${pname}-implementation-context.json" (
+    builtins.toJSON implementationContext
+  );
   mkImplementationSpec =
     {
       name,
@@ -216,30 +255,62 @@ let
       telemetryPhysicalPath ? null,
     }:
     let
-      telemetryArtifacts = lib.optionals (phase != "inputs") ([
-        { role = "execution-evidence"; path = "metadata/execution.json"; }
-        { role = "raw-resource-measurement"; path = "metadata/gnu-time.txt"; }
-        { role = "command-stdout"; path = "logs/command.stdout.log"; }
-        { role = "command-stderr"; path = "logs/command.stderr.log"; }
-        { role = "normalized-telemetry"; path = "metadata/telemetry.json"; }
-      ] ++ lib.optionals (telemetryPhysicalPath != null) [
-        { role = "physical-observations"; path = telemetryPhysicalPath; }
-      ]);
+      telemetryArtifacts = lib.optionals (phase != "inputs") (
+        [
+          {
+            role = "execution-evidence";
+            path = "metadata/execution.json";
+          }
+          {
+            role = "raw-resource-measurement";
+            path = "metadata/gnu-time.txt";
+          }
+          {
+            role = "command-stdout";
+            path = "logs/command.stdout.log";
+          }
+          {
+            role = "command-stderr";
+            path = "logs/command.stderr.log";
+          }
+          {
+            role = "normalized-telemetry";
+            path = "metadata/telemetry.json";
+          }
+        ]
+        ++ lib.optionals (telemetryPhysicalPath != null) [
+          {
+            role = "physical-observations";
+            path = telemetryPhysicalPath;
+          }
+        ]
+      );
     in
-    pkgs.writeText "${pname}-${name}-stage-spec.json" (builtins.toJSON {
-      schemaVersion = 2;
-      inherit phase strategy outcome unit;
-      artifacts = artifacts ++ telemetryArtifacts;
-      context = implementationContext;
-      resources.cores = checkedImplementationCores;
-      predecessorPath = if predecessorPath == null then null else toString predecessorPath;
-      outcomePath = outcomePath;
-      telemetry = if phase == "inputs" then null else {
-        path = "metadata/telemetry.json";
-        executionPath = "metadata/execution.json";
-        physicalPath = telemetryPhysicalPath;
-      };
-    });
+    pkgs.writeText "${pname}-${name}-stage-spec.json" (
+      builtins.toJSON {
+        schemaVersion = 2;
+        inherit
+          phase
+          strategy
+          outcome
+          unit
+          ;
+        artifacts = artifacts ++ telemetryArtifacts;
+        context = implementationContext;
+        resources.cores = checkedImplementationCores;
+        predecessorPath = if predecessorPath == null then null else toString predecessorPath;
+        outcomePath = outcomePath;
+        telemetry =
+          if phase == "inputs" then
+            null
+          else
+            {
+              path = "metadata/telemetry.json";
+              executionPath = "metadata/execution.json";
+              physicalPath = telemetryPhysicalPath;
+            };
+      }
+    );
   shellMetadataBase = pkgs.writeText "${pname}-shell-metadata-base.json" (
     builtins.toJSON {
       schemaVersion = 1;
@@ -341,11 +412,31 @@ let
     printf '%s\n' "$compatibility_id" > "$out/metadata/compatibility-id"
   '';
 
+  residentShellSynthesis = mkStage {
+    pname = "${pname}-resident-shell-synth";
+    board = boardProfile;
+    inherit xilinxVersion;
+    cmakeFlags = shellSynthesisCmakeFlags;
+    buildCommands = [
+      "make project"
+      "make shell_synthesis_checkpoint"
+    ];
+    expectedPaths = [
+      "checkpoints/shell/shell_synthed.dcp"
+    ];
+    extraInstallPhase = installCheckpointReports {
+      checkpointDirs = [ "shell" ];
+      reportDirs = [ "shell" ];
+    };
+    description = "Coyote ${boardProfile.platform} resident-shell synthesis checkpoint";
+  };
+
   synthesisAnalysisRaw = mkStage {
     pname = "${pname}-synthesis-analysis-raw";
     board = boardProfile;
     inherit xilinxVersion;
     cmakeFlags = shellSynthesisCmakeFlags;
+    preBuildSetup = copyPreviousStageSetup residentShellSynthesis { };
     buildCommands = [
       "make project"
       "make synthesis_analysis"
@@ -469,9 +560,9 @@ let
       ''
         test -e ${synthesisAnalysisGate}/metadata/synthesis-analysis.json
       '';
-  synthesisAnalysisReuseSetup = lib.optionalString synthesisAnalysisPolicy.enable (
-    copyPreviousStageSetup synthesisAnalysisRaw { }
-  );
+  synthesisAnalysisReuseSetup = copyPreviousStageSetup (
+    if synthesisAnalysisPolicy.enable then synthesisAnalysisRaw else residentShellSynthesis
+  ) { };
 
   synth = mkStage {
     pname = "${pname}-synth";
@@ -609,125 +700,249 @@ let
     test -e ${timingOracleGate}/metadata/timing-oracle.json
   '';
 
-  mkInputBundle = { name, artifacts, commands }:
-    let spec = mkImplementationSpec {
-      inherit artifacts;
-      name = "${name}-inputs";
-      phase = "inputs";
-      unit = name;
-    };
-    in pkgs.runCommand "${pname}-${name}-inputs" { nativeBuildInputs = [ pkgs.python3 ]; } ''
+  mkInputBundle =
+    {
+      name,
+      artifacts,
+      commands,
+    }:
+    let
+      spec = mkImplementationSpec {
+        inherit artifacts;
+        name = "${name}-inputs";
+        phase = "inputs";
+        unit = name;
+      };
+    in
+    pkgs.runCommand "${pname}-${name}-inputs" { nativeBuildInputs = [ pkgs.python3 ]; } ''
       mkdir -p "$out/checkpoints/shell" "$out/checkpoints/config_0" "$out/metadata"
       ${commands}
       ${pkgs.python3}/bin/python ${implementationStageTool} write ${spec} "$out" "$out"
     '';
 
-  outerInputs = if boardProfile.fpgaArchitecture == "ultrascale_plus" then mkInputBundle {
-    name = "shell";
-    artifacts = [
-      { role = "static-locked-checkpoint"; path = "checkpoints/static_routed_locked_${boardProfile.platform}.dcp"; }
-      { role = "shell-synthesized-checkpoint"; path = "checkpoints/shell/shell_synthed.dcp"; }
-      { role = "seed-synthesized-checkpoint"; path = "checkpoints/config_0/user_synthed_c0_0.dcp"; }
-    ];
-    commands = ''
-      cp ${staticPath}/static_routed_locked_${boardProfile.platform}.dcp \
-        "$out/checkpoints/static_routed_locked_${boardProfile.platform}.dcp"
-      cp ${synth}/checkpoints/shell/shell_synthed.dcp "$out/checkpoints/shell/"
-      cp ${synth}/checkpoints/config_0/user_synthed_c0_0.dcp "$out/checkpoints/config_0/"
-    '';
-  } else null;
+  outerInputs =
+    if boardProfile.fpgaArchitecture == "ultrascale_plus" then
+      mkInputBundle {
+        name = "shell";
+        artifacts = [
+          {
+            role = "static-locked-checkpoint";
+            path = "checkpoints/static_routed_locked_${boardProfile.platform}.dcp";
+          }
+          {
+            role = "shell-synthesized-checkpoint";
+            path = "checkpoints/shell/shell_synthed.dcp";
+          }
+          {
+            role = "seed-synthesized-checkpoint";
+            path = "checkpoints/config_0/user_synthed_c0_0.dcp";
+          }
+        ];
+        commands = ''
+          cp ${staticPath}/static_routed_locked_${boardProfile.platform}.dcp \
+            "$out/checkpoints/static_routed_locked_${boardProfile.platform}.dcp"
+          cp ${synth}/checkpoints/shell/shell_synthed.dcp "$out/checkpoints/shell/"
+          cp ${synth}/checkpoints/config_0/user_synthed_c0_0.dcp "$out/checkpoints/config_0/"
+        '';
+      }
+    else
+      null;
 
-  outerLinkSpec = if outerInputs == null then null else mkImplementationSpec {
-    name = "shell-link";
-    phase = "link";
-    unit = "shell";
-    predecessorPath = outerInputs;
-    artifacts = [ { role = "linked-checkpoint"; path = "checkpoints/shell_linked.dcp"; } ];
-  };
-  outerLink = if outerInputs == null then null else mkStage {
-    pname = "${pname}-shell-link";
-    board = boardProfile;
-    inherit xilinxVersion;
-    cores = checkedImplementationCores;
-    cmakeFlags = shellImplementationBaseFlags ++ [ "-DSTATIC_PATH=${outerInputs}/checkpoints" ];
-    preBuildSetup = ''
-      ${timingGateDependency}
-      ${importImplementationStageArtifacts {
-        previousStage = outerInputs;
-        roles = [ "shell-synthesized-checkpoint" "seed-synthesized-checkpoint" ];
-        expectedPhase = "inputs";
-        expectedContext = implementationContext.id;
-      }}
-    '';
-    buildCommands = [ "vivado -mode tcl -source \"$build_dir/link.tcl\" -notrace" ];
-    expectedPaths = [ "checkpoints/shell_linked.dcp" ];
-    nativeBuildInputs = [ pkgs.python3 ];
-    extraInstallPhase = ''
-      mkdir -p "$out/checkpoints" "$out/metadata"
-      cp "$build_dir/checkpoints/shell_linked.dcp" "$out/checkpoints/"
-      ${writeImplementationStageManifest { spec = outerLinkSpec; }}
-    '';
-  };
+  outerLinkSpec =
+    if outerInputs == null then
+      null
+    else
+      mkImplementationSpec {
+        name = "shell-link";
+        phase = "link";
+        unit = "shell";
+        predecessorPath = outerInputs;
+        artifacts = [
+          {
+            role = "linked-checkpoint";
+            path = "checkpoints/shell_linked.dcp";
+          }
+        ];
+      };
+  outerLink =
+    if outerInputs == null then
+      null
+    else
+      mkStage {
+        pname = "${pname}-shell-link";
+        board = boardProfile;
+        inherit xilinxVersion;
+        cores = checkedImplementationCores;
+        cmakeFlags = shellImplementationBaseFlags ++ [ "-DSTATIC_PATH=${outerInputs}/checkpoints" ];
+        preBuildSetup = ''
+          ${timingGateDependency}
+          ${importImplementationStageArtifacts {
+            previousStage = outerInputs;
+            roles = [
+              "shell-synthesized-checkpoint"
+              "seed-synthesized-checkpoint"
+            ];
+            expectedPhase = "inputs";
+            expectedContext = implementationContext.id;
+          }}
+        '';
+        buildCommands = [ "vivado -mode tcl -source \"$build_dir/link.tcl\" -notrace" ];
+        expectedPaths = [ "checkpoints/shell_linked.dcp" ];
+        nativeBuildInputs = [ pkgs.python3 ];
+        extraInstallPhase = ''
+          mkdir -p "$out/checkpoints" "$out/metadata"
+          cp "$build_dir/checkpoints/shell_linked.dcp" "$out/checkpoints/"
+          ${writeImplementationStageManifest { spec = outerLinkSpec; }}
+        '';
+      };
 
-  mkPhysicalStage = {
-    name, unit, phase, predecessor, predecessorPhase, predecessorRole,
-    inputPath, outputPath, outputRole, strategy, extraFlags,
-    incrementalMode ? "none", incrementalEvidence ? false,
-    extraPreBuildSetup ? "",
-  }:
+  mkPhysicalStage =
+    {
+      name,
+      unit,
+      phase,
+      predecessor,
+      predecessorPhase,
+      predecessorRole,
+      inputPath,
+      outputPath,
+      outputRole,
+      strategy,
+      extraFlags,
+      incrementalMode ? "none",
+      incrementalEvidence ? false,
+      extraPreBuildSetup ? "",
+    }:
     let
       reportPrefix = if phase == "validate" then "shell" else "shell_${phase}";
       reportDirectory = if unit == "config_0" then "reports/config_0" else "reports";
       reportSuffix = if unit == "config_0" then "_c0" else "";
       physicalPath = "${reportDirectory}/${reportPrefix}_physical${reportSuffix}.json";
       phaseArtifacts = [
-        { role = "${phase}-utilization-report"; path = "${reportDirectory}/${reportPrefix}_utilization${reportSuffix}.rpt"; }
-        { role = "${phase}-timing-summary-report"; path = "${reportDirectory}/${reportPrefix}_timing_summary${reportSuffix}.rpt"; }
-      ] ++ lib.optionals (builtins.elem phase [ "opt" "place" ]) [
-        { role = "${phase}-qor-assessment-report"; path = "${reportDirectory}/${reportPrefix}_qor_assessment${reportSuffix}.rpt"; }
-      ] ++ lib.optionals (phase == "place" && boardProfile.board == "v80") [
-        { role = "place-diagnosis-observations"; path = "${reportDirectory}/${reportPrefix}_diagnosis${reportSuffix}.json"; }
-        { role = "place-congestion-report"; path = "${reportDirectory}/${reportPrefix}_congestion${reportSuffix}.rpt"; }
-        { role = "place-complexity-report"; path = "${reportDirectory}/${reportPrefix}_complexity${reportSuffix}.rpt"; }
-        { role = "place-logic-level-report"; path = "${reportDirectory}/${reportPrefix}_logic_levels${reportSuffix}.rpt"; }
-        { role = "place-high-fanout-report"; path = "${reportDirectory}/${reportPrefix}_high_fanout${reportSuffix}.rpt"; }
-      ] ++ lib.optionals (builtins.elem phase [ "route" "validate" ]) [
-        { role = "${phase}-route-status-report"; path = "${reportDirectory}/${reportPrefix}_route_status${reportSuffix}.rpt"; }
-      ] ++ lib.optionals (incrementalMode == "reference" && builtins.elem phase [ "place" "route" ]) [
-        { role = "incremental-reuse-report"; path = "${reportDirectory}/${reportPrefix}_incremental_reuse${reportSuffix}.rpt"; }
-      ] ++ lib.optionals incrementalEvidence [
-        { role = "incremental-reference-evidence"; path = "metadata/incremental-reference.json"; }
+        {
+          role = "${phase}-utilization-report";
+          path = "${reportDirectory}/${reportPrefix}_utilization${reportSuffix}.rpt";
+        }
+        {
+          role = "${phase}-timing-summary-report";
+          path = "${reportDirectory}/${reportPrefix}_timing_summary${reportSuffix}.rpt";
+        }
+      ]
+      ++
+        lib.optionals
+          (builtins.elem phase [
+            "opt"
+            "place"
+          ])
+          [
+            {
+              role = "${phase}-qor-assessment-report";
+              path = "${reportDirectory}/${reportPrefix}_qor_assessment${reportSuffix}.rpt";
+            }
+          ]
+      ++ lib.optionals (phase == "place" && boardProfile.board == "v80") [
+        {
+          role = "place-diagnosis-observations";
+          path = "${reportDirectory}/${reportPrefix}_diagnosis${reportSuffix}.json";
+        }
+        {
+          role = "place-congestion-report";
+          path = "${reportDirectory}/${reportPrefix}_congestion${reportSuffix}.rpt";
+        }
+        {
+          role = "place-complexity-report";
+          path = "${reportDirectory}/${reportPrefix}_complexity${reportSuffix}.rpt";
+        }
+        {
+          role = "place-logic-level-report";
+          path = "${reportDirectory}/${reportPrefix}_logic_levels${reportSuffix}.rpt";
+        }
+        {
+          role = "place-high-fanout-report";
+          path = "${reportDirectory}/${reportPrefix}_high_fanout${reportSuffix}.rpt";
+        }
+      ]
+      ++
+        lib.optionals
+          (builtins.elem phase [
+            "route"
+            "validate"
+          ])
+          [
+            {
+              role = "${phase}-route-status-report";
+              path = "${reportDirectory}/${reportPrefix}_route_status${reportSuffix}.rpt";
+            }
+          ]
+      ++
+        lib.optionals
+          (
+            incrementalMode == "reference"
+            && builtins.elem phase [
+              "place"
+              "route"
+            ]
+          )
+          [
+            {
+              role = "incremental-reuse-report";
+              path = "${reportDirectory}/${reportPrefix}_incremental_reuse${reportSuffix}.rpt";
+            }
+          ]
+      ++ lib.optionals incrementalEvidence [
+        {
+          role = "incremental-reference-evidence";
+          path = "metadata/incremental-reference.json";
+        }
       ];
       spec = mkImplementationSpec {
-      inherit phase strategy unit;
-      name = "${name}-${phase}";
-      predecessorPath = predecessor;
-      artifacts = [ { role = outputRole; path = outputPath; } ] ++ phaseArtifacts ++ lib.optionals (phase == "validate") [
-        { role = "bitstream-drc-report"; path = "${reportDirectory}/shell_drc_bitstream_checks${reportSuffix}.rpt"; }
-        { role = "validation-result"; path = "${reportDirectory}/validation.json"; }
-      ];
-      outcome = if phase == "validate" then "accepted" else "complete";
-      outcomePath = if phase == "validate" then "${reportDirectory}/validation.json" else null;
-      telemetryPhysicalPath = physicalPath;
-    };
-    in mkStage {
+        inherit phase strategy unit;
+        name = "${name}-${phase}";
+        predecessorPath = predecessor;
+        artifacts = [
+          {
+            role = outputRole;
+            path = outputPath;
+          }
+        ]
+        ++ phaseArtifacts
+        ++ lib.optionals (phase == "validate") [
+          {
+            role = "bitstream-drc-report";
+            path = "${reportDirectory}/shell_drc_bitstream_checks${reportSuffix}.rpt";
+          }
+          {
+            role = "validation-result";
+            path = "${reportDirectory}/validation.json";
+          }
+        ];
+        outcome = if phase == "validate" then "accepted" else "complete";
+        outcomePath = if phase == "validate" then "${reportDirectory}/validation.json" else null;
+        telemetryPhysicalPath = physicalPath;
+      };
+    in
+    mkStage {
       pname = "${pname}-${name}-${phase}";
       board = boardProfile;
       inherit xilinxVersion;
       cores = checkedImplementationCores;
       checkTimingLog = false;
-      cmakeFlags = shellImplementationBaseFlags ++ [
-        "-DIMPLEMENTATION_PHASE:STRING=${phase}"
-        "-DIMPLEMENTATION_INPUT_DCP:FILEPATH=$build_dir/${inputPath}"
-        "-DIMPLEMENTATION_OUTPUT_DCP:FILEPATH=$build_dir/${outputPath}"
-        "-DIMPLEMENTATION_COMPLETION_PATH:FILEPATH=$build_dir/checkpoints/${name}_${phase}_complete"
-        "-DIMPLEMENTATION_REPORT_DIR:PATH=$build_dir/${reportDirectory}"
-        "-DIMPLEMENTATION_REPORT_SUFFIX:STRING=${reportSuffix}"
-        "-DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH=$build_dir/${reportDirectory}/validation.json"
-        "-DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH=$build_dir/${physicalPath}"
-      ] ++ lib.optionals (incrementalMode != "none") [
-        "-DIMPLEMENTATION_INCREMENTAL_MODE:STRING=${incrementalMode}"
-      ] ++ extraFlags;
+      cmakeFlags =
+        shellImplementationBaseFlags
+        ++ [
+          "-DIMPLEMENTATION_PHASE:STRING=${phase}"
+          "-DIMPLEMENTATION_INPUT_DCP:FILEPATH=$build_dir/${inputPath}"
+          "-DIMPLEMENTATION_OUTPUT_DCP:FILEPATH=$build_dir/${outputPath}"
+          "-DIMPLEMENTATION_COMPLETION_PATH:FILEPATH=$build_dir/checkpoints/${name}_${phase}_complete"
+          "-DIMPLEMENTATION_REPORT_DIR:PATH=$build_dir/${reportDirectory}"
+          "-DIMPLEMENTATION_REPORT_SUFFIX:STRING=${reportSuffix}"
+          "-DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH=$build_dir/${reportDirectory}/validation.json"
+          "-DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH=$build_dir/${physicalPath}"
+        ]
+        ++ lib.optionals (incrementalMode != "none") [
+          "-DIMPLEMENTATION_INCREMENTAL_MODE:STRING=${incrementalMode}"
+        ]
+        ++ extraFlags;
       preBuildSetup = ''
         ${importImplementationStageArtifacts {
           previousStage = predecessor;
@@ -738,13 +953,20 @@ let
         ${extraPreBuildSetup}
       '';
       buildCommands = [ "make physical_stage" ];
-      expectedPaths = [ outputPath "checkpoints/${name}_${phase}_complete" physicalPath ]
-        ++ map (artifact: artifact.path) phaseArtifacts
-        ++ lib.optionals (phase == "validate") [
-          "${reportDirectory}/shell_drc_bitstream_checks${reportSuffix}.rpt"
-          "${reportDirectory}/validation.json"
-        ];
-      nativeBuildInputs = [ pkgs.jq pkgs.python3 ];
+      expectedPaths = [
+        outputPath
+        "checkpoints/${name}_${phase}_complete"
+        physicalPath
+      ]
+      ++ map (artifact: artifact.path) phaseArtifacts
+      ++ lib.optionals (phase == "validate") [
+        "${reportDirectory}/shell_drc_bitstream_checks${reportSuffix}.rpt"
+        "${reportDirectory}/validation.json"
+      ];
+      nativeBuildInputs = [
+        pkgs.jq
+        pkgs.python3
+      ];
       extraInstallPhase = ''
         mkdir -p "$out/$(dirname ${outputPath})" "$out/metadata" "$out/${reportDirectory}"
         cp "$build_dir/${outputPath}" "$out/${outputPath}"
@@ -763,54 +985,140 @@ let
       '';
     };
 
-  outerOpt = if outerLink == null then null else mkPhysicalStage {
-    name = "shell"; unit = "shell"; phase = "opt";
-    predecessor = outerLink; predecessorPhase = "link"; predecessorRole = "linked-checkpoint";
-    inputPath = "checkpoints/shell_linked.dcp"; outputPath = "checkpoints/shell_opted.dcp"; outputRole = "optimized-checkpoint";
-    strategy.opt = implementationDirectives.opt;
-    extraFlags = [ "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}" ];
-  };
-  outerPlace = if outerOpt == null then null else mkPhysicalStage {
-    name = "shell"; unit = "shell"; phase = "place";
-    predecessor = outerOpt; predecessorPhase = "opt"; predecessorRole = "optimized-checkpoint";
-    inputPath = "checkpoints/shell_opted.dcp"; outputPath = "checkpoints/shell_phys_opted.dcp"; outputRole = "placed-checkpoint";
-    strategy = { place = implementationDirectives.place; physOpt = implementationDirectives.physOpt; };
-    extraFlags = [ "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}" "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}" ];
-  };
-  outerRoute = if outerPlace == null then null else mkPhysicalStage {
-    name = "shell"; unit = "shell"; phase = "route";
-    predecessor = outerPlace; predecessorPhase = "place"; predecessorRole = "placed-checkpoint";
-    inputPath = "checkpoints/shell_phys_opted.dcp"; outputPath = "checkpoints/shell_routed_unvalidated.dcp"; outputRole = "routed-checkpoint";
-    strategy = { route = implementationDirectives.route; postRoutePhysOpt = implementationDirectives.postRoutePhysOpt; finalRoute = implementationDirectives.finalRoute; };
-    extraFlags = [ "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}" "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}" "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}" ];
-  };
-  outerValidate = if outerRoute == null then null else mkPhysicalStage {
-    name = "shell"; unit = "shell"; phase = "validate";
-    predecessor = outerRoute; predecessorPhase = "route"; predecessorRole = "routed-checkpoint";
-    inputPath = "checkpoints/shell_routed_unvalidated.dcp"; outputPath = "checkpoints/shell_routed.dcp"; outputRole = "validated-checkpoint";
-    strategy.enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming;
-    extraFlags = [
-      "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming == null then "project" else if checkedImplementationEnforceTiming then "1" else "0"}"
-      "-DIMPLEMENTATION_REPORT_DIR:PATH=$build_dir/reports"
-      "-DIMPLEMENTATION_LABEL:STRING=routed_shell"
-      "-DIMPLEMENTATION_DRC_NAME:STRING=shell_bitstream_gate"
-    ];
-  };
-  outerValidationGate = if outerValidate == null then null else mkImplementationStageGate {
-    pname = "${pname}-shell-validation-gate";
-    stage = outerValidate;
-    expectedContext = implementationContext.id;
-  };
+  outerOpt =
+    if outerLink == null then
+      null
+    else
+      mkPhysicalStage {
+        name = "shell";
+        unit = "shell";
+        phase = "opt";
+        predecessor = outerLink;
+        predecessorPhase = "link";
+        predecessorRole = "linked-checkpoint";
+        inputPath = "checkpoints/shell_linked.dcp";
+        outputPath = "checkpoints/shell_opted.dcp";
+        outputRole = "optimized-checkpoint";
+        strategy.opt = implementationDirectives.opt;
+        extraFlags = [ "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}" ];
+      };
+  outerPlace =
+    if outerOpt == null then
+      null
+    else
+      mkPhysicalStage {
+        name = "shell";
+        unit = "shell";
+        phase = "place";
+        predecessor = outerOpt;
+        predecessorPhase = "opt";
+        predecessorRole = "optimized-checkpoint";
+        inputPath = "checkpoints/shell_opted.dcp";
+        outputPath = "checkpoints/shell_phys_opted.dcp";
+        outputRole = "placed-checkpoint";
+        strategy = {
+          place = implementationDirectives.place;
+          physOpt = implementationDirectives.physOpt;
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}"
+          "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}"
+        ];
+      };
+  outerRoute =
+    if outerPlace == null then
+      null
+    else
+      mkPhysicalStage {
+        name = "shell";
+        unit = "shell";
+        phase = "route";
+        predecessor = outerPlace;
+        predecessorPhase = "place";
+        predecessorRole = "placed-checkpoint";
+        inputPath = "checkpoints/shell_phys_opted.dcp";
+        outputPath = "checkpoints/shell_routed_unvalidated.dcp";
+        outputRole = "routed-checkpoint";
+        strategy = {
+          route = implementationDirectives.route;
+          postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
+          finalRoute = implementationDirectives.finalRoute;
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}"
+          "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}"
+          "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}"
+        ];
+      };
+  outerValidate =
+    if outerRoute == null then
+      null
+    else
+      mkPhysicalStage {
+        name = "shell";
+        unit = "shell";
+        phase = "validate";
+        predecessor = outerRoute;
+        predecessorPhase = "route";
+        predecessorRole = "routed-checkpoint";
+        inputPath = "checkpoints/shell_routed_unvalidated.dcp";
+        outputPath = "checkpoints/shell_routed.dcp";
+        outputRole = "validated-checkpoint";
+        strategy.enforceTiming =
+          if checkedImplementationEnforceTiming == null then
+            "project"
+          else
+            checkedImplementationEnforceTiming;
+        extraFlags = [
+          "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${
+            if checkedImplementationEnforceTiming == null then
+              "project"
+            else if checkedImplementationEnforceTiming then
+              "1"
+            else
+              "0"
+          }"
+          "-DIMPLEMENTATION_REPORT_DIR:PATH=$build_dir/reports"
+          "-DIMPLEMENTATION_LABEL:STRING=routed_shell"
+          "-DIMPLEMENTATION_DRC_NAME:STRING=shell_bitstream_gate"
+        ];
+      };
+  outerValidationGate =
+    if outerValidate == null then
+      null
+    else
+      mkImplementationStageGate {
+        pname = "${pname}-shell-validation-gate";
+        stage = outerValidate;
+        expectedContext = implementationContext.id;
+      };
   routed = outerValidationGate;
 
   dynamicInputs = mkInputBundle {
     name = "config_0";
-    artifacts = (lib.optionals (outerValidate != null) [ { role = "outer-validated-checkpoint"; path = "checkpoints/shell_routed.dcp"; } ]) ++ [
-      { role = "shell-synthesized-checkpoint"; path = "checkpoints/shell/shell_synthed.dcp"; }
-      { role = "seed-synthesized-checkpoint"; path = "checkpoints/config_0/user_synthed_c0_0.dcp"; }
-    ] ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [
-      { role = "static-synthesized-checkpoint"; path = "checkpoints/static_synthed_${boardProfile.platform}_gen${toString implementationPcieGeneration}.dcp"; }
-    ];
+    artifacts =
+      (lib.optionals (outerValidate != null) [
+        {
+          role = "outer-validated-checkpoint";
+          path = "checkpoints/shell_routed.dcp";
+        }
+      ])
+      ++ [
+        {
+          role = "shell-synthesized-checkpoint";
+          path = "checkpoints/shell/shell_synthed.dcp";
+        }
+        {
+          role = "seed-synthesized-checkpoint";
+          path = "checkpoints/config_0/user_synthed_c0_0.dcp";
+        }
+      ]
+      ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [
+        {
+          role = "static-synthesized-checkpoint";
+          path = "checkpoints/static_synthed_${boardProfile.platform}_gen${toString implementationPcieGeneration}.dcp";
+        }
+      ];
     commands = ''
       ${lib.optionalString (outerValidate != null) ''
         test -e ${outerValidationGate}/metadata/outcome
@@ -825,23 +1133,45 @@ let
     '';
   };
   dynamicLinkSpec = mkImplementationSpec {
-    name = "config-0-link"; phase = "link"; unit = "config_0"; predecessorPath = dynamicInputs;
-    artifacts = [ { role = "linked-checkpoint"; path = "checkpoints/config_0/shell_linked_c0.dcp"; } ];
+    name = "config-0-link";
+    phase = "link";
+    unit = "config_0";
+    predecessorPath = dynamicInputs;
+    artifacts = [
+      {
+        role = "linked-checkpoint";
+        path = "checkpoints/config_0/shell_linked_c0.dcp";
+      }
+    ];
   };
   dynamicLink = mkStage {
     pname = "${pname}-config-0-link";
-    board = boardProfile; inherit xilinxVersion; cores = checkedImplementationCores;
-    cmakeFlags = shellImplementationBaseFlags ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [ "-DSTATIC_PATH=${dynamicInputs}/checkpoints" ];
+    board = boardProfile;
+    inherit xilinxVersion;
+    cores = checkedImplementationCores;
+    cmakeFlags =
+      shellImplementationBaseFlags
+      ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [
+        "-DSTATIC_PATH=${dynamicInputs}/checkpoints"
+      ];
     preBuildSetup = ''
       ${lib.optionalString (boardProfile.fpgaArchitecture == "versal") timingGateDependency}
       ${importImplementationStageArtifacts {
         previousStage = dynamicInputs;
-        roles = [ "shell-synthesized-checkpoint" "seed-synthesized-checkpoint" ] ++ lib.optionals (outerValidate != null) [ "outer-validated-checkpoint" ];
-        expectedPhase = "inputs"; expectedContext = implementationContext.id;
+        roles = [
+          "shell-synthesized-checkpoint"
+          "seed-synthesized-checkpoint"
+        ]
+        ++ lib.optionals (outerValidate != null) [ "outer-validated-checkpoint" ];
+        expectedPhase = "inputs";
+        expectedContext = implementationContext.id;
       }}
     '';
     buildCommands = [ "make dynamic_link" ];
-    expectedPaths = [ "checkpoints/dynamic_link_complete" "checkpoints/config_0/shell_linked_c0.dcp" ];
+    expectedPaths = [
+      "checkpoints/dynamic_link_complete"
+      "checkpoints/config_0/shell_linked_c0.dcp"
+    ];
     nativeBuildInputs = [ pkgs.python3 ];
     extraInstallPhase = ''
       mkdir -p "$out/checkpoints/config_0" "$out/metadata"
@@ -850,25 +1180,57 @@ let
     '';
   };
   dynamicOpt = mkPhysicalStage {
-    name = "config_0"; unit = "config_0"; phase = "opt";
-    predecessor = dynamicLink; predecessorPhase = "link"; predecessorRole = "linked-checkpoint";
-    inputPath = "checkpoints/config_0/shell_linked_c0.dcp"; outputPath = "checkpoints/config_0/shell_opted_c0.dcp"; outputRole = "optimized-checkpoint";
+    name = "config_0";
+    unit = "config_0";
+    phase = "opt";
+    predecessor = dynamicLink;
+    predecessorPhase = "link";
+    predecessorRole = "linked-checkpoint";
+    inputPath = "checkpoints/config_0/shell_linked_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+    outputRole = "optimized-checkpoint";
     strategy.opt = implementationDirectives.opt;
     extraFlags = [ "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}" ];
   };
   dynamicPlace = mkPhysicalStage {
-    name = "config_0"; unit = "config_0"; phase = "place";
-    predecessor = dynamicOpt; predecessorPhase = "opt"; predecessorRole = "optimized-checkpoint";
-    inputPath = "checkpoints/config_0/shell_opted_c0.dcp"; outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp"; outputRole = "placed-checkpoint";
-    strategy = { place = implementationDirectives.place; physOpt = implementationDirectives.physOpt; };
-    extraFlags = [ "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}" "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}" ];
+    name = "config_0";
+    unit = "config_0";
+    phase = "place";
+    predecessor = dynamicOpt;
+    predecessorPhase = "opt";
+    predecessorRole = "optimized-checkpoint";
+    inputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+    outputRole = "placed-checkpoint";
+    strategy = {
+      place = implementationDirectives.place;
+      physOpt = implementationDirectives.physOpt;
+    };
+    extraFlags = [
+      "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}"
+      "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}"
+    ];
   };
   dynamicRoute = mkPhysicalStage {
-    name = "config_0"; unit = "config_0"; phase = "route";
-    predecessor = dynamicPlace; predecessorPhase = "place"; predecessorRole = "placed-checkpoint";
-    inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp"; outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp"; outputRole = "routed-checkpoint";
-    strategy = { route = implementationDirectives.route; postRoutePhysOpt = implementationDirectives.postRoutePhysOpt; finalRoute = implementationDirectives.finalRoute; };
-    extraFlags = [ "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}" "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}" "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}" ];
+    name = "config_0";
+    unit = "config_0";
+    phase = "route";
+    predecessor = dynamicPlace;
+    predecessorPhase = "place";
+    predecessorRole = "placed-checkpoint";
+    inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+    outputRole = "routed-checkpoint";
+    strategy = {
+      route = implementationDirectives.route;
+      postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
+      finalRoute = implementationDirectives.finalRoute;
+    };
+    extraFlags = [
+      "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}"
+      "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}"
+      "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}"
+    ];
   };
   incrementalReferenceSetup = reference: ''
     mkdir -p "$build_dir/metadata" "$build_dir/checkpoints/config_0"
@@ -884,82 +1246,179 @@ let
     test "$(sha256sum "$build_dir/checkpoints/config_0/incremental_reference.dcp" | cut -d ' ' -f 1)" = \
       "$reference_sha256"
   '';
-  incrementalOpt = if checkedIncrementalReference == null then null else mkPhysicalStage {
-    name = "config_0_incremental"; unit = "config_0"; phase = "opt";
-    predecessor = dynamicLink; predecessorPhase = "link"; predecessorRole = "linked-checkpoint";
-    inputPath = "checkpoints/config_0/shell_linked_c0.dcp";
-    outputPath = "checkpoints/config_0/shell_opted_c0.dcp"; outputRole = "optimized-checkpoint";
-    incrementalMode = "reference"; incrementalEvidence = true;
-    extraPreBuildSetup = incrementalReferenceSetup checkedIncrementalReference;
-    strategy = {
-      opt = implementationDirectives.opt;
-      incremental = { mode = "explicit-reference"; referencePath = toString checkedIncrementalReference; signoffAuthority = false; };
-    };
-    extraFlags = [
-      "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}"
-      "-DIMPLEMENTATION_INCREMENTAL_REFERENCE_DCP:FILEPATH=$build_dir/checkpoints/config_0/incremental_reference.dcp"
-    ];
-  };
-  incrementalPlace = if incrementalOpt == null then null else mkPhysicalStage {
-    name = "config_0_incremental"; unit = "config_0"; phase = "place";
-    predecessor = incrementalOpt; predecessorPhase = "opt"; predecessorRole = "optimized-checkpoint";
-    inputPath = "checkpoints/config_0/shell_opted_c0.dcp";
-    outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp"; outputRole = "placed-checkpoint";
-    incrementalMode = "reference";
-    strategy = { place = implementationDirectives.place; physOpt = implementationDirectives.physOpt; incremental.mode = "explicit-reference"; };
-    extraFlags = [ "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}" "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}" ];
-  };
-  incrementalRoute = if incrementalPlace == null then null else mkPhysicalStage {
-    name = "config_0_incremental"; unit = "config_0"; phase = "route";
-    predecessor = incrementalPlace; predecessorPhase = "place"; predecessorRole = "placed-checkpoint";
-    inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
-    outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp"; outputRole = "routed-checkpoint";
-    incrementalMode = "reference";
-    strategy = {
-      route = implementationDirectives.route;
-      postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
-      finalRoute = implementationDirectives.finalRoute;
-      incremental.mode = "explicit-reference";
-    };
-    extraFlags = [ "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}" "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}" "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}" ];
-  };
-  incrementalValidate = if incrementalRoute == null then null else mkPhysicalStage {
-    name = "config_0_incremental"; unit = "config_0"; phase = "validate";
-    predecessor = incrementalRoute; predecessorPhase = "route"; predecessorRole = "routed-checkpoint";
-    inputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
-    outputPath = "checkpoints/config_0/shell_routed_c0.dcp"; outputRole = "validated-checkpoint";
-    incrementalMode = "reference";
-    strategy = { incremental.mode = "explicit-reference"; enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming; };
-    extraFlags = [
-      "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming == null then "project" else if checkedImplementationEnforceTiming then "1" else "0"}"
-      "-DIMPLEMENTATION_LABEL:STRING=config_0_incremental_routed_shell"
-      "-DIMPLEMENTATION_DRC_NAME:STRING=config_0_incremental_bitstream_gate"
-    ];
-  };
-  incrementalGate = if incrementalValidate == null then null else mkImplementationStageGate {
-    pname = "${pname}-incremental-validation-gate";
-    stage = incrementalValidate;
-    expectedContext = implementationContext.id;
-  };
+  incrementalOpt =
+    if checkedIncrementalReference == null then
+      null
+    else
+      mkPhysicalStage {
+        name = "config_0_incremental";
+        unit = "config_0";
+        phase = "opt";
+        predecessor = dynamicLink;
+        predecessorPhase = "link";
+        predecessorRole = "linked-checkpoint";
+        inputPath = "checkpoints/config_0/shell_linked_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+        outputRole = "optimized-checkpoint";
+        incrementalMode = "reference";
+        incrementalEvidence = true;
+        extraPreBuildSetup = incrementalReferenceSetup checkedIncrementalReference;
+        strategy = {
+          opt = implementationDirectives.opt;
+          incremental = {
+            mode = "explicit-reference";
+            referencePath = toString checkedIncrementalReference;
+            signoffAuthority = false;
+          };
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}"
+          "-DIMPLEMENTATION_INCREMENTAL_REFERENCE_DCP:FILEPATH=$build_dir/checkpoints/config_0/incremental_reference.dcp"
+        ];
+      };
+  incrementalPlace =
+    if incrementalOpt == null then
+      null
+    else
+      mkPhysicalStage {
+        name = "config_0_incremental";
+        unit = "config_0";
+        phase = "place";
+        predecessor = incrementalOpt;
+        predecessorPhase = "opt";
+        predecessorRole = "optimized-checkpoint";
+        inputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+        outputRole = "placed-checkpoint";
+        incrementalMode = "reference";
+        strategy = {
+          place = implementationDirectives.place;
+          physOpt = implementationDirectives.physOpt;
+          incremental.mode = "explicit-reference";
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}"
+          "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}"
+        ];
+      };
+  incrementalRoute =
+    if incrementalPlace == null then
+      null
+    else
+      mkPhysicalStage {
+        name = "config_0_incremental";
+        unit = "config_0";
+        phase = "route";
+        predecessor = incrementalPlace;
+        predecessorPhase = "place";
+        predecessorRole = "placed-checkpoint";
+        inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+        outputRole = "routed-checkpoint";
+        incrementalMode = "reference";
+        strategy = {
+          route = implementationDirectives.route;
+          postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
+          finalRoute = implementationDirectives.finalRoute;
+          incremental.mode = "explicit-reference";
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}"
+          "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}"
+          "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}"
+        ];
+      };
+  incrementalValidate =
+    if incrementalRoute == null then
+      null
+    else
+      mkPhysicalStage {
+        name = "config_0_incremental";
+        unit = "config_0";
+        phase = "validate";
+        predecessor = incrementalRoute;
+        predecessorPhase = "route";
+        predecessorRole = "routed-checkpoint";
+        inputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_routed_c0.dcp";
+        outputRole = "validated-checkpoint";
+        incrementalMode = "reference";
+        strategy = {
+          incremental.mode = "explicit-reference";
+          enforceTiming =
+            if checkedImplementationEnforceTiming == null then
+              "project"
+            else
+              checkedImplementationEnforceTiming;
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${
+            if checkedImplementationEnforceTiming == null then
+              "project"
+            else if checkedImplementationEnforceTiming then
+              "1"
+            else
+              "0"
+          }"
+          "-DIMPLEMENTATION_LABEL:STRING=config_0_incremental_routed_shell"
+          "-DIMPLEMENTATION_DRC_NAME:STRING=config_0_incremental_bitstream_gate"
+        ];
+      };
+  incrementalGate =
+    if incrementalValidate == null then
+      null
+    else
+      mkImplementationStageGate {
+        pname = "${pname}-incremental-validation-gate";
+        stage = incrementalValidate;
+        expectedContext = implementationContext.id;
+      };
 
   dynamicValidateSpec = mkImplementationSpec {
-    name = "config-0-validate"; phase = "validate"; unit = "config_0"; predecessorPath = dynamicRoute;
-    strategy.enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming;
+    name = "config-0-validate";
+    phase = "validate";
+    unit = "config_0";
+    predecessorPath = dynamicRoute;
+    strategy.enforceTiming =
+      if checkedImplementationEnforceTiming == null then
+        "project"
+      else
+        checkedImplementationEnforceTiming;
     outcome = "accepted";
     outcomePath = "reports/config_0/validation.json";
     telemetryPhysicalPath = "reports/config_0/shell_physical_c0.json";
     artifacts = [
-      { role = "validated-checkpoint"; path = "checkpoints/config_0/shell_routed_c0.dcp"; }
-      { role = "utilization-report"; path = "reports/config_0/shell_utilization_c0.rpt"; }
-      { role = "route-status-report"; path = "reports/config_0/shell_route_status_c0.rpt"; }
-      { role = "timing-summary-report"; path = "reports/config_0/shell_timing_summary_c0.rpt"; }
-      { role = "bitstream-drc-report"; path = "reports/config_0/shell_drc_bitstream_checks_c0.rpt"; }
-      { role = "validation-result"; path = "reports/config_0/validation.json"; }
+      {
+        role = "validated-checkpoint";
+        path = "checkpoints/config_0/shell_routed_c0.dcp";
+      }
+      {
+        role = "utilization-report";
+        path = "reports/config_0/shell_utilization_c0.rpt";
+      }
+      {
+        role = "route-status-report";
+        path = "reports/config_0/shell_route_status_c0.rpt";
+      }
+      {
+        role = "timing-summary-report";
+        path = "reports/config_0/shell_timing_summary_c0.rpt";
+      }
+      {
+        role = "bitstream-drc-report";
+        path = "reports/config_0/shell_drc_bitstream_checks_c0.rpt";
+      }
+      {
+        role = "validation-result";
+        path = "reports/config_0/validation.json";
+      }
     ];
   };
   dynamicValidationRaw = mkStage {
     pname = "${pname}-dynamic-validation";
-    board = boardProfile; inherit xilinxVersion; cores = checkedImplementationCores;
+    board = boardProfile;
+    inherit xilinxVersion;
+    cores = checkedImplementationCores;
     checkTimingLog = false;
     cmakeFlags = shellImplementationBaseFlags ++ [
       "-DIMPLEMENTATION_PHASE:STRING=validate"
@@ -972,10 +1431,20 @@ let
       "-DIMPLEMENTATION_DRC_NAME:STRING=config_0_bitstream_gate"
       "-DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH=$build_dir/reports/config_0/validation.json"
       "-DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH=$build_dir/reports/config_0/shell_physical_c0.json"
-      "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming == null then "project" else if checkedImplementationEnforceTiming then "1" else "0"}"
+      "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${
+        if checkedImplementationEnforceTiming == null then
+          "project"
+        else if checkedImplementationEnforceTiming then
+          "1"
+        else
+          "0"
+      }"
     ];
     preBuildSetup = importImplementationStageArtifacts {
-      previousStage = dynamicRoute; roles = [ "routed-checkpoint" ]; expectedPhase = "route"; expectedContext = implementationContext.id;
+      previousStage = dynamicRoute;
+      roles = [ "routed-checkpoint" ];
+      expectedPhase = "route";
+      expectedContext = implementationContext.id;
     };
     buildCommands = [ "make physical_stage" ];
     expectedPaths = [
@@ -998,22 +1467,59 @@ let
     expectedContext = implementationContext.id;
   };
   dynamicFinalizeSpec = mkImplementationSpec {
-    name = "config-0-finalize"; phase = "finalize"; unit = "config_0"; predecessorPath = dynamicValidationRaw;
+    name = "config-0-finalize";
+    phase = "finalize";
+    unit = "config_0";
+    predecessorPath = dynamicValidationRaw;
     outcome = "accepted";
     artifacts = [
-      { role = "validated-checkpoint"; path = "checkpoints/config_0/shell_routed_c0.dcp"; }
-      { role = "locked-shell-checkpoint"; path = "checkpoints/shell_routed_locked.dcp"; }
-      { role = "utilization-report"; path = "reports/config_0/shell_utilization_c0.rpt"; }
-      { role = "route-status-report"; path = "reports/config_0/shell_route_status_c0.rpt"; }
-      { role = "timing-summary-report"; path = "reports/config_0/shell_timing_summary_c0.rpt"; }
-      { role = "bitstream-drc-report"; path = "reports/config_0/shell_drc_bitstream_checks_c0.rpt"; }
-      { role = "validation-result"; path = "reports/config_0/validation.json"; }
-    ] ++ lib.optionals (boardProfile.fpgaArchitecture == "ultrascale_plus") [ { role = "recombined-checkpoint"; path = "checkpoints/shell_recombined.dcp"; } ]
-      ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [ { role = "root-routed-checkpoint"; path = "checkpoints/shell_routed.dcp"; } ];
+      {
+        role = "validated-checkpoint";
+        path = "checkpoints/config_0/shell_routed_c0.dcp";
+      }
+      {
+        role = "locked-shell-checkpoint";
+        path = "checkpoints/shell_routed_locked.dcp";
+      }
+      {
+        role = "utilization-report";
+        path = "reports/config_0/shell_utilization_c0.rpt";
+      }
+      {
+        role = "route-status-report";
+        path = "reports/config_0/shell_route_status_c0.rpt";
+      }
+      {
+        role = "timing-summary-report";
+        path = "reports/config_0/shell_timing_summary_c0.rpt";
+      }
+      {
+        role = "bitstream-drc-report";
+        path = "reports/config_0/shell_drc_bitstream_checks_c0.rpt";
+      }
+      {
+        role = "validation-result";
+        path = "reports/config_0/validation.json";
+      }
+    ]
+    ++ lib.optionals (boardProfile.fpgaArchitecture == "ultrascale_plus") [
+      {
+        role = "recombined-checkpoint";
+        path = "checkpoints/shell_recombined.dcp";
+      }
+    ]
+    ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [
+      {
+        role = "root-routed-checkpoint";
+        path = "checkpoints/shell_routed.dcp";
+      }
+    ];
   };
   dynamic = mkStage {
     pname = "${pname}-dynamic";
-    board = boardProfile; inherit xilinxVersion; cores = checkedImplementationCores;
+    board = boardProfile;
+    inherit xilinxVersion;
+    cores = checkedImplementationCores;
     checkTimingLog = false;
     cmakeFlags = shellImplementationBaseFlags ++ [ "-DIMPLEMENTATION_PHASE:STRING=finalize" ];
     preBuildSetup = ''
@@ -1029,16 +1535,23 @@ let
       "checkpoints/config_0/shell_routed_c0.dcp"
       "checkpoints/shell_routed_locked.dcp"
       "checkpoints/dynamic_finalize_complete"
-    ] ++ lib.optionals (boardProfile.fpgaArchitecture == "ultrascale_plus") [ "checkpoints/shell_recombined.dcp" ]
-      ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [ "checkpoints/shell_routed.dcp" ];
+    ]
+    ++ lib.optionals (boardProfile.fpgaArchitecture == "ultrascale_plus") [
+      "checkpoints/shell_recombined.dcp"
+    ]
+    ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [ "checkpoints/shell_routed.dcp" ];
     nativeBuildInputs = [ pkgs.python3 ];
     extraInstallPhase = ''
       mkdir -p "$out/checkpoints/config_0" "$out/reports/config_0" "$out/metadata"
       cp "$build_dir/checkpoints/config_0/shell_routed_c0.dcp" "$out/checkpoints/config_0/"
       cp "$build_dir/checkpoints/shell_routed_locked.dcp" "$out/checkpoints/"
       cp -a "$build_dir/reports/config_0/." "$out/reports/config_0/"
-      ${lib.optionalString (boardProfile.fpgaArchitecture == "ultrascale_plus") ''cp "$build_dir/checkpoints/shell_recombined.dcp" "$out/checkpoints/"''}
-      ${lib.optionalString (boardProfile.fpgaArchitecture == "versal") ''cp "$build_dir/checkpoints/shell_routed.dcp" "$out/checkpoints/"''}
+      ${lib.optionalString (
+        boardProfile.fpgaArchitecture == "ultrascale_plus"
+      ) ''cp "$build_dir/checkpoints/shell_recombined.dcp" "$out/checkpoints/"''}
+      ${lib.optionalString (
+        boardProfile.fpgaArchitecture == "versal"
+      ) ''cp "$build_dir/checkpoints/shell_routed.dcp" "$out/checkpoints/"''}
       ${writeImplementationStageManifest { spec = dynamicFinalizeSpec; }}
     '';
   };
@@ -1066,6 +1579,7 @@ let
     inherit shellCmakeFlags shellSynthesisCmakeFlags;
     synthesisAnalysis = {
       policy = synthesisAnalysisPolicy;
+      synthesis = residentShellSynthesis;
       raw = synthesisAnalysisRaw;
       stage = synthesisAnalysisStage;
       gate = synthesisAnalysisGate;
@@ -1085,19 +1599,23 @@ let
       resources.cores = checkedImplementationCores;
       directives = implementationDirectives;
       image = "self";
-      incremental = if checkedIncrementalReference == null then null else {
-        api = "coyote-nix.incremental-implementation/v1";
-        experimental = true;
-        signoffAuthority = false;
-        reference = checkedIncrementalReference;
-        stages = {
-          opt = incrementalOpt;
-          place = incrementalPlace;
-          route = incrementalRoute;
-          validate = incrementalValidate;
-          gate = incrementalGate;
-        };
-      };
+      incremental =
+        if checkedIncrementalReference == null then
+          null
+        else
+          {
+            api = "coyote-nix.incremental-implementation/v1";
+            experimental = true;
+            signoffAuthority = false;
+            reference = checkedIncrementalReference;
+            stages = {
+              opt = incrementalOpt;
+              place = incrementalPlace;
+              route = incrementalRoute;
+              validate = incrementalValidate;
+              gate = incrementalGate;
+            };
+          };
       units = {
         config_0 = {
           inputs = dynamicInputs;
@@ -1109,7 +1627,8 @@ let
           gate = dynamicValidationGate;
           finalize = dynamic;
         };
-      } // lib.optionalAttrs (outerLink != null) {
+      }
+      // lib.optionalAttrs (outerLink != null) {
         shell = {
           inputs = outerInputs;
           link = outerLink;
@@ -1130,12 +1649,17 @@ let
     predecessorPath = dynamic;
     strategy = { };
     outcome = "accepted";
-    artifacts = (map (artifact: {
-      role = "image-${builtins.replaceStrings [ "/" "." ] [ "-" "-" ] artifact}";
-      path = "bitstreams/${artifact}";
-    }) shellExpectedBitstreams) ++ [
-      { role = "primary-tool-invocation"; path = "metadata/primary-tool.json"; }
-    ];
+    artifacts =
+      (map (artifact: {
+        role = "image-${builtins.replaceStrings [ "/" "." ] [ "-" "-" ] artifact}";
+        path = "bitstreams/${artifact}";
+      }) shellExpectedBitstreams)
+      ++ [
+        {
+          role = "primary-tool-invocation";
+          path = "metadata/primary-tool.json";
+        }
+      ];
   };
 
   final = mkStage {
@@ -1167,7 +1691,7 @@ let
     extraAttrs = {
       passthru.coyoteTwoStage = contract // {
         stages = {
-          inherit synth dynamic;
+          inherit residentShellSynthesis synth dynamic;
           implementationInputs = dynamicInputs;
           link = dynamicLink;
           opt = dynamicOpt;
@@ -1178,13 +1702,17 @@ let
           finalize = dynamic;
           timingOracle = timingOracleStage;
           timingGate = timingOracleGate;
-          incremental = if checkedIncrementalReference == null then null else {
-            opt = incrementalOpt;
-            place = incrementalPlace;
-            route = incrementalRoute;
-            validate = incrementalValidate;
-            gate = incrementalGate;
-          };
+          incremental =
+            if checkedIncrementalReference == null then
+              null
+            else
+              {
+                opt = incrementalOpt;
+                place = incrementalPlace;
+                route = incrementalRoute;
+                validate = incrementalValidate;
+                gate = incrementalGate;
+              };
         }
         // lib.optionalAttrs synthesisAnalysisPolicy.enable {
           synthesisAnalysisRaw = synthesisAnalysisRaw;

@@ -140,9 +140,11 @@ The immutable packaged graph currently supports the QShell MVP topology of exact
 
 ### Fast synthesized-shell analysis
 
-When `synthesisAnalysis.enable = true`, the shell package exposes:
+Every shell package exposes `residentShellSynthesis`, which synthesizes only the resident shell into an independently rootable checkpoint without synthesizing the seed application or reading the external static checkpoint. This is the immutable predecessor for read-only synthesis analysis and later seed synthesis, so an analysis-script or assessment failure does not discard successful expensive synthesis.
 
-- `synthesisAnalysisRaw`: synthesizes only the resident shell and runs Coyote's `make synthesis_analysis`; it does not synthesize the seed application or read the external static checkpoint. It retains the shell DCP plus estimated setup/hold timing, critical paths, utilization, check-timing, and high-fanout reports.
+When `synthesisAnalysis.enable = true`, the shell package also exposes:
+
+- `synthesisAnalysisRaw`: consumes `residentShellSynthesis` and runs only Coyote's `make synthesis_analysis`. It retains the shell DCP plus estimated setup/hold timing, critical paths, utilization, check-timing, and high-fanout reports.
 - `synthesisAnalysis`: applies configurable WNS and optional logic-level policy in a lightweight derivation and retains `metadata/synthesis-analysis.json` plus links to the raw reports/checkpoint.
 - `synthesisGate`: accepts `PASS` and `MARGINAL`, and rejects `FAIL` while preserving the inspectable analysis output.
 
