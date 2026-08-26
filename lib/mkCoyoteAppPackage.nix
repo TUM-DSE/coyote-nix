@@ -39,7 +39,8 @@ let
     boardProfiles.${boardName}
       or (throw "coyote-nix: mkCoyoteAppPackage supports only u280 and v80, not ${boardName}");
   xilinxVersion = checkedShellContract.xilinxVersion;
-  collectPhysicalQorAssessment = !(boardName == "u280" && xilinxVersion == "2023.2");
+  combineOptPlace = boardName == "u280" && xilinxVersion == "2023.2";
+  collectPhysicalQorAssessment = !combineOptPlace;
 
   stageHelpers = import ./coyoteHwStageHelpers.nix {
     inherit
@@ -582,7 +583,7 @@ let
       description = "Coyote ${boardProfile.platform} BUILD_APP immutable ${phase} stage";
     };
 
-  opt = mkPhysicalStage {
+  opt = if combineOptPlace then null else mkPhysicalStage {
     phase = "opt";
     predecessor = link;
     predecessorPhase = "link";
@@ -596,17 +597,22 @@ let
 
   place = mkPhysicalStage {
     phase = "place";
-    predecessor = opt;
-    predecessorPhase = "opt";
-    predecessorRole = "optimized-checkpoint";
-    inputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+    predecessor = if combineOptPlace then link else opt;
+    predecessorPhase = if combineOptPlace then "link" else "opt";
+    predecessorRole = if combineOptPlace then "linked-checkpoint" else "optimized-checkpoint";
+    inputPath = if combineOptPlace then "checkpoints/config_0/shell_linked_c0.dcp" else "checkpoints/config_0/shell_opted_c0.dcp";
     outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
     outputRole = "placed-checkpoint";
-    strategy = {
+    strategy = lib.optionalAttrs combineOptPlace {
+      opt = implementationDirectives.opt;
+      combinedOptPlace = true;
+    } // {
       place = implementationDirectives.place;
       physOpt = implementationDirectives.physOpt;
     };
-    extraFlags = [
+    extraFlags = lib.optionals combineOptPlace [
+      "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}"
+    ] ++ [
       "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}"
       "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}"
     ];
@@ -886,6 +892,7 @@ let
       context = implementationContext;
       resources.cores = checkedImplementationCores;
       directives = implementationDirectives;
+      inherit combineOptPlace;
       stages = {
         inputs = implementationInputs;
         inherit link opt place route validate;

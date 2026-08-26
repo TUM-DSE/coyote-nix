@@ -750,6 +750,70 @@ let
         touch "$out"
       '';
 
+  physicalTclGeneration =
+    pkgs.runCommand "coyote-u280-generated-physical-tcl-contract"
+      {
+        nativeBuildInputs = [
+          pkgs.cmake
+          pkgs.gnumake
+          pkgs.stdenv.cc
+          python
+          fakeXilinxTools
+        ];
+      }
+      ''
+        set -euo pipefail
+        fixture=${coyoteRoot}/tests/resident_service_control
+        build="$TMPDIR/generated-u280-place"
+        cmake -S "$fixture" -B "$build" \
+          -DCYT_DIR=${coyoteRoot} \
+          -DFDEV_NAME:STRING=u280 \
+          -DBUILD_APP:STRING=0 \
+          -DBUILD_STATIC:STRING=0 \
+          -DBUILD_SHELL:STRING=1 \
+          -DSTATIC_PATH=${coyoteRoot}/hw/checkpoints \
+          -DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON \
+          -DIMPLEMENTATION_PHASE:STRING=place \
+          -DIMPLEMENTATION_INPUT_DCP:FILEPATH="$build/checkpoints/input.dcp" \
+          -DIMPLEMENTATION_OUTPUT_DCP:FILEPATH="$build/checkpoints/output.dcp" \
+          -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$build/checkpoints/place_complete" \
+          -DIMPLEMENTATION_REPORT_DIR:PATH="$build/reports" \
+          -DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH="$build/reports/physical.json" \
+          -DIMPLEMENTATION_OPT_DIRECTIVE:STRING=Explore
+
+        test -f "$build/base.tcl"
+        test -f "$build/physical_stage.tcl"
+        chmod u+w "$build/base.tcl" "$build/physical_stage.tcl"
+        ${python}/bin/python \
+          ${../nix/tools/patch-u280-vivado-2023.2-physical-stage.py} \
+          "$build/base.tcl" "$build/physical_stage.tcl"
+
+        grep -F 'set prefix "shell_''${phase}"' "$build/base.tcl" >/dev/null
+        grep -F '"$report_dir/''${prefix}_timing_summary''${report_suffix}.rpt"' \
+          "$build/base.tcl" >/dev/null
+        if grep -F '$report_dir/_' "$build/base.tcl" >/dev/null; then
+          echo 'generated physical Tcl lost a runtime report name component' >&2
+          exit 1
+        fi
+
+        awk '
+          /^        place \{/ { copying = 1 }
+          /^        route \{/ { copying = 0 }
+          copying { print }
+        ' "$build/physical_stage.tcl" > "$build/place-case.tcl"
+        grep -F 'opt_design -directive $directive' "$build/place-case.tcl" >/dev/null
+        grep -F 'place_design -directive $place_directive' "$build/place-case.tcl" >/dev/null
+        opt_line="$(grep -n 'opt_design' "$build/place-case.tcl" | head -1 | cut -d: -f1)"
+        place_line="$(grep -n 'place_design' "$build/place-case.tcl" | head -1 | cut -d: -f1)"
+        test "$opt_line" -lt "$place_line"
+
+        checkpoint_line="$(grep -n 'write_checkpoint -force' "$build/physical_stage.tcl" | cut -d: -f1)"
+        observation_line="$(grep -n 'write_implementation_observations' \
+          "$build/physical_stage.tcl" | tail -1 | cut -d: -f1)"
+        test "$checkpoint_line" -lt "$observation_line"
+        touch "$out"
+      '';
+
   hostApiCompile =
     pkgs.runCommand "coyote-resident-service-control-host-api-compile"
       {
@@ -778,6 +842,7 @@ in
     coprocessorSimulation
     hostApiCompile
     mkCoprocessorApplicationRender
+    physicalTclGeneration
     r5PlatformRenderContract
     r5ProviderModel
     r5ProviderSimulation

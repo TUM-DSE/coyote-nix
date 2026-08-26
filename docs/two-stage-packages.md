@@ -89,7 +89,7 @@ A stable config-0/seed application and an application floorplan still have to be
 | U280 | optional shell synthesis analysis -> seed synthesis -> routed shell -> dynamic PR flow -> bitgen | `cyt_top.bit` | `shell_top.bin` | `config_*/vfpga_*.bin` |
 | V80 | optional shell synthesis analysis -> seed synthesis -> Versal dynamic PR flow -> bitgen | `cyt_top.pdi` | none (nested DFX is unsupported) | `config_*/vfpga_*.pdi` |
 
-The package graph uses immutable physical stages rather than Coyote's legacy aggregate `make shell`/`make app` targets. U280 first implements the outer shell and then configuration 0; V80 implements configuration 0 directly. Bit generation remains a separate final image stage and retains the existing handling for Vivado failures after artifact creation.
+The package graph uses immutable physical stages rather than Coyote's legacy aggregate `make shell`/`make app` targets. U280 first implements the outer shell and then configuration 0; V80 implements configuration 0 directly. Under U280's pinned Vivado 2023.2, optimization and placement intentionally remain one physical stage because Vivado crashes when serializing the linked nested-DFX design immediately after `opt_design`; the first physical checkpoint is therefore post-place. Other supported tool/board combinations retain separate opt and place stages. Bit generation remains a separate final image stage and retains the existing handling for Vivado failures after artifact creation.
 
 ### Immutable physical stages
 
