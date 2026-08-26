@@ -488,7 +488,7 @@ let
       phaseArtifacts = [
         { role = "${phase}-utilization-report"; path = "reports/config_0/${reportPrefix}_utilization_c0.rpt"; }
         { role = "${phase}-timing-summary-report"; path = "reports/config_0/${reportPrefix}_timing_summary_c0.rpt"; }
-      ] ++ lib.optionals (collectPhysicalQorAssessment && builtins.elem phase [ "opt" "place" ]) [
+      ] ++ lib.optionals (builtins.elem phase [ "opt" "place" ]) [
         { role = "${phase}-qor-assessment-report"; path = "reports/config_0/${reportPrefix}_qor_assessment_c0.rpt"; }
       ] ++ lib.optionals (phase == "place" && boardProfile.board == "v80") [
         { role = "place-diagnosis-observations"; path = "reports/config_0/${reportPrefix}_diagnosis_c0.json"; }
@@ -548,7 +548,14 @@ let
         ${extraPreBuildSetup}
         ${lib.optionalString (!collectPhysicalQorAssessment && builtins.elem phase [ "opt" "place" ]) ''
           substituteInPlace "$build_dir/base.tcl" \
-            --replace-fail 'if {$phase in {opt place}} {' 'if {0 && $phase in {opt place}} {'
+            --replace-fail 'if {$phase in {opt place}} {' 'if {0 && $phase in {opt place}} {' \
+            --replace-fail '    set unrouted ""' '    if {$phase in {opt place} && $rqa_report eq ""} {
+              set rqa_report "$report_dir/''${prefix}_qor_assessment''${report_suffix}.rpt"
+              set rqa_fd [open $rqa_report w]
+              puts $rqa_fd "QoR Assessment unavailable: disabled for U280 under Vivado 2023.2 after a native tool crash"
+              close $rqa_fd
+            }
+            set unrouted ""'
         ''}
       '';
       buildCommands = [ "make physical_stage" ];
