@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/5c31f6959aa9504dadab9688a31cf7819f145877";
+      url = "github:taugoust/Coyote/peer-endpoints";
       flake = false;
     };
   };
@@ -215,6 +215,7 @@
           ];
           output = "$out/artifacts.json";
         };
+        bitgenCompletionSnippet = evalStageHelpers.finalBitgenCommand [ "cyt_top.bit" ];
         evalBoardPackages = coyoteNixLib.mkCoyoteBoardPackages {
           inherit pkgs;
           tools = evalTools;
@@ -242,6 +243,11 @@
           pname = "example-u280-shell";
           board = "u280";
           xilinxVersion = "site-selected-u280-build-version";
+          synthesisAnalysis = {
+            enable = true;
+            enforce = true;
+          };
+          timingOracle.enforce = true;
         };
         evalV80Shell = coyoteNixLib.mkCoyoteShellPackage {
           inherit pkgs;
@@ -252,7 +258,109 @@
           pname = "example-v80-shell";
           board = "v80";
           xilinxVersion = "site-selected-v80-build-version";
+          staticPath = "/nonexistent/external-static-marker";
+          synthesisAnalysis = {
+            enable = true;
+            enforce = true;
+            rejectSetupWnsBelow = -0.25;
+            passSetupWnsAtLeast = 0.75;
+            maximumLogicLevels = 12;
+            maxPaths = 64;
+            maxFanoutNets = 32;
+          };
+          timingOracle = {
+            enforce = true;
+            rejectRqaBelow = 2;
+            passRqaAtLeast = 5;
+            maxPaths = 64;
+          };
         };
+        evalV80ShellRetuned = coyoteNixLib.mkCoyoteShellPackage {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = ./.;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pname = "example-v80-shell";
+          board = "v80";
+          xilinxVersion = "site-selected-v80-build-version";
+          staticPath = "/nonexistent/external-static-marker";
+          synthesisAnalysis = {
+            enable = true;
+            enforce = true;
+            rejectSetupWnsBelow = -0.5;
+            passSetupWnsAtLeast = 1.0;
+            maximumLogicLevels = 12;
+            maxPaths = 64;
+            maxFanoutNets = 32;
+          };
+          timingOracle = {
+            enforce = true;
+            rejectRqaBelow = 2;
+            passRqaAtLeast = 5;
+            maxPaths = 64;
+          };
+        };
+        evalV80ShellRouteRetuned = coyoteNixLib.mkCoyoteShellPackage {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = ./.;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pname = "example-v80-shell";
+          board = "v80";
+          xilinxVersion = "site-selected-v80-build-version";
+          staticPath = "/nonexistent/external-static-marker";
+          synthesisAnalysis = {
+            enable = true;
+            enforce = true;
+            rejectSetupWnsBelow = -0.25;
+            passSetupWnsAtLeast = 0.75;
+            maximumLogicLevels = 12;
+            maxPaths = 64;
+            maxFanoutNets = 32;
+          };
+          timingOracle = {
+            enforce = true;
+            rejectRqaBelow = 2;
+            passRqaAtLeast = 5;
+            maxPaths = 64;
+          };
+          implementation.directives.route = "NoTimingRelaxation";
+        };
+        invalidSynthesisAnalysisEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteShellPackage {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = ./.;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "invalid-synthesis-v80-shell";
+            board = "v80";
+            xilinxVersion = "site-selected-v80-build-version";
+            synthesisAnalysis = {
+              enable = true;
+              rejectSetupWnsBelow = 1.0;
+              passSetupWnsAtLeast = 0.5;
+            };
+          }).coyoteTwoStage.synthesisAnalysis.policy
+        );
+        invalidTimingOracleEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteShellPackage {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = ./.;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "invalid-v80-shell";
+            board = "v80";
+            xilinxVersion = "site-selected-v80-build-version";
+            timingOracle = {
+              rejectRqaBelow = 4;
+              passRqaAtLeast = 3;
+            };
+          }).coyoteTwoStage.timingOracle.policy
+        );
         fakeV80StaticBuild = pkgs.runCommand "fake-v80-static-build" { } ''
           mkdir -p "$out/checkpoints/static" "$out/reports"
           printf 'synthesized static\n' > "$out/checkpoints/static/static_synthed.dcp"
@@ -290,6 +398,90 @@
           pname = "example-v80-app";
           shellPackage = evalV80Shell;
         };
+        evalV80AppPortfolio = coyoteNixLib.mkCoyoteAppPackage {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = ./.;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pname = "example-v80-portfolio-app";
+          shellPackage = evalV80Shell;
+          implementation.placementPortfolio = {
+            candidates = [
+              {
+                id = "balanced";
+                placeDirective = "Default";
+                physOptDirective = "Explore";
+                resources = { cores = 8; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
+              }
+              {
+                id = "spread";
+                placeDirective = "SSI_SpreadLogic_high";
+                physOptDirective = "AggressiveExplore";
+                resources = { cores = 6; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
+              }
+            ];
+            routeCandidates = [ "balanced" ];
+            recommendationPolicy = {
+              schemaVersion = 1;
+              api = "coyote-nix.placement-recommendation-policy/v1";
+              maxRouteCandidates = 2;
+              weights = { rqa = 1000000; setupSlackPerPs = 1; logicLevelPenalty = 100; congestionPenalty = 1000; };
+            };
+          };
+        };
+        invalidUnboundedPortfolioEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteAppPackage {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = ./.;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "invalid-v80-portfolio-app";
+            shellPackage = evalV80Shell;
+            implementation.placementPortfolio = {
+              candidates = map (id: {
+                inherit id;
+                placeDirective = "Default";
+                physOptDirective = "Explore";
+                resources = { cores = 8; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
+              }) [ "one" "two" "three" "four" ];
+              routeCandidates = [ ];
+              recommendationPolicy = { };
+            };
+          }).coyoteTwoStage.physical.placementPortfolio
+        );
+        invalidRouteSelectionEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteAppPackage {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = ./.;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "invalid-v80-route-selection";
+            shellPackage = evalV80Shell;
+            implementation.placementPortfolio = {
+              candidates = map (id: {
+                inherit id;
+                placeDirective = "Default";
+                physOptDirective = "Explore";
+                resources = { cores = 8; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
+              }) [ "one" "two" "three" ];
+              routeCandidates = [ "one" "two" "three" ];
+              recommendationPolicy = { };
+            };
+          }).coyoteTwoStage.physical.placementPortfolio
+        );
+        evalV80AppRetuned = coyoteNixLib.mkCoyoteAppPackage {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = ./.;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pname = "example-v80-app";
+          shellPackage = evalV80Shell;
+          implementation.directives.route = "NoTimingRelaxation";
+        };
         mismatchedAppBoardEval = builtins.tryEval (
           (coyoteNixLib.mkCoyoteAppPackage {
             inherit pkgs;
@@ -322,16 +514,38 @@
         twoStagePhaseScripts = [
           (phaseScript "u280-shell-build-phase.sh" evalU280Shell.buildPhase)
           (phaseScript "u280-shell-install-phase.sh" evalU280Shell.installPhase)
+          (phaseScript "u280-shell-synthesis-analysis-raw-build-phase.sh" evalU280Shell.coyoteTwoStage.stages.synthesisAnalysisRaw.buildPhase)
+          (phaseScript "u280-shell-synthesis-analysis-raw-install-phase.sh" evalU280Shell.coyoteTwoStage.stages.synthesisAnalysisRaw.installPhase)
+          (phaseScript "u280-shell-timing-oracle-build-phase.sh" evalU280Shell.coyoteTwoStage.stages.timingOracle.buildPhase)
+          (phaseScript "u280-shell-timing-oracle-install-phase.sh" evalU280Shell.coyoteTwoStage.stages.timingOracle.installPhase)
+          (phaseScript "u280-shell-physical-link-build-phase.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.link.buildPhase)
+          (phaseScript "u280-shell-physical-route-build-phase.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.route.buildPhase)
+          (phaseScript "u280-shell-config-route-build-phase.sh" evalU280Shell.coyoteTwoStage.physical.units.config_0.route.buildPhase)
+          (phaseScript "u280-shell-config-validate-build-phase.sh" evalU280Shell.coyoteTwoStage.physical.units.config_0.validate.buildPhase)
+          (phaseScript "u280-shell-config-finalize-build-phase.sh" evalU280Shell.coyoteTwoStage.physical.units.config_0.finalize.buildPhase)
+          (phaseScript "u280-app-link-build-phase.sh" evalU280App.coyoteTwoStage.stages.link.buildPhase)
+          (phaseScript "u280-app-route-build-phase.sh" evalU280App.coyoteTwoStage.stages.route.buildPhase)
           (phaseScript "u280-app-build-phase.sh" evalU280App.buildPhase)
           (phaseScript "u280-app-install-phase.sh" evalU280App.installPhase)
           (phaseScript "v80-shell-build-phase.sh" evalV80Shell.buildPhase)
           (phaseScript "v80-shell-install-phase.sh" evalV80Shell.installPhase)
+          (phaseScript "v80-shell-synthesis-analysis-raw-build-phase.sh" evalV80Shell.coyoteTwoStage.stages.synthesisAnalysisRaw.buildPhase)
+          (phaseScript "v80-shell-synthesis-analysis-raw-install-phase.sh" evalV80Shell.coyoteTwoStage.stages.synthesisAnalysisRaw.installPhase)
+          (phaseScript "v80-shell-timing-oracle-build-phase.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.buildPhase)
+          (phaseScript "v80-shell-timing-oracle-install-phase.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.installPhase)
+          (phaseScript "v80-shell-link-build-phase.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.link.buildPhase)
+          (phaseScript "v80-shell-route-build-phase.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.route.buildPhase)
+          (phaseScript "v80-shell-validate-build-phase.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.validate.buildPhase)
+          (phaseScript "v80-shell-finalize-build-phase.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.finalize.buildPhase)
+          (phaseScript "v80-app-link-build-phase.sh" evalV80App.coyoteTwoStage.stages.link.buildPhase)
+          (phaseScript "v80-app-route-build-phase.sh" evalV80App.coyoteTwoStage.stages.route.buildPhase)
           (phaseScript "v80-app-build-phase.sh" evalV80App.buildPhase)
           (phaseScript "v80-app-install-phase.sh" evalV80App.installPhase)
         ];
       in
       {
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
+        checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
         checks.coyote-resident-control-host-api = defaultCoyoteSourceChecks.hostApiCompile;
 
@@ -434,6 +648,37 @@
               touch $out
             '';
 
+        checks.synthesis-assessment-result =
+          pkgs.runCommand "synthesis-assessment-result-check"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.gawk
+                pkgs.jq
+              ];
+            }
+            ''
+              cd ${./.}
+              bash tests/synthesis-assessment-result.sh \
+                nix/tools/assess-synthesis-analysis-result.sh \
+                nix/tools/check-synthesis-assessment-result.sh
+              touch $out
+            '';
+
+        checks.timing-oracle-result =
+          pkgs.runCommand "timing-oracle-result-check"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.jq
+              ];
+            }
+            ''
+              cd ${./.}
+              bash tests/timing-oracle-result.sh nix/tools/check-timing-oracle-result.sh
+              touch $out
+            '';
+
         checks.resident-service-metadata =
           pkgs.runCommand "resident-service-metadata"
             {
@@ -494,6 +739,8 @@
           assert coyoteNixLib ? mkCoyoteV80StaticCheckpointPackage;
           assert coyoteNixLib ? mkCoyoteSourceChecks;
           assert coyoteNixLib ? mkCoyoteAppPackage;
+          assert !invalidSynthesisAnalysisEval.success;
+          assert !invalidTimingOracleEval.success;
           assert evalU280Shell.coyoteTwoStage.kind == "shell";
           assert
             evalU280Shell.coyoteTwoStage.stageNames == [
@@ -503,7 +750,27 @@
               "bitgen"
             ];
           assert evalU280Shell.coyoteTwoStage.stages ? routed;
+          assert evalU280Shell.coyoteTwoStage.stages ? synthesisAnalysisRaw;
+          assert evalU280Shell.coyoteTwoStage.stages ? synthesisAnalysis;
+          assert evalU280Shell.coyoteTwoStage.stages ? synthesisGate;
+          assert evalU280Shell.coyoteTwoStage.synthesisAnalysis.policy.enable;
+          assert evalU280Shell.coyoteTwoStage.synthesisAnalysis.policy.enforce;
+          assert evalU280Shell.coyoteTwoStage.synthesisAnalysis.policy.rejectSetupWnsBelow == 0.0;
+          assert evalU280Shell.coyoteTwoStage.synthesisAnalysis.policy.passSetupWnsAtLeast == 0.5;
+          assert evalU280Shell.coyoteTwoStage.stages ? timingOracle;
+          assert evalU280Shell.coyoteTwoStage.stages ? timingGate;
+          assert evalU280Shell.coyoteTwoStage.timingOracle.policy.enforce;
+          assert evalU280Shell.coyoteTwoStage.timingOracle.policy.rejectRqaBelow == 3;
           assert evalU280Shell.coyoteTwoStage.enShellPblock;
+          assert evalU280Shell.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
+          assert evalU280Shell.coyoteTwoStage.physical.units ? shell;
+          assert evalU280Shell.coyoteTwoStage.physical.units.shell ? link;
+          assert evalU280Shell.coyoteTwoStage.physical.units.shell ? opt;
+          assert evalU280Shell.coyoteTwoStage.physical.units.shell ? place;
+          assert evalU280Shell.coyoteTwoStage.physical.units.shell ? route;
+          assert evalU280Shell.coyoteTwoStage.physical.units.shell ? validate;
+          assert evalU280Shell.coyoteTwoStage.physical.units ? config_0;
+          assert evalU280Shell.coyoteTwoStage.physical.units.config_0 ? finalize;
           assert evalV80Shell.coyoteTwoStage.kind == "shell";
           assert
             evalV80Shell.coyoteTwoStage.stageNames == [
@@ -512,7 +779,38 @@
               "bitgen"
             ];
           assert !(evalV80Shell.coyoteTwoStage.stages ? routed);
+          assert evalV80Shell.coyoteTwoStage.stages ? synthesisAnalysisRaw;
+          assert evalV80Shell.coyoteTwoStage.stages ? synthesisAnalysis;
+          assert evalV80Shell.coyoteTwoStage.stages ? synthesisGate;
+          assert evalV80Shell.coyoteTwoStage.synthesisAnalysis.policy.rejectSetupWnsBelow == -0.25;
+          assert evalV80Shell.coyoteTwoStage.synthesisAnalysis.policy.passSetupWnsAtLeast == 0.75;
+          assert evalV80Shell.coyoteTwoStage.synthesisAnalysis.policy.maximumLogicLevels == 12;
+          assert evalV80Shell.coyoteTwoStage.synthesisAnalysis.policy.maxPaths == 64;
+          assert evalV80Shell.coyoteTwoStage.synthesisAnalysis.policy.maxFanoutNets == 32;
+          assert
+            evalV80Shell.coyoteTwoStage.stages.synthesisAnalysisRaw.drvPath
+            == evalV80ShellRetuned.coyoteTwoStage.stages.synthesisAnalysisRaw.drvPath;
+          assert
+            evalV80Shell.coyoteTwoStage.stages.synth.drvPath
+            == evalV80ShellRetuned.coyoteTwoStage.stages.synth.drvPath;
+          assert
+            evalV80Shell.coyoteTwoStage.stages.synthesisAnalysis.drvPath
+            != evalV80ShellRetuned.coyoteTwoStage.stages.synthesisAnalysis.drvPath;
+          assert evalV80Shell.coyoteTwoStage.stages ? timingOracle;
+          assert evalV80Shell.coyoteTwoStage.stages ? timingGate;
+          assert evalV80Shell.coyoteTwoStage.timingOracle.policy.enforce;
+          assert evalV80Shell.coyoteTwoStage.timingOracle.policy.rejectRqaBelow == 2;
+          assert evalV80Shell.coyoteTwoStage.timingOracle.policy.passRqaAtLeast == 5;
+          assert evalV80Shell.coyoteTwoStage.timingOracle.policy.maxPaths == 64;
           assert !evalV80Shell.coyoteTwoStage.enShellPblock;
+          assert evalV80Shell.coyoteTwoStage.physical.units ? config_0;
+          assert evalV80Shell.coyoteTwoStage.physical.units.config_0 ? finalize;
+          assert !(evalV80Shell.coyoteTwoStage.physical.units ? shell);
+          assert evalV80Shell.coyoteTwoStage.physical.units.config_0.link.drvPath == evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.link.drvPath;
+          assert evalV80Shell.coyoteTwoStage.physical.units.config_0.opt.drvPath == evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.opt.drvPath;
+          assert evalV80Shell.coyoteTwoStage.physical.units.config_0.place.drvPath == evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.place.drvPath;
+          assert evalV80Shell.coyoteTwoStage.physical.units.config_0.route.drvPath != evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.route.drvPath;
+          assert evalV80Shell.coyoteTwoStage.physical.units.config_0.validate.drvPath != evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.validate.drvPath;
           assert evalU280App.coyoteTwoStage.kind == "app";
           assert evalU280App.coyoteTwoStage.shellPath == toString evalU280Shell;
           assert builtins.elem "-DBUILD_APP:STRING=1" evalU280App.coyoteTwoStage.appCmakeFlags;
@@ -520,6 +818,32 @@
           assert evalV80App.coyoteTwoStage.kind == "app";
           assert evalV80App.coyoteTwoStage.shellPath == toString evalV80Shell;
           assert builtins.elem "-DEN_SHELL_PBLOCK:STRING=0" evalV80App.coyoteTwoStage.appCmakeFlags;
+          assert evalV80App.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
+          assert evalV80App.coyoteTwoStage.stages ? implementationInputs;
+          assert evalV80App.coyoteTwoStage.stages ? link;
+          assert evalV80App.coyoteTwoStage.stages ? opt;
+          assert evalV80App.coyoteTwoStage.stages ? place;
+          assert evalV80App.coyoteTwoStage.stages ? route;
+          assert evalV80App.coyoteTwoStage.stages ? validate;
+          assert evalV80App.coyoteTwoStage.stages.routed.drvPath == evalV80App.coyoteTwoStage.stages.validationGate.drvPath;
+          assert evalV80App.coyoteTwoStage.stages.link.drvPath == evalV80AppRetuned.coyoteTwoStage.stages.link.drvPath;
+          assert evalV80App.coyoteTwoStage.stages.opt.drvPath == evalV80AppRetuned.coyoteTwoStage.stages.opt.drvPath;
+          assert evalV80App.coyoteTwoStage.stages.place.drvPath == evalV80AppRetuned.coyoteTwoStage.stages.place.drvPath;
+          assert evalV80App.coyoteTwoStage.stages.route.drvPath != evalV80AppRetuned.coyoteTwoStage.stages.route.drvPath;
+          assert evalV80App.coyoteTwoStage.stages.validate.drvPath != evalV80AppRetuned.coyoteTwoStage.stages.validate.drvPath;
+          assert !invalidUnboundedPortfolioEval.success;
+          assert !invalidRouteSelectionEval.success;
+          assert evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.api == "coyote-nix.placement-portfolio/v1";
+          assert evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.explicitRouteSelection;
+          assert evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.routeCandidates == [ "balanced" ];
+          assert builtins.attrNames evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates == [ "balanced" "spread" ];
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.balanced.route != null;
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.balanced.validate != null;
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.spread.route == null;
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.spread.validate == null;
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.balanced.place.drvPath
+            != evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.spread.place.drvPath;
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementRecommendation != null;
           assert !mismatchedAppBoardEval.success;
           pkgs.runCommand "two-stage-packages-eval" { } ''
             touch $out
@@ -551,6 +875,123 @@
               touch $out
             '';
 
+        checks.bitgen-completion-contract =
+          pkgs.runCommand "bitgen-completion-contract"
+            {
+              nativeBuildInputs = [ pkgs.bash pkgs.jq ];
+            }
+            ''
+              mkdir -p fake-bin
+              cat > fake-bin/vivado <<'EOF'
+              #!${pkgs.bash}/bin/bash
+              mkdir -p "$build_dir/bitstreams"
+              case "$BITGEN_TEST_MODE" in
+                success)
+                  touch "$build_dir/bitstreams/cyt_top.bit" "$build_dir/bitstreams/complete"
+                  exit 0
+                  ;;
+                cleanup-failure)
+                  touch "$build_dir/bitstreams/cyt_top.bit" "$build_dir/bitstreams/complete"
+                  exit 1
+                  ;;
+                artifact-only)
+                  touch "$build_dir/bitstreams/cyt_top.bit"
+                  exit 1
+                  ;;
+                no-marker-success)
+                  touch "$build_dir/bitstreams/cyt_top.bit"
+                  exit 0
+                  ;;
+                stale-failure)
+                  exit 1
+                  ;;
+              esac
+              exit 2
+              EOF
+              chmod +x fake-bin/vivado
+              export PATH="$PWD/fake-bin:$PATH"
+              run_case() {
+                mode="$1"
+                build_dir="$TMPDIR/$mode"
+                export mode build_dir BITGEN_TEST_MODE="$mode"
+                mkdir -p "$build_dir"
+                : > "$build_dir/bitgen.tcl"
+                bash -c ${pkgs.lib.escapeShellArg bitgenCompletionSnippet}
+              }
+              run_case success
+              jq -e '.exitCode == 0 and .completionMarkerObserved and .anomaly == null' \
+                "$TMPDIR/success/metadata/primary-tool.json" >/dev/null
+              run_case cleanup-failure
+              jq -e '.exitCode == 1 and .completionMarkerObserved and .anomaly == "post-completion-nonzero-exit"' \
+                "$TMPDIR/cleanup-failure/metadata/primary-tool.json" >/dev/null
+              if run_case artifact-only; then
+                echo 'bitgen unexpectedly accepted an artifact without a completion marker' >&2
+                exit 1
+              fi
+              if run_case no-marker-success; then
+                echo 'bitgen unexpectedly accepted a successful exit without a completion marker' >&2
+                exit 1
+              fi
+              mkdir -p "$TMPDIR/stale-failure/bitstreams"
+              touch "$TMPDIR/stale-failure/bitstreams/cyt_top.bit" \
+                "$TMPDIR/stale-failure/bitstreams/complete"
+              if run_case stale-failure; then
+                echo 'bitgen unexpectedly accepted stale artifacts and completion marker' >&2
+                exit 1
+              fi
+              touch "$out"
+            '';
+
+        checks.implementation-stage-manifest-contract =
+          pkgs.runCommand "implementation-stage-manifest-contract"
+            {
+              nativeBuildInputs = [ pkgs.python3 pkgs.jq ];
+            }
+            ''
+              bash ${./tests/implementation-stage-manifest.sh} \
+                ${./nix/tools/coyote-implementation-stage.py} \
+                ${./tests/fixtures} \
+                ${./nix/tools/coyote-incremental-reference.py}
+              touch "$out"
+            '';
+
+        checks.placement-diagnosis-contract =
+          pkgs.runCommand "placement-diagnosis-contract"
+            {
+              nativeBuildInputs = [ pkgs.python3 pkgs.jq ];
+            }
+            ''
+              bash ${./tests/placement-diagnosis.sh} \
+                ${./nix/tools/coyote-placement-diagnosis.py}
+              touch "$out"
+            '';
+
+        checks.stage-execution-evidence =
+          pkgs.runCommand "stage-execution-evidence-contract"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.cmake
+                pkgs.coreutils
+                pkgs.gawk
+                pkgs.gnugrep
+                pkgs.gnused
+                pkgs.jq
+                pkgs.time
+              ];
+            }
+            ''
+              export FDEV_NAME=fixture
+              export COYOTE_NIX_HW_CORES=3
+              export COYOTE_NIX_TIME=${pkgs.time}/bin/time
+              export COYOTE_NIX_CHECK_TIMING_LOG=0
+              export COYOTE_NIX_XILINX_SHARE_ROOT="$TMPDIR/xilinx"
+              export COYOTE_NIX_XILINX_VERSION=fixture
+              bash ${./tests/stage-execution-evidence.sh} \
+                ${./nix/tools/run-coyote-hw-stage-build.sh}
+              touch "$out"
+            '';
+
         checks.two-stage-artifact-manifest-unit =
           pkgs.runCommand "two-stage-artifact-manifest-unit"
             {
@@ -575,6 +1016,52 @@
           ${pkgs.lib.concatMapStringsSep "\n" (script: ''
             ${pkgs.bash}/bin/bash -n ${script}
           '') twoStagePhaseScripts}
+          grep -F 'make synthesis_analysis' \
+            ${phaseScript "v80-analysis-contract.sh" evalV80Shell.coyoteTwoStage.stages.synthesisAnalysisRaw.buildPhase} >/dev/null
+          if grep -F '/nonexistent/external-static-marker' \
+            ${phaseScript "v80-analysis-static-independence.sh" evalV80Shell.coyoteTwoStage.stages.synthesisAnalysisRaw.buildPhase} >/dev/null; then
+            echo 'raw synthesis analysis unexpectedly depends on the external static checkpoint' >&2
+            exit 1
+          fi
+          if grep -E '^[[:space:]]*make (synth|timing_oracle|app|bitgen)[[:space:]]*$' \
+            ${phaseScript "v80-analysis-no-implementation.sh" evalV80Shell.coyoteTwoStage.stages.synthesisAnalysisRaw.buildPhase} >/dev/null; then
+            echo 'raw synthesis analysis unexpectedly invokes a later build stage' >&2
+            exit 1
+          fi
+          grep -F 'example-v80-shell-synthesis-analysis-raw' \
+            ${phaseScript "v80-synth-reuse-contract.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null
+          grep -F 'cp -a ' \
+            ${phaseScript "v80-synth-preserve-checkpoint-times.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null
+          grep -F '.imported-stage-timestamp' \
+            ${phaseScript "v80-synth-normalize-checkpoint-times.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null
+          if grep -F 'example-v80-shell-synthesis-analysis-gate' \
+            ${phaseScript "v80-synth-policy-independence.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null; then
+            echo 'shell synthesis unexpectedly depends on synthesis classification policy' >&2
+            exit 1
+          fi
+          grep -F 'example-v80-shell-synthesis-analysis-gate' \
+            ${phaseScript "v80-oracle-synthesis-gate-contract.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.buildPhase} >/dev/null
+          if grep -F '/nonexistent/external-static-marker' \
+            ${phaseScript "v80-synth-static-independence.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null; then
+            echo 'shell synthesis unexpectedly depends on the external static checkpoint' >&2
+            exit 1
+          fi
+          grep -F '/nonexistent/external-static-marker' \
+            ${phaseScript "v80-oracle-static-contract.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.buildPhase} >/dev/null
+          grep -F '.postPlace != null' \
+            ${phaseScript "v80-oracle-placement-artifact-contract.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.installPhase} >/dev/null
+          grep -F 'bitstreams/complete' \
+            ${phaseScript "v80-shell-bitgen-completion-contract.sh" evalV80Shell.buildPhase} >/dev/null
+          grep -F 'bitstreams/complete' \
+            ${phaseScript "u280-app-bitgen-completion-contract.sh" evalU280App.buildPhase} >/dev/null
+          grep -F 'IMPLEMENTATION_TELEMETRY_PATH' \
+            ${phaseScript "v80-route-telemetry-contract.sh" evalV80Shell.coyoteTwoStage.stages.route.buildPhase} >/dev/null
+          grep -F 'reports/config_0/shell_route_physical_c0.json' \
+            ${phaseScript "v80-route-report-layout.sh" evalV80Shell.coyoteTwoStage.stages.route.buildPhase} >/dev/null
+          grep -F 'metadata/primary-tool.json' \
+            ${phaseScript "v80-image-primary-tool-contract.sh" evalV80Shell.installPhase} >/dev/null
+          grep -F 'metadata/execution.json' \
+            ${phaseScript "v80-route-execution-contract.sh" evalV80Shell.coyoteTwoStage.stages.route.installPhase} >/dev/null
           touch $out
         '';
 

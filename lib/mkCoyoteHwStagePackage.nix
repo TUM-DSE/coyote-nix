@@ -17,6 +17,8 @@
   extraInstallPhase ? "",
   description ? "Coyote hardware build stage for ${platform}",
   nativeBuildInputs ? [ ],
+  cores ? 8,
+  checkTimingLog ? true,
   extraAttrs ? { },
 }:
 
@@ -33,6 +35,7 @@ pkgs.stdenvNoCC.mkDerivation (
         gnugrep
         gawk
         gnused
+        time
         cmake
         gnumake
         gcc
@@ -53,6 +56,9 @@ pkgs.stdenvNoCC.mkDerivation (
     COYOTE_NIX_XILINX_VERSION = xilinxVersion;
     COYOTE_NIX_XILINX_SHARE_ROOT = toString xilinxShareRoot;
     COYOTE_NIX_NCURSES6_LIB = "${pkgs.ncurses6}/lib/libtinfo.so.6";
+    COYOTE_NIX_HW_CORES = toString cores;
+    COYOTE_NIX_CHECK_TIMING_LOG = if checkTimingLog then "1" else "0";
+    COYOTE_NIX_TIME = "${pkgs.time}/bin/time";
     __impureHostDeps = [
       (toString xilinxShareRoot)
     ];
@@ -108,7 +114,22 @@ pkgs.stdenvNoCC.mkDerivation (
       else
         build_dir="$PWD"
       fi
-      mkdir -p "$out" "$out/logs"
+      mkdir -p "$out" "$out/logs" "$out/metadata"
+
+      if [ -f "$build_dir/metadata/execution.json" ]; then
+        install -m0644 "$build_dir/metadata/execution.json" "$out/metadata/execution.json"
+      fi
+      if [ -f "$build_dir/metadata/gnu-time.txt" ]; then
+        install -m0644 "$build_dir/metadata/gnu-time.txt" "$out/metadata/gnu-time.txt"
+      fi
+      if [ -f "$build_dir/metadata/primary-tool.json" ]; then
+        install -m0644 "$build_dir/metadata/primary-tool.json" "$out/metadata/primary-tool.json"
+      fi
+      for command_log in command.stdout.log command.stderr.log; do
+        if [ -f "$build_dir/logs/$command_log" ]; then
+          install -m0644 "$build_dir/logs/$command_log" "$out/logs/$command_log"
+        fi
+      done
 
       if [ -f "$build_dir/vivado.log" ]; then
         install -m0644 "$build_dir/vivado.log" "$out/logs/vivado.log"

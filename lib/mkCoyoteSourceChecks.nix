@@ -16,6 +16,29 @@ let
     done
   '';
 
+  routeValidationContract =
+    pkgs.runCommand "coyote-routed-flow-validation-contract"
+      {
+        nativeBuildInputs = [ pkgs.tcl ];
+      }
+      ''
+        set -euo pipefail
+        tclsh ${coyoteRoot}/tests/route_validation/template_contract.tcl \
+          ${coyoteRoot}/scripts/base.tcl.in \
+          ${coyoteRoot}/scripts/impl/pnr_shell.tcl.in \
+          ${coyoteRoot}/scripts/impl/physical_stage.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_app_link.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_dyn_link_ultrascale_plus.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_dyn_link_versal.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_dyn_finalize.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_app.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_dyn_ultrascale_plus.tcl.in \
+          ${coyoteRoot}/scripts/dyn/flow_dyn_versal.tcl.in \
+          ${coyoteRoot}/scripts/impl/bitgen.tcl.in \
+          ${coyoteRoot}/cmake/FindCoyoteHW.cmake
+        touch "$out"
+      '';
+
   renderContract =
     pkgs.runCommand "coyote-resident-service-control-render-contract"
       {
@@ -23,6 +46,7 @@ let
           pkgs.cmake
           pkgs.gnumake
           pkgs.stdenv.cc
+          pkgs.tcl
           python
           fakeXilinxTools
         ];
@@ -72,6 +96,46 @@ let
         render_case no-service-v80 v80 \
           -DTEST_ENABLE_SERVICE:BOOL=OFF \
           -DTEST_ENABLE_CONTROL:BOOL=OFF
+        render_case immutable-v80 v80 \
+          -DTEST_ENABLE_SERVICE:BOOL=ON \
+          -DTEST_ENABLE_CONTROL:BOOL=ON \
+          -DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON \
+          -DIMPLEMENTATION_PHASE:STRING=opt \
+          -DIMPLEMENTATION_INPUT_DCP:FILEPATH="$TMPDIR/immutable-v80/checkpoints/input.dcp" \
+          -DIMPLEMENTATION_OUTPUT_DCP:FILEPATH="$TMPDIR/immutable-v80/checkpoints/output.dcp" \
+          -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$TMPDIR/immutable-v80/checkpoints/opt_complete" \
+          -DIMPLEMENTATION_REPORT_DIR:PATH="$TMPDIR/immutable-v80/reports" \
+          -DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH="$TMPDIR/immutable-v80/reports/physical.json"
+        cmake --build "$TMPDIR/immutable-v80" --target help \
+          > "$TMPDIR/immutable-v80/target-help.txt"
+        grep -q '^... physical_stage$' "$TMPDIR/immutable-v80/target-help.txt"
+        if grep -Eq '^... (dynamic_link|dynamic_finalize)$' "$TMPDIR/immutable-v80/target-help.txt"; then
+          echo 'single physical phase unexpectedly exposes a competing link/finalize producer' >&2
+          exit 1
+        fi
+        if grep -q '^... app$' "$TMPDIR/immutable-v80/target-help.txt"; then
+          echo 'immutable build unexpectedly exposes legacy aggregate app target' >&2
+          exit 1
+        fi
+        test -f "$TMPDIR/immutable-v80/physical_stage.tcl"
+        grep -F 'set phase "opt"' "$TMPDIR/immutable-v80/physical_stage.tcl" >/dev/null
+
+        if cmake -S "$fixture" -B "$TMPDIR/invalid-immutable-alias" \
+          -DCYT_DIR=${coyoteRoot} \
+          -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 \
+          -DBUILD_STATIC:STRING=0 \
+          -DBUILD_SHELL:STRING=1 \
+          -DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON \
+          -DIMPLEMENTATION_PHASE:STRING=route \
+          -DIMPLEMENTATION_INPUT_DCP:FILEPATH="$TMPDIR/alias.dcp" \
+          -DIMPLEMENTATION_OUTPUT_DCP:FILEPATH="$TMPDIR/alias.dcp" \
+          -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$TMPDIR/complete" \
+          -DIMPLEMENTATION_REPORT_DIR:PATH="$TMPDIR/alias-reports" \
+          -DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH="$TMPDIR/alias-reports/physical.json"; then
+          echo 'aliased immutable input/output unexpectedly configured' >&2
+          exit 1
+        fi
 
         for build in "$TMPDIR/control-u280" "$TMPDIR/control-v80"; do
           grep -q 'axil_address_splitter' \
@@ -118,6 +182,55 @@ let
           "$TMPDIR/stream-only-u280/coyote-resident-service-control-fixture_shell/hdl/shell_top.sv"
         ! grep -q 'inst_external_dynamic_service' \
           "$TMPDIR/no-service-v80/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
+
+        for build in "$TMPDIR/control-u280" "$TMPDIR/control-v80"; do
+          cmake --build "$build" --target help > "$build/target-help.txt"
+          cmake --build "$build" --target project
+          test -f "$build/.coyote_project.stamp"
+          test -f "$build/synthesis_analysis.tcl"
+          grep -q 'synthesis_analysis' "$build/target-help.txt"
+          ${pkgs.tcl}/bin/tclsh \
+            ${coyoteRoot}/tests/synthesis_analysis/template_contract.tcl \
+            "$build/synthesis_analysis.tcl"
+          grep -q 'set cfg(synthesis_analysis_max_paths) 100' "$build/base.tcl"
+          grep -q 'set cfg(synthesis_analysis_max_fanout_nets) 100' "$build/base.tcl"
+
+          test -f "$build/timing_oracle.tcl"
+          grep -q 'timing_oracle' "$build/target-help.txt"
+          ${pkgs.tcl}/bin/tclsh \
+            ${coyoteRoot}/tests/timing_oracle/template_contract.tcl \
+            "$build/timing_oracle.tcl"
+          grep -q 'set cfg(timing_oracle_reject_rqa_below) 3' "$build/base.tcl"
+          grep -q 'set cfg(timing_oracle_pass_rqa_at_least) 4' "$build/base.tcl"
+          grep -q 'set cfg(timing_oracle_max_paths) 100' "$build/base.tcl"
+          grep -q 'set(TIMING_ORACLE_REJECT_RQA_BELOW 3)' "$build/export.cmake"
+          grep -q 'set(TIMING_ORACLE_PASS_RQA_AT_LEAST 4)' "$build/export.cmake"
+          grep -q 'set(TIMING_ORACLE_MAX_PATHS 100)' "$build/export.cmake"
+        done
+
+        if cmake -S "$fixture" -B "$TMPDIR/invalid-synthesis-analysis-policy" \
+          -DCYT_DIR=${coyoteRoot} \
+          -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 \
+          -DBUILD_STATIC:STRING=0 \
+          -DBUILD_SHELL:STRING=1 \
+          -DSTATIC_PATH=${coyoteRoot}/hw/checkpoints \
+          -DSYNTHESIS_ANALYSIS_MAX_PATHS:STRING=0; then
+          echo 'invalid synthesis-analysis policy unexpectedly configured' >&2
+          exit 1
+        fi
+
+        if cmake -S "$fixture" -B "$TMPDIR/invalid-timing-oracle-policy" \
+          -DCYT_DIR=${coyoteRoot} \
+          -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 \
+          -DBUILD_STATIC:STRING=0 \
+          -DBUILD_SHELL:STRING=1 \
+          -DSTATIC_PATH=${coyoteRoot}/hw/checkpoints \
+          -DTIMING_ORACLE_REJECT_RQA_BELOW:STRING=0; then
+          echo 'invalid timing-oracle policy unexpectedly configured' >&2
+          exit 1
+        fi
 
         if cmake -S "$fixture" -B "$TMPDIR/malformed-control-abi" \
           -DCYT_DIR=${coyoteRoot} \
@@ -689,6 +802,7 @@ in
     r5ProviderSimulation
     r5ProviderStackLint
     renderContract
+    routeValidationContract
     splitterSimulation
     ;
 }
