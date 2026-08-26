@@ -50,6 +50,47 @@ def patch_base(path: Path) -> None:
 def patch_physical_stage(path: Path) -> None:
     text = path.read_text()
     if '    set phase "place"' in text:
+        open_checkpoint = "    open_checkpoint $input_dcp\n"
+        aurora_gt_relocation = "\n".join(
+            [
+                open_checkpoint.rstrip(),
+                '    if {$cfg(peer_backend) eq "aurora_qsfp1"} {',
+                "        foreach {port pin} {",
+                "            gt1_refclk_n M43 gt1_refclk_p M42",
+                "            gt1_rxn_in[0] G54 gt1_rxn_in[1] F52 gt1_rxn_in[2] E54 gt1_rxn_in[3] D52",
+                "            gt1_rxp_in[0] G53 gt1_rxp_in[1] F51 gt1_rxp_in[2] E53 gt1_rxp_in[3] D51",
+                "            gt1_txn_out[0] G49 gt1_txn_out[1] E49 gt1_txn_out[2] C49 gt1_txn_out[3] A50",
+                "            gt1_txp_out[0] G48 gt1_txp_out[1] E48 gt1_txp_out[2] C48 gt1_txp_out[3] A49",
+                "        } {",
+                "            set selected_port [get_ports -quiet [list $port]]",
+                "            if {[llength $selected_port] != 1} {",
+                '                error "Expected exactly one Aurora QSFP1 port $port, found [llength $selected_port]: $selected_port"',
+                "            }",
+                "            if {[get_property LOC $selected_port] ne $pin || [get_property PACKAGE_PIN $selected_port] ne $pin} {",
+                "                reset_property LOC $selected_port",
+                "                reset_property PACKAGE_PIN $selected_port",
+                "                set_property PACKAGE_PIN $pin $selected_port",
+                "                set_property LOC $pin $selected_port",
+                "            }",
+                "        }",
+                "        foreach {channel_index expected_loc} {",
+                "            3 GTYE4_CHANNEL_X0Y44 2 GTYE4_CHANNEL_X0Y45",
+                "            1 GTYE4_CHANNEL_X0Y46 0 GTYE4_CHANNEL_X0Y47",
+                "        } {",
+                '            set channels [get_cells -hierarchical -quiet -filter "NAME =~ *inst_aurora*gen_channel_container\\[24\\].*gen_gtye4_channel_inst\\[$channel_index\\].GTYE4_CHANNEL_PRIM_INST"]',
+                "            if {[llength $channels] != 1} {",
+                '                error "Expected exactly one Aurora channel $channel_index, found [llength $channels]: $channels"',
+                "            }",
+                "            if {[get_property LOC $channels] ne $expected_loc} {",
+                "                reset_property LOC $channels",
+                "                set_property LOC $expected_loc $channels",
+                "            }",
+                "        }",
+                "    }",
+                "",
+            ]
+        )
+        text = replace_once(text, open_checkpoint, aurora_gt_relocation, path)
         opt_case = re.search(
             r"(?ms)^        opt \{\n(?P<body>.*?)^        \}\n(?=        place \{\n)",
             text,

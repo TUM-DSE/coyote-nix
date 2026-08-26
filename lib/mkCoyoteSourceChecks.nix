@@ -803,6 +803,14 @@ let
         ' "$build/physical_stage.tcl" > "$build/place-case.tcl"
         grep -F 'opt_design -directive $directive' "$build/place-case.tcl" >/dev/null
         grep -F 'place_design -directive $place_directive' "$build/place-case.tcl" >/dev/null
+        grep -F 'if {$cfg(peer_backend) eq "aurora_qsfp1"} {' \
+          "$build/physical_stage.tcl" >/dev/null
+        grep -F 'gt1_rxp_in[0] G53' "$build/physical_stage.tcl" >/dev/null
+        grep -F 'reset_property PACKAGE_PIN $selected_port' "$build/physical_stage.tcl" >/dev/null
+        grep -F 'gen_channel_container\[24\]' "$build/physical_stage.tcl" >/dev/null
+        grep -F 'Expected exactly one Aurora channel' "$build/physical_stage.tcl" >/dev/null
+        grep -F '3 GTYE4_CHANNEL_X0Y44 2 GTYE4_CHANNEL_X0Y45' \
+          "$build/physical_stage.tcl" >/dev/null
         opt_line="$(grep -n 'opt_design' "$build/place-case.tcl" | head -1 | cut -d: -f1)"
         place_line="$(grep -n 'place_design' "$build/place-case.tcl" | head -1 | cut -d: -f1)"
         test "$opt_line" -lt "$place_line"

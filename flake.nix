@@ -412,13 +412,23 @@
                 id = "balanced";
                 placeDirective = "Default";
                 physOptDirective = "Explore";
-                resources = { cores = 8; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
+                resources = {
+                  cores = 8;
+                  ramMiB = 65536;
+                  scratchMiB = 131072;
+                  licenses = [ "vivado-implementation" ];
+                };
               }
               {
                 id = "spread";
                 placeDirective = "SSI_SpreadLogic_high";
                 physOptDirective = "AggressiveExplore";
-                resources = { cores = 6; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
+                resources = {
+                  cores = 6;
+                  ramMiB = 65536;
+                  scratchMiB = 131072;
+                  licenses = [ "vivado-implementation" ];
+                };
               }
             ];
             routeCandidates = [ "balanced" ];
@@ -426,7 +436,12 @@
               schemaVersion = 1;
               api = "coyote-nix.placement-recommendation-policy/v1";
               maxRouteCandidates = 2;
-              weights = { rqa = 1000000; setupSlackPerPs = 1; logicLevelPenalty = 100; congestionPenalty = 1000; };
+              weights = {
+                rqa = 1000000;
+                setupSlackPerPs = 1;
+                logicLevelPenalty = 100;
+                congestionPenalty = 1000;
+              };
             };
           };
         };
@@ -440,12 +455,25 @@
             pname = "invalid-v80-portfolio-app";
             shellPackage = evalV80Shell;
             implementation.placementPortfolio = {
-              candidates = map (id: {
-                inherit id;
-                placeDirective = "Default";
-                physOptDirective = "Explore";
-                resources = { cores = 8; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
-              }) [ "one" "two" "three" "four" ];
+              candidates =
+                map
+                  (id: {
+                    inherit id;
+                    placeDirective = "Default";
+                    physOptDirective = "Explore";
+                    resources = {
+                      cores = 8;
+                      ramMiB = 65536;
+                      scratchMiB = 131072;
+                      licenses = [ "vivado-implementation" ];
+                    };
+                  })
+                  [
+                    "one"
+                    "two"
+                    "three"
+                    "four"
+                  ];
               routeCandidates = [ ];
               recommendationPolicy = { };
             };
@@ -461,13 +489,29 @@
             pname = "invalid-v80-route-selection";
             shellPackage = evalV80Shell;
             implementation.placementPortfolio = {
-              candidates = map (id: {
-                inherit id;
-                placeDirective = "Default";
-                physOptDirective = "Explore";
-                resources = { cores = 8; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
-              }) [ "one" "two" "three" ];
-              routeCandidates = [ "one" "two" "three" ];
+              candidates =
+                map
+                  (id: {
+                    inherit id;
+                    placeDirective = "Default";
+                    physOptDirective = "Explore";
+                    resources = {
+                      cores = 8;
+                      ramMiB = 65536;
+                      scratchMiB = 131072;
+                      licenses = [ "vivado-implementation" ];
+                    };
+                  })
+                  [
+                    "one"
+                    "two"
+                    "three"
+                  ];
+              routeCandidates = [
+                "one"
+                "two"
+                "three"
+              ];
               recommendationPolicy = { };
             };
           }).coyoteTwoStage.physical.placementPortfolio
@@ -813,11 +857,21 @@
           assert evalV80Shell.coyoteTwoStage.physical.units ? config_0;
           assert evalV80Shell.coyoteTwoStage.physical.units.config_0 ? finalize;
           assert !(evalV80Shell.coyoteTwoStage.physical.units ? shell);
-          assert evalV80Shell.coyoteTwoStage.physical.units.config_0.link.drvPath == evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.link.drvPath;
-          assert evalV80Shell.coyoteTwoStage.physical.units.config_0.opt.drvPath == evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.opt.drvPath;
-          assert evalV80Shell.coyoteTwoStage.physical.units.config_0.place.drvPath == evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.place.drvPath;
-          assert evalV80Shell.coyoteTwoStage.physical.units.config_0.route.drvPath != evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.route.drvPath;
-          assert evalV80Shell.coyoteTwoStage.physical.units.config_0.validate.drvPath != evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.validate.drvPath;
+          assert
+            evalV80Shell.coyoteTwoStage.physical.units.config_0.link.drvPath
+            == evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.link.drvPath;
+          assert
+            evalV80Shell.coyoteTwoStage.physical.units.config_0.opt.drvPath
+            == evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.opt.drvPath;
+          assert
+            evalV80Shell.coyoteTwoStage.physical.units.config_0.place.drvPath
+            == evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.place.drvPath;
+          assert
+            evalV80Shell.coyoteTwoStage.physical.units.config_0.route.drvPath
+            != evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.route.drvPath;
+          assert
+            evalV80Shell.coyoteTwoStage.physical.units.config_0.validate.drvPath
+            != evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.validate.drvPath;
           assert evalU280App.coyoteTwoStage.kind == "app";
           assert evalU280App.coyoteTwoStage.physical.combineOptPlace;
           assert evalU280App.coyoteTwoStage.physical.stages.opt == null;
@@ -835,23 +889,42 @@
           assert evalV80App.coyoteTwoStage.stages ? place;
           assert evalV80App.coyoteTwoStage.stages ? route;
           assert evalV80App.coyoteTwoStage.stages ? validate;
-          assert evalV80App.coyoteTwoStage.stages.routed.drvPath == evalV80App.coyoteTwoStage.stages.validationGate.drvPath;
-          assert evalV80App.coyoteTwoStage.stages.link.drvPath == evalV80AppRetuned.coyoteTwoStage.stages.link.drvPath;
-          assert evalV80App.coyoteTwoStage.stages.opt.drvPath == evalV80AppRetuned.coyoteTwoStage.stages.opt.drvPath;
-          assert evalV80App.coyoteTwoStage.stages.place.drvPath == evalV80AppRetuned.coyoteTwoStage.stages.place.drvPath;
-          assert evalV80App.coyoteTwoStage.stages.route.drvPath != evalV80AppRetuned.coyoteTwoStage.stages.route.drvPath;
-          assert evalV80App.coyoteTwoStage.stages.validate.drvPath != evalV80AppRetuned.coyoteTwoStage.stages.validate.drvPath;
+          assert
+            evalV80App.coyoteTwoStage.stages.routed.drvPath
+            == evalV80App.coyoteTwoStage.stages.validationGate.drvPath;
+          assert
+            evalV80App.coyoteTwoStage.stages.link.drvPath
+            == evalV80AppRetuned.coyoteTwoStage.stages.link.drvPath;
+          assert
+            evalV80App.coyoteTwoStage.stages.opt.drvPath == evalV80AppRetuned.coyoteTwoStage.stages.opt.drvPath;
+          assert
+            evalV80App.coyoteTwoStage.stages.place.drvPath
+            == evalV80AppRetuned.coyoteTwoStage.stages.place.drvPath;
+          assert
+            evalV80App.coyoteTwoStage.stages.route.drvPath
+            != evalV80AppRetuned.coyoteTwoStage.stages.route.drvPath;
+          assert
+            evalV80App.coyoteTwoStage.stages.validate.drvPath
+            != evalV80AppRetuned.coyoteTwoStage.stages.validate.drvPath;
           assert !invalidUnboundedPortfolioEval.success;
           assert !invalidRouteSelectionEval.success;
-          assert evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.api == "coyote-nix.placement-portfolio/v1";
+          assert
+            evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.api
+            == "coyote-nix.placement-portfolio/v1";
           assert evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.explicitRouteSelection;
-          assert evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.routeCandidates == [ "balanced" ];
-          assert builtins.attrNames evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates == [ "balanced" "spread" ];
+          assert
+            evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.routeCandidates == [ "balanced" ];
+          assert
+            builtins.attrNames evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates == [
+              "balanced"
+              "spread"
+            ];
           assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.balanced.route != null;
           assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.balanced.validate != null;
           assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.spread.route == null;
           assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.spread.validate == null;
-          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.balanced.place.drvPath
+          assert
+            evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.balanced.place.drvPath
             != evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.spread.place.drvPath;
           assert evalV80AppPortfolio.coyoteTwoStage.stages.placementRecommendation != null;
           assert !mismatchedAppBoardEval.success;
@@ -888,7 +961,10 @@
         checks.bitgen-completion-contract =
           pkgs.runCommand "bitgen-completion-contract"
             {
-              nativeBuildInputs = [ pkgs.bash pkgs.jq ];
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.jq
+              ];
             }
             ''
               mkdir -p fake-bin
@@ -955,7 +1031,10 @@
         checks.implementation-stage-manifest-contract =
           pkgs.runCommand "implementation-stage-manifest-contract"
             {
-              nativeBuildInputs = [ pkgs.python3 pkgs.jq ];
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.jq
+              ];
             }
             ''
               bash ${./tests/implementation-stage-manifest.sh} \
@@ -968,7 +1047,10 @@
         checks.placement-diagnosis-contract =
           pkgs.runCommand "placement-diagnosis-contract"
             {
-              nativeBuildInputs = [ pkgs.python3 pkgs.jq ];
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.jq
+              ];
             }
             ''
               bash ${./tests/placement-diagnosis.sh} \
@@ -1085,6 +1167,7 @@
           EOF
           cat > generated-rqa-test/physical_stage.tcl <<'EOF'
               set phase "place"
+              open_checkpoint $input_dcp
               switch -- $phase {
                   opt {
                       set directive "project"
@@ -1119,6 +1202,12 @@
           awk '/^        place \{/ { copying = 1 } /^        route \{/ { copying = 0 } copying { print }' \
             generated-rqa-test/physical_stage.tcl > generated-rqa-test/place-case.tcl
           grep -F 'opt_design -directive $directive' generated-rqa-test/place-case.tcl >/dev/null
+          grep -F 'if {$cfg(peer_backend) eq "aurora_qsfp1"} {' generated-rqa-test/physical_stage.tcl >/dev/null
+          grep -F 'gt1_rxp_in[0] G53' generated-rqa-test/physical_stage.tcl >/dev/null
+          grep -F 'reset_property PACKAGE_PIN $selected_port' generated-rqa-test/physical_stage.tcl >/dev/null
+          grep -F 'gen_channel_container\[24\]' generated-rqa-test/physical_stage.tcl >/dev/null
+          grep -F 'Expected exactly one Aurora channel' generated-rqa-test/physical_stage.tcl >/dev/null
+          grep -F '3 GTYE4_CHANNEL_X0Y44 2 GTYE4_CHANNEL_X0Y45' generated-rqa-test/physical_stage.tcl >/dev/null
           test "$(grep -n 'write_checkpoint -force' generated-rqa-test/physical_stage.tcl | cut -d: -f1)" -lt \
             "$(grep -n 'write_implementation_observations' generated-rqa-test/physical_stage.tcl | cut -d: -f1)"
           if grep -F 'if {0 && $phase in {opt place}} {' \
