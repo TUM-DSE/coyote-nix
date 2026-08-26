@@ -484,14 +484,7 @@ let
           "$out/metadata/classification"
       '';
 
-  synthesisAnalysisGateDependency =
-    lib.optionalString (synthesisAnalysisPolicy.enable && synthesisAnalysisPolicy.enforce)
-      ''
-        test -e ${synthesisAnalysisGate}/metadata/synthesis-analysis.json
-      '';
-  synthesisAnalysisReuseSetup = copyPreviousStageSetup (
-    if synthesisAnalysisPolicy.enable then synthesisAnalysisRaw else residentShellSynthesis
-  ) { };
+  synthesisAnalysisReuseSetup = copyPreviousStageSetup residentShellSynthesis { };
 
   synth = mkStage {
     pname = "${pname}-synth";
@@ -547,10 +540,7 @@ let
     board = boardProfile;
     inherit xilinxVersion;
     cmakeFlags = shellCmakeFlags;
-    preBuildSetup = ''
-      ${synthesisAnalysisGateDependency}
-      ${copyPreviousStageSetup synth { }}
-    '';
+    preBuildSetup = copyPreviousStageSetup synth { };
     buildCommands = [
       "make project"
       "make timing_oracle"
@@ -625,10 +615,6 @@ let
         cp ${timingOracleStage}/metadata/classification "$out/metadata/classification"
       '';
 
-  timingGateDependency = lib.optionalString timingOraclePolicy.enforce ''
-    test -e ${timingOracleGate}/metadata/timing-oracle.json
-  '';
-
   mkInputBundle = { name, artifacts, commands }:
     let spec = mkImplementationSpec {
       inherit artifacts;
@@ -671,7 +657,6 @@ let
     cores = checkedImplementationCores;
     cmakeFlags = shellImplementationBaseFlags ++ [ "-DSTATIC_PATH=${outerInputs}/checkpoints" ];
     preBuildSetup = ''
-      ${timingGateDependency}
       ${importImplementationStageArtifacts {
         previousStage = outerInputs;
         roles = [ "shell-synthesized-checkpoint" "seed-synthesized-checkpoint" ];
@@ -853,7 +838,6 @@ let
     board = boardProfile; inherit xilinxVersion; cores = checkedImplementationCores;
     cmakeFlags = shellImplementationBaseFlags ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [ "-DSTATIC_PATH=${dynamicInputs}/checkpoints" ];
     preBuildSetup = ''
-      ${lib.optionalString (boardProfile.fpgaArchitecture == "versal") timingGateDependency}
       ${importImplementationStageArtifacts {
         previousStage = dynamicInputs;
         roles = [ "shell-synthesized-checkpoint" "seed-synthesized-checkpoint" ] ++ lib.optionals (outerValidate != null) [ "outer-validated-checkpoint" ];
@@ -1085,6 +1069,7 @@ let
     staticPath = toString staticPath;
     inherit shellCmakeFlags shellSynthesisCmakeFlags;
     synthesisAnalysis = {
+      canonicalBuildDependency = false;
       policy = synthesisAnalysisPolicy;
       synthesis = residentShellSynthesis;
       raw = synthesisAnalysisRaw;
@@ -1094,6 +1079,7 @@ let
       classification = "metadata/classification";
     };
     timingOracle = {
+      canonicalBuildDependency = false;
       policy = timingOraclePolicy;
       stage = timingOracleStage;
       gate = timingOracleGate;

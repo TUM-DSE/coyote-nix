@@ -753,12 +753,14 @@
           assert evalU280Shell.coyoteTwoStage.stages ? synthesisAnalysisRaw;
           assert evalU280Shell.coyoteTwoStage.stages ? synthesisAnalysis;
           assert evalU280Shell.coyoteTwoStage.stages ? synthesisGate;
+          assert !evalU280Shell.coyoteTwoStage.synthesisAnalysis.canonicalBuildDependency;
           assert evalU280Shell.coyoteTwoStage.synthesisAnalysis.policy.enable;
           assert evalU280Shell.coyoteTwoStage.synthesisAnalysis.policy.enforce;
           assert evalU280Shell.coyoteTwoStage.synthesisAnalysis.policy.rejectSetupWnsBelow == 0.0;
           assert evalU280Shell.coyoteTwoStage.synthesisAnalysis.policy.passSetupWnsAtLeast == 0.5;
           assert evalU280Shell.coyoteTwoStage.stages ? timingOracle;
           assert evalU280Shell.coyoteTwoStage.stages ? timingGate;
+          assert !evalU280Shell.coyoteTwoStage.timingOracle.canonicalBuildDependency;
           assert evalU280Shell.coyoteTwoStage.timingOracle.policy.enforce;
           assert evalU280Shell.coyoteTwoStage.timingOracle.policy.rejectRqaBelow == 3;
           assert evalU280Shell.coyoteTwoStage.enShellPblock;
@@ -782,6 +784,7 @@
           assert evalV80Shell.coyoteTwoStage.stages ? synthesisAnalysisRaw;
           assert evalV80Shell.coyoteTwoStage.stages ? synthesisAnalysis;
           assert evalV80Shell.coyoteTwoStage.stages ? synthesisGate;
+          assert !evalV80Shell.coyoteTwoStage.synthesisAnalysis.canonicalBuildDependency;
           assert evalV80Shell.coyoteTwoStage.synthesisAnalysis.policy.rejectSetupWnsBelow == -0.25;
           assert evalV80Shell.coyoteTwoStage.synthesisAnalysis.policy.passSetupWnsAtLeast == 0.75;
           assert evalV80Shell.coyoteTwoStage.synthesisAnalysis.policy.maximumLogicLevels == 12;
@@ -798,6 +801,7 @@
             != evalV80ShellRetuned.coyoteTwoStage.stages.synthesisAnalysis.drvPath;
           assert evalV80Shell.coyoteTwoStage.stages ? timingOracle;
           assert evalV80Shell.coyoteTwoStage.stages ? timingGate;
+          assert !evalV80Shell.coyoteTwoStage.timingOracle.canonicalBuildDependency;
           assert evalV80Shell.coyoteTwoStage.timingOracle.policy.enforce;
           assert evalV80Shell.coyoteTwoStage.timingOracle.policy.rejectRqaBelow == 2;
           assert evalV80Shell.coyoteTwoStage.timingOracle.policy.passRqaAtLeast == 5;
@@ -1028,8 +1032,13 @@
             echo 'raw synthesis analysis unexpectedly invokes a later build stage' >&2
             exit 1
           fi
-          grep -F 'example-v80-shell-synthesis-analysis-raw' \
+          grep -F 'resident-shell-synth' \
             ${phaseScript "v80-synth-reuse-contract.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null
+          if grep -F 'synthesis-analysis-raw' \
+            ${phaseScript "v80-synth-diagnostic-independence.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null; then
+            echo 'canonical shell synthesis unexpectedly depends on synthesized-shell analysis' >&2
+            exit 1
+          fi
           grep -F 'cp -a ' \
             ${phaseScript "v80-synth-preserve-checkpoint-times.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null
           grep -F '.imported-stage-timestamp' \
@@ -1039,8 +1048,19 @@
             echo 'shell synthesis unexpectedly depends on synthesis classification policy' >&2
             exit 1
           fi
-          grep -F 'example-v80-shell-synthesis-analysis-gate' \
-            ${phaseScript "v80-oracle-synthesis-gate-contract.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.buildPhase} >/dev/null
+          if grep -F 'synthesis-analysis-gate' \
+            ${phaseScript "v80-oracle-advisory-contract.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.buildPhase} >/dev/null; then
+            echo 'timing oracle unexpectedly depends on synthesized-shell classification' >&2
+            exit 1
+          fi
+          for script in \
+            ${phaseScript "u280-physical-diagnostic-independence.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.link.buildPhase} \
+            ${phaseScript "v80-physical-diagnostic-independence.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.link.buildPhase}; do
+            if grep -E '(synthesis-analysis|timing-oracle)-gate' "$script" >/dev/null; then
+              echo "canonical implementation unexpectedly depends on a predictive diagnostic: $script" >&2
+              exit 1
+            fi
+          done
           if grep -F '/nonexistent/external-static-marker' \
             ${phaseScript "v80-synth-static-independence.sh" evalV80Shell.coyoteTwoStage.stages.synth.buildPhase} >/dev/null; then
             echo 'shell synthesis unexpectedly depends on the external static checkpoint' >&2

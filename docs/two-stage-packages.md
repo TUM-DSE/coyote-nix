@@ -148,7 +148,9 @@ When `synthesisAnalysis.enable = true`, the shell package also exposes:
 - `synthesisAnalysis`: applies configurable WNS and optional logic-level policy in a lightweight derivation and retains `metadata/synthesis-analysis.json` plus links to the raw reports/checkpoint.
 - `synthesisGate`: accepts `PASS` and `MARGINAL`, and rejects `FAIL` while preserving the inspectable analysis output.
 
-Policy is separate from Vivado evidence so threshold changes do not repeat shell or seed synthesis. The assessment helper accepts both `resident-shell-synthesis` and focused `module-out-of-context` raw evidence, allowing consumers to reuse the same classification/gate contract for module checks. The ordinary `synth` stage reuses the already synthesized resident-shell DCP and synthesizes only the seed application, independent of policy. When enforcement is enabled, the stronger linked oracle checks `synthesisGate` before starting. The external static checkpoint is introduced only by that linked oracle/implementation flow, so resident-shell and seed synthesis do not wait for static realization.
+Policy is separate from Vivado evidence so threshold changes do not repeat shell or seed synthesis. The assessment helper accepts both `resident-shell-synthesis` and focused `module-out-of-context` raw evidence, allowing consumers to reuse the same classification/check contract for module checks. The ordinary `synth` stage consumes `residentShellSynthesis` directly and synthesizes only the seed application, independent of analysis evidence or policy. The linked oracle is also independently invocable and does not require the synthesis check. The external static checkpoint is introduced only by that linked oracle or canonical implementation flow, so resident-shell and seed synthesis do not wait for static realization.
+
+The historical `synthesisAnalysis.enforce` field remains accepted and recorded for source compatibility, but it does not insert a diagnostic check into canonical implementation. Invoke `synthesisGate` explicitly when a predictive classification should control an operator's decision.
 
 A negative post-synthesis setup WNS is a conservative early rejection signal, not routed evidence. Positive estimated slack does not account for placement or congestion and must proceed through the linked oracle and full implementation.
 
@@ -168,9 +170,9 @@ Every shell package exposes two additional diagnostic stages through `coyoteTwoS
 - `timingOracle`: copies the synthesis result, runs Coyote's `make timing_oracle`, and retains linked/optimized checkpoints, optional `RuntimeOptimized` placement, RQA reports/CSV data, estimated timing, and enriched `metadata/timing-oracle.json`.
 - `timingGate`: accepts `PASS` and `MARGINAL`, but exits nonzero for `FAIL` while printing the oracle store path and compact reasons.
 
-The oracle stage itself succeeds for all valid classifications so a rejected candidate's reports can be installed and durably rooted. Build the oracle output explicitly before the gate when diagnostics must survive a rejection. If `timingOracle.enforce = true`, the U280 routed-shell stage or V80 dynamic stage depends on `timingGate`; normal full-quality implementation starts only after the predictive candidate is not classified `FAIL`.
+The oracle stage itself succeeds for all valid classifications so a rejected candidate's reports can be installed and durably rooted. Build the oracle output explicitly before its check when diagnostics must survive a rejection. The historical `timingOracle.enforce` field remains accepted and recorded for source compatibility, but neither U280 nor V80 canonical implementation depends on `timingGate`.
 
-The cheap placement checkpoint is never supplied to sign-off implementation. The normal flow starts again from the synthesis/link boundary and retains final route, DRC, and timing as the physical authority.
+The cheap placement checkpoint is never supplied to canonical implementation. A requested full build starts from the normal synthesis/link boundary regardless of diagnostic classification; final route, DRC, setup, hold, and validation remain the physical authority.
 
 Versal assesses the fully linked application-DFX configuration 0. UltraScale+ assesses the linked shell before nested DFX subdivision, because subdivision follows ordinary shell routing; calibrate board-family thresholds independently.
 
