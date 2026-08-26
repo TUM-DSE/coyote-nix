@@ -548,6 +548,7 @@
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
         checks.coyote-resident-control-host-api = defaultCoyoteSourceChecks.hostApiCompile;
+        checks.coyote-u280-generated-physical-tcl = defaultCoyoteSourceChecks.physicalTclGeneration;
 
         checks.reconfigure-app =
           assert evalTools ? reconfigure-app;
@@ -765,15 +766,17 @@
           assert evalU280Shell.coyoteTwoStage.timingOracle.policy.rejectRqaBelow == 3;
           assert evalU280Shell.coyoteTwoStage.enShellPblock;
           assert evalU280Shell.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
+          assert evalU280Shell.coyoteTwoStage.physical.combineOptPlace;
           assert evalU280Shell.coyoteTwoStage.physical.units ? shell;
           assert evalU280Shell.coyoteTwoStage.physical.units.shell ? link;
-          assert evalU280Shell.coyoteTwoStage.physical.units.shell ? opt;
+          assert evalU280Shell.coyoteTwoStage.physical.units.shell.opt == null;
           assert evalU280Shell.coyoteTwoStage.physical.units.shell ? place;
           assert evalU280Shell.coyoteTwoStage.physical.units.shell ? route;
           assert evalU280Shell.coyoteTwoStage.physical.units.shell ? validate;
           assert evalU280Shell.coyoteTwoStage.physical.units ? config_0;
           assert evalU280Shell.coyoteTwoStage.physical.units.config_0 ? finalize;
           assert evalV80Shell.coyoteTwoStage.kind == "shell";
+          assert !evalV80Shell.coyoteTwoStage.physical.combineOptPlace;
           assert
             evalV80Shell.coyoteTwoStage.stageNames == [
               "synth"
@@ -816,10 +819,13 @@
           assert evalV80Shell.coyoteTwoStage.physical.units.config_0.route.drvPath != evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.route.drvPath;
           assert evalV80Shell.coyoteTwoStage.physical.units.config_0.validate.drvPath != evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.validate.drvPath;
           assert evalU280App.coyoteTwoStage.kind == "app";
+          assert evalU280App.coyoteTwoStage.physical.combineOptPlace;
+          assert evalU280App.coyoteTwoStage.physical.stages.opt == null;
           assert evalU280App.coyoteTwoStage.shellPath == toString evalU280Shell;
           assert builtins.elem "-DBUILD_APP:STRING=1" evalU280App.coyoteTwoStage.appCmakeFlags;
           assert builtins.elem "-DSHELL_PATH=${evalU280Shell}" evalU280App.coyoteTwoStage.appCmakeFlags;
           assert evalV80App.coyoteTwoStage.kind == "app";
+          assert !evalV80App.coyoteTwoStage.physical.combineOptPlace;
           assert evalV80App.coyoteTwoStage.shellPath == toString evalV80Shell;
           assert builtins.elem "-DEN_SHELL_PBLOCK:STRING=0" evalV80App.coyoteTwoStage.appCmakeFlags;
           assert evalV80App.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
@@ -1054,7 +1060,7 @@
             exit 1
           fi
           test -x ${pkgs.python3}/bin/python3
-          u280_rqa_script=${phaseScript "u280-physical-rqa-safety.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.opt.buildPhase}
+          u280_rqa_script=${phaseScript "u280-physical-rqa-safety.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.place.buildPhase}
           grep -F 'chmod u+w "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"' "$u280_rqa_script" >/dev/null
           grep -F 'patch-u280-vivado-2023.2-physical-stage.py' "$u280_rqa_script" >/dev/null
           mkdir generated-rqa-test
@@ -1078,6 +1084,18 @@
               }
           EOF
           cat > generated-rqa-test/physical_stage.tcl <<'EOF'
+              set phase "place"
+              switch -- $phase {
+                  opt {
+                      set directive "project"
+                      if {$directive ne ""} { opt_design -directive $directive } else { opt_design }
+                  }
+                  place {
+                      if {$place_directive ne ""} { place_design -directive $place_directive } else { place_design }
+                  }
+                  route {
+                  }
+              }
               if {$incremental_mode eq "reference" && $phase in {place route}} {
                   report_incremental_reuse
               }
@@ -1098,6 +1116,9 @@
             echo 'U280 physical report path lost its Tcl runtime prefix during CMake configuration' >&2
             exit 1
           fi
+          awk '/^        place \{/ { copying = 1 } /^        route \{/ { copying = 0 } copying { print }' \
+            generated-rqa-test/physical_stage.tcl > generated-rqa-test/place-case.tcl
+          grep -F 'opt_design -directive $directive' generated-rqa-test/place-case.tcl >/dev/null
           test "$(grep -n 'write_checkpoint -force' generated-rqa-test/physical_stage.tcl | cut -d: -f1)" -lt \
             "$(grep -n 'write_implementation_observations' generated-rqa-test/physical_stage.tcl | cut -d: -f1)"
           if grep -F 'if {0 && $phase in {opt place}} {' \

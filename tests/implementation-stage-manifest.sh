@@ -72,6 +72,12 @@ for phase in link opt place route; do
   previous=$stage
 done
 
+mkdir -p "$work/combined-place/checkpoints"
+printf 'combined opt/place checkpoint\n' > "$work/combined-place/checkpoints/place.dcp"
+make_spec place "\"predecessorPath\": \"$work/link\"," place.dcp > "$work/combined-place.json"
+python3 "$tool" write "$work/combined-place.json" "$work/combined-place" "$work/combined-place"
+python3 "$tool" validate "$work/combined-place" --phase place --context "$context_id"
+
 mkdir -p "$work/validate/checkpoints" "$work/validate/reports"
 printf 'validate checkpoint\n' > "$work/validate/checkpoints/validate.dcp"
 printf '{"outcome":"accepted","reasons":[]}\n' > "$work/validate/reports/validation.json"

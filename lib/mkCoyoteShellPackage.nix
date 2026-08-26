@@ -23,7 +23,8 @@ let
   boardProfile =
     boardProfiles.${board}
       or (throw "coyote-nix: mkCoyoteShellPackage supports only u280 and v80, not ${board}");
-  collectPhysicalQorAssessment = !(board == "u280" && xilinxVersion == "2023.2");
+  combineOptPlace = board == "u280" && xilinxVersion == "2023.2";
+  collectPhysicalQorAssessment = !combineOptPlace;
 
   stageHelpers = import ./coyoteHwStageHelpers.nix {
     inherit
@@ -775,19 +776,22 @@ let
       '';
     };
 
-  outerOpt = if outerLink == null then null else mkPhysicalStage {
+  outerOpt = if outerLink == null || combineOptPlace then null else mkPhysicalStage {
     name = "shell"; unit = "shell"; phase = "opt";
     predecessor = outerLink; predecessorPhase = "link"; predecessorRole = "linked-checkpoint";
     inputPath = "checkpoints/shell_linked.dcp"; outputPath = "checkpoints/shell_opted.dcp"; outputRole = "optimized-checkpoint";
     strategy.opt = implementationDirectives.opt;
     extraFlags = [ "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}" ];
   };
-  outerPlace = if outerOpt == null then null else mkPhysicalStage {
+  outerPlace = if outerLink == null then null else mkPhysicalStage {
     name = "shell"; unit = "shell"; phase = "place";
-    predecessor = outerOpt; predecessorPhase = "opt"; predecessorRole = "optimized-checkpoint";
-    inputPath = "checkpoints/shell_opted.dcp"; outputPath = "checkpoints/shell_phys_opted.dcp"; outputRole = "placed-checkpoint";
-    strategy = { place = implementationDirectives.place; physOpt = implementationDirectives.physOpt; };
-    extraFlags = [ "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}" "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}" ];
+    predecessor = if combineOptPlace then outerLink else outerOpt;
+    predecessorPhase = if combineOptPlace then "link" else "opt";
+    predecessorRole = if combineOptPlace then "linked-checkpoint" else "optimized-checkpoint";
+    inputPath = if combineOptPlace then "checkpoints/shell_linked.dcp" else "checkpoints/shell_opted.dcp";
+    outputPath = "checkpoints/shell_phys_opted.dcp"; outputRole = "placed-checkpoint";
+    strategy = lib.optionalAttrs combineOptPlace { opt = implementationDirectives.opt; combinedOptPlace = true; } // { place = implementationDirectives.place; physOpt = implementationDirectives.physOpt; };
+    extraFlags = lib.optionals combineOptPlace [ "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}" ] ++ [ "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}" "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}" ];
   };
   outerRoute = if outerPlace == null then null else mkPhysicalStage {
     name = "shell"; unit = "shell"; phase = "route";
@@ -860,7 +864,7 @@ let
       ${writeImplementationStageManifest { spec = dynamicLinkSpec; }}
     '';
   };
-  dynamicOpt = mkPhysicalStage {
+  dynamicOpt = if combineOptPlace then null else mkPhysicalStage {
     name = "config_0"; unit = "config_0"; phase = "opt";
     predecessor = dynamicLink; predecessorPhase = "link"; predecessorRole = "linked-checkpoint";
     inputPath = "checkpoints/config_0/shell_linked_c0.dcp"; outputPath = "checkpoints/config_0/shell_opted_c0.dcp"; outputRole = "optimized-checkpoint";
@@ -869,10 +873,13 @@ let
   };
   dynamicPlace = mkPhysicalStage {
     name = "config_0"; unit = "config_0"; phase = "place";
-    predecessor = dynamicOpt; predecessorPhase = "opt"; predecessorRole = "optimized-checkpoint";
-    inputPath = "checkpoints/config_0/shell_opted_c0.dcp"; outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp"; outputRole = "placed-checkpoint";
-    strategy = { place = implementationDirectives.place; physOpt = implementationDirectives.physOpt; };
-    extraFlags = [ "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}" "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}" ];
+    predecessor = if combineOptPlace then dynamicLink else dynamicOpt;
+    predecessorPhase = if combineOptPlace then "link" else "opt";
+    predecessorRole = if combineOptPlace then "linked-checkpoint" else "optimized-checkpoint";
+    inputPath = if combineOptPlace then "checkpoints/config_0/shell_linked_c0.dcp" else "checkpoints/config_0/shell_opted_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp"; outputRole = "placed-checkpoint";
+    strategy = lib.optionalAttrs combineOptPlace { opt = implementationDirectives.opt; combinedOptPlace = true; } // { place = implementationDirectives.place; physOpt = implementationDirectives.physOpt; };
+    extraFlags = lib.optionals combineOptPlace [ "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}" ] ++ [ "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}" "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}" ];
   };
   dynamicRoute = mkPhysicalStage {
     name = "config_0"; unit = "config_0"; phase = "route";
@@ -1098,6 +1105,7 @@ let
       context = implementationContext;
       resources.cores = checkedImplementationCores;
       directives = implementationDirectives;
+      inherit combineOptPlace;
       image = "self";
       incremental = if checkedIncrementalReference == null then null else {
         api = "coyote-nix.incremental-implementation/v1";

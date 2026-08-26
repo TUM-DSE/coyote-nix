@@ -22,7 +22,7 @@ TRANSITIONS = {
     "inputs": {None},
     "link": {"inputs"},
     "opt": {"link"},
-    "place": {"opt"},
+    "place": {"link", "opt"},
     "route": {"place"},
     "validate": {"route"},
     "finalize": {"validate"},

@@ -2,6 +2,7 @@
 """Apply narrowly scoped Vivado 2023.2 U280 generated-Tcl workarounds."""
 
 from pathlib import Path
+import re
 import sys
 
 
@@ -48,6 +49,20 @@ def patch_base(path: Path) -> None:
 
 def patch_physical_stage(path: Path) -> None:
     text = path.read_text()
+    if '    set phase "place"' in text:
+        opt_case = re.search(
+            r"(?ms)^        opt \{\n(?P<body>.*?)^        \}\n(?=        place \{\n)",
+            text,
+        )
+        if opt_case is None:
+            raise SystemExit(f"{path}: generated opt case was not found for combined placement")
+        place_marker = "        place {\n"
+        text = replace_once(
+            text,
+            place_marker,
+            place_marker + opt_case.group("body"),
+            path,
+        )
     checkpoint = '    write_checkpoint -force $output_dcp\n'
     text = replace_once(text, checkpoint, "", path)
     observation_boundary = '    if {$incremental_mode eq "reference" && $phase in {place route}} {'
