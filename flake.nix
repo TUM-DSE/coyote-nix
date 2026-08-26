@@ -1057,20 +1057,38 @@
           u280_rqa_script=${phaseScript "u280-physical-rqa-safety.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.opt.buildPhase}
           grep -F 'if {0 && $phase in {opt place}} {' "$u280_rqa_script" >/dev/null
           awk '
-            /\/python3 - .*__COYOTE_NIX_DISABLE_U280_RQA__/ { copying = 1 }
+            /^chmod u\+w .*base\.tcl/ { copying = 1 }
             copying { print }
             copying && /^__COYOTE_NIX_DISABLE_U280_RQA__$/ { exit }
           ' "$u280_rqa_script" > u280-rqa-transform.sh
           mkdir generated-rqa-test
           cat > generated-rqa-test/base.tcl <<'EOF'
-          if {$phase in {opt place}} {
-              report_qor_assessment
-          }
+              set congestion_path "$report_dir/_congestion.rpt"
+              set complexity_path "$report_dir/_complexity.rpt"
+              set logic_levels_path "$report_dir/_logic_levels.rpt"
+              set high_fanout_path "$report_dir/_high_fanout.rpt"
+              set output_path "$report_dir/_diagnosis.json"
+              if {$phase in {opt place}} {
+                  set utilization_path "$report_dir/_utilization.rpt"
+                  set timing_path "$report_dir/_timing_summary.rpt"
+                  set rqa_report "$report_dir/_qor_assessment.rpt"
+                  report_qor_assessment
+              }
               set unrouted ""
+              set route_report "$report_dir/_route_status.rpt"
+              if {$phase in {route validate}} {
+              } elseif {$phase in {opt place}} {
+              }
           EOF
+          chmod a-w generated-rqa-test/base.tcl
           build_dir="$PWD/generated-rqa-test" ${pkgs.bash}/bin/bash u280-rqa-transform.sh
           grep -F 'if {0 && $phase in {opt place}} {' generated-rqa-test/base.tcl >/dev/null
+          grep -F '"$report_dir/''${prefix}_timing_summary''${report_suffix}.rpt"' generated-rqa-test/base.tcl >/dev/null
           grep -F 'QoR Assessment unavailable: disabled for U280 under Vivado 2023.2' generated-rqa-test/base.tcl >/dev/null
+          if grep -F '$report_dir/_' generated-rqa-test/base.tcl >/dev/null; then
+            echo 'U280 physical report path lost its Tcl runtime prefix during CMake configuration' >&2
+            exit 1
+          fi
           if grep -F 'substituteInPlace' "$u280_rqa_script" >/dev/null; then
             echo 'U280 physical RQA guard relies on a non-exported stdenv shell function' >&2
             exit 1
