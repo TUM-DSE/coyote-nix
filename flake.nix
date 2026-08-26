@@ -1055,12 +1055,8 @@
           fi
           test -x ${pkgs.python3}/bin/python3
           u280_rqa_script=${phaseScript "u280-physical-rqa-safety.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.opt.buildPhase}
-          grep -F 'if {0 && $phase in {opt place}} {' "$u280_rqa_script" >/dev/null
-          awk '
-            /^chmod u\+w .*base\.tcl/ { copying = 1 }
-            copying { print }
-            copying && /^__COYOTE_NIX_DISABLE_U280_RQA__$/ { exit }
-          ' "$u280_rqa_script" > u280-rqa-transform.sh
+          grep -F 'chmod u+w "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"' "$u280_rqa_script" >/dev/null
+          grep -F 'patch-u280-vivado-2023.2-physical-stage.py' "$u280_rqa_script" >/dev/null
           mkdir generated-rqa-test
           cat > generated-rqa-test/base.tcl <<'EOF'
               set congestion_path "$report_dir/_congestion.rpt"
@@ -1068,6 +1064,7 @@
               set logic_levels_path "$report_dir/_logic_levels.rpt"
               set high_fanout_path "$report_dir/_high_fanout.rpt"
               set output_path "$report_dir/_diagnosis.json"
+              set prefix "shell_"
               if {$phase in {opt place}} {
                   set utilization_path "$report_dir/_utilization.rpt"
                   set timing_path "$report_dir/_timing_summary.rpt"
@@ -1080,8 +1077,20 @@
               } elseif {$phase in {opt place}} {
               }
           EOF
-          chmod a-w generated-rqa-test/base.tcl
-          build_dir="$PWD/generated-rqa-test" ${pkgs.bash}/bin/bash u280-rqa-transform.sh
+          cat > generated-rqa-test/physical_stage.tcl <<'EOF'
+              if {$incremental_mode eq "reference" && $phase in {place route}} {
+                  report_incremental_reuse
+              }
+              write_implementation_observations
+              write_checkpoint -force $output_dcp
+              close_project
+          EOF
+          chmod a-w generated-rqa-test/base.tcl generated-rqa-test/physical_stage.tcl
+          chmod u+w generated-rqa-test/base.tcl generated-rqa-test/physical_stage.tcl
+          ${pkgs.python3}/bin/python3 \
+            ${./nix/tools/patch-u280-vivado-2023.2-physical-stage.py} \
+            generated-rqa-test/base.tcl generated-rqa-test/physical_stage.tcl
+          grep -F 'set prefix "shell_''${phase}"' generated-rqa-test/base.tcl >/dev/null
           grep -F 'if {0 && $phase in {opt place}} {' generated-rqa-test/base.tcl >/dev/null
           grep -F '"$report_dir/''${prefix}_timing_summary''${report_suffix}.rpt"' generated-rqa-test/base.tcl >/dev/null
           grep -F 'QoR Assessment unavailable: disabled for U280 under Vivado 2023.2' generated-rqa-test/base.tcl >/dev/null
@@ -1089,10 +1098,8 @@
             echo 'U280 physical report path lost its Tcl runtime prefix during CMake configuration' >&2
             exit 1
           fi
-          if grep -F 'substituteInPlace' "$u280_rqa_script" >/dev/null; then
-            echo 'U280 physical RQA guard relies on a non-exported stdenv shell function' >&2
-            exit 1
-          fi
+          test "$(grep -n 'write_checkpoint -force' generated-rqa-test/physical_stage.tcl | cut -d: -f1)" -lt \
+            "$(grep -n 'write_implementation_observations' generated-rqa-test/physical_stage.tcl | cut -d: -f1)"
           if grep -F 'if {0 && $phase in {opt place}} {' \
             ${phaseScript "v80-physical-rqa-availability.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.opt.buildPhase} >/dev/null; then
             echo 'physical QoR Assessment was unexpectedly disabled for V80' >&2

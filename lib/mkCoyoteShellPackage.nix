@@ -743,40 +743,10 @@ let
         }}
         ${extraPreBuildSetup}
         ${lib.optionalString (!collectPhysicalQorAssessment && builtins.elem phase [ "opt" "place" ]) ''
-          chmod u+w "$build_dir/base.tcl"
-          ${pkgs.python3}/bin/python3 - "$build_dir/base.tcl" <<'__COYOTE_NIX_DISABLE_U280_RQA__'
-          from pathlib import Path
-          import sys
-
-          path = Path(sys.argv[1])
-          text = path.read_text()
-          replacements = [
-              ('    if {$phase in {opt place}} {', '    if {0 && $phase in {opt place}} {'),
-              ('"$report_dir/_utilization.rpt"', '"$report_dir/''${prefix}_utilization''${report_suffix}.rpt"'),
-              ('"$report_dir/_timing_summary.rpt"', '"$report_dir/''${prefix}_timing_summary''${report_suffix}.rpt"'),
-              ('"$report_dir/_qor_assessment.rpt"', '"$report_dir/''${prefix}_qor_assessment''${report_suffix}.rpt"'),
-              ('"$report_dir/_route_status.rpt"', '"$report_dir/''${prefix}_route_status''${report_suffix}.rpt"'),
-              ('"$report_dir/_congestion.rpt"', '"$report_dir/''${prefix}_congestion''${report_suffix}.rpt"'),
-              ('"$report_dir/_complexity.rpt"', '"$report_dir/''${prefix}_complexity''${report_suffix}.rpt"'),
-              ('"$report_dir/_logic_levels.rpt"', '"$report_dir/''${prefix}_logic_levels''${report_suffix}.rpt"'),
-              ('"$report_dir/_high_fanout.rpt"', '"$report_dir/''${prefix}_high_fanout''${report_suffix}.rpt"'),
-              ('"$report_dir/_diagnosis.json"', '"$report_dir/''${prefix}_diagnosis''${report_suffix}.json"'),
-              ('    set unrouted ""', '\n'.join([
-                  '    if {$phase in {opt place} && $rqa_report eq ""} {',
-                  '      set rqa_report "$report_dir/''${prefix}_qor_assessment''${report_suffix}.rpt"',
-                  '      set rqa_fd [open $rqa_report w]',
-                  '      puts $rqa_fd "QoR Assessment unavailable: disabled for U280 under Vivado 2023.2 after a native tool crash"',
-                  '      close $rqa_fd',
-                  '    }',
-                  '    set unrouted ""',
-              ])),
-          ]
-          for old, new in replacements:
-              if text.count(old) != 1:
-                  raise SystemExit(f"expected exactly one generated Tcl fragment: {old}")
-              text = text.replace(old, new)
-          path.write_text(text)
-          __COYOTE_NIX_DISABLE_U280_RQA__
+          chmod u+w "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"
+          ${pkgs.python3}/bin/python3 \
+            ${../nix/tools/patch-u280-vivado-2023.2-physical-stage.py} \
+            "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"
         ''}
       '';
       buildCommands = [ "make physical_stage" ];
