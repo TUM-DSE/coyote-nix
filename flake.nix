@@ -1053,8 +1053,28 @@
             echo 'timing oracle unexpectedly depends on synthesized-shell classification' >&2
             exit 1
           fi
-          grep -F 'if {0 && $phase in {opt place}} {' \
-            ${phaseScript "u280-physical-rqa-safety.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.opt.buildPhase} >/dev/null
+          test -x ${pkgs.python3}/bin/python3
+          u280_rqa_script=${phaseScript "u280-physical-rqa-safety.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.opt.buildPhase}
+          grep -F 'if {0 && $phase in {opt place}} {' "$u280_rqa_script" >/dev/null
+          awk '
+            /\/python3 - .*__COYOTE_NIX_DISABLE_U280_RQA__/ { copying = 1 }
+            copying { print }
+            copying && /^__COYOTE_NIX_DISABLE_U280_RQA__$/ { exit }
+          ' "$u280_rqa_script" > u280-rqa-transform.sh
+          mkdir generated-rqa-test
+          cat > generated-rqa-test/base.tcl <<'EOF'
+          if {$phase in {opt place}} {
+              report_qor_assessment
+          }
+              set unrouted ""
+          EOF
+          build_dir="$PWD/generated-rqa-test" ${pkgs.bash}/bin/bash u280-rqa-transform.sh
+          grep -F 'if {0 && $phase in {opt place}} {' generated-rqa-test/base.tcl >/dev/null
+          grep -F 'QoR Assessment unavailable: disabled for U280 under Vivado 2023.2' generated-rqa-test/base.tcl >/dev/null
+          if grep -F 'substituteInPlace' "$u280_rqa_script" >/dev/null; then
+            echo 'U280 physical RQA guard relies on a non-exported stdenv shell function' >&2
+            exit 1
+          fi
           if grep -F 'if {0 && $phase in {opt place}} {' \
             ${phaseScript "v80-physical-rqa-availability.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.opt.buildPhase} >/dev/null; then
             echo 'physical QoR Assessment was unexpectedly disabled for V80' >&2
