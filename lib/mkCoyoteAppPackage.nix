@@ -547,15 +547,30 @@ let
         }}
         ${extraPreBuildSetup}
         ${lib.optionalString (!collectPhysicalQorAssessment && builtins.elem phase [ "opt" "place" ]) ''
-          substituteInPlace "$build_dir/base.tcl" \
-            --replace-fail 'if {$phase in {opt place}} {' 'if {0 && $phase in {opt place}} {' \
-            --replace-fail '    set unrouted ""' '    if {$phase in {opt place} && $rqa_report eq ""} {
-              set rqa_report "$report_dir/''${prefix}_qor_assessment''${report_suffix}.rpt"
-              set rqa_fd [open $rqa_report w]
-              puts $rqa_fd "QoR Assessment unavailable: disabled for U280 under Vivado 2023.2 after a native tool crash"
-              close $rqa_fd
-            }
-            set unrouted ""'
+          ${pkgs.python3}/bin/python3 - "$build_dir/base.tcl" <<'__COYOTE_NIX_DISABLE_U280_RQA__'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          text = path.read_text()
+          replacements = [
+              ('if {$phase in {opt place}} {', 'if {0 && $phase in {opt place}} {'),
+              ('    set unrouted ""', '\n'.join([
+                  '    if {$phase in {opt place} && $rqa_report eq ""} {',
+                  '      set rqa_report "$report_dir/''${prefix}_qor_assessment''${report_suffix}.rpt"',
+                  '      set rqa_fd [open $rqa_report w]',
+                  '      puts $rqa_fd "QoR Assessment unavailable: disabled for U280 under Vivado 2023.2 after a native tool crash"',
+                  '      close $rqa_fd',
+                  '    }',
+                  '    set unrouted ""',
+              ])),
+          ]
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected exactly one generated Tcl fragment: {old}")
+              text = text.replace(old, new)
+          path.write_text(text)
+          __COYOTE_NIX_DISABLE_U280_RQA__
         ''}
       '';
       buildCommands = [ "make physical_stage" ];
