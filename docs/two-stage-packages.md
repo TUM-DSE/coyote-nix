@@ -244,6 +244,55 @@ The Nix dependency and the `SHELL_PATH` value therefore identify the same immuta
 
 The app graph is `synth -> immutable input bundle -> link -> opt -> place -> route -> validate -> gate -> image` on both boards. Its installed bitstream tree is deliberately filtered to `config_*` directories, so it cannot publish `cyt_top` boot images or `shell_top` partials. Intermediate checkpoints and reports belong to their independently rootable stage outputs; the final package retains the accepted routed checkpoint, validation evidence, application partials, and compatibility metadata.
 
+### V80 placement portfolios
+
+A V80 application may branch two or three explicitly declared placement candidates from its one canonical optimized checkpoint:
+
+```nix
+implementation.placementPortfolio = {
+  candidates = [
+    {
+      id = "balanced";
+      placeDirective = "SSI_BalanceSLRs";
+      physOptDirective = "AggressiveExplore";
+      resources = {
+        cores = 4;
+        ramMiB = 65536;
+        scratchMiB = 131072;
+        licenses = [ "vivado-implementation" ];
+      };
+    }
+    {
+      id = "spread";
+      placeDirective = "SSI_SpreadLogic_high";
+      physOptDirective = "Explore";
+      resources = {
+        cores = 4;
+        ramMiB = 65536;
+        scratchMiB = 131072;
+        licenses = [ "vivado-implementation" ];
+      };
+    }
+  ];
+  routeCandidates = [ ]; # explicitly select at most two only after diagnosis
+  recommendationPolicy = {
+    schemaVersion = 1;
+    api = "coyote-nix.placement-recommendation-policy/v1";
+    maxRouteCandidates = 2;
+    weights = {
+      rqa = 1000000;
+      setupSlackPerPs = 1;
+      logicLevelPenalty = 100;
+      congestionPenalty = 1000;
+    };
+  };
+};
+```
+
+Every candidate has an independently rootable place stage and normalized diagnosis under `coyoteTwoStage.stages.placementCandidates.<id>`. Place stages retain raw congestion, complexity, logic-level, high-fanout, timing, utilization, and RQA evidence. `diagnosis` converts supported observations into `coyote-nix.placement-diagnosis/v1` with canonical integer units and explicit unavailable states.
+
+`placementRecommendation` ranks the complete candidate set under the separately versioned policy and emits an advisory-only recommendation. It never causes Nix to route a newly selected candidate. The user must copy at most two candidate IDs into `routeCandidates` and evaluate/build those explicit route/validate/gate outputs in a second step. Candidate count, identifiers, resource declarations, and selection bounds are rejected during evaluation. The ordinary canonical route and all final DRC/setup/hold/image gates remain unchanged.
+
 ### App output
 
 ```text

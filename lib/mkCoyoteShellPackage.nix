@@ -670,6 +670,12 @@ let
         { role = "${phase}-timing-summary-report"; path = "${reportDirectory}/${reportPrefix}_timing_summary${reportSuffix}.rpt"; }
       ] ++ lib.optionals (builtins.elem phase [ "opt" "place" ]) [
         { role = "${phase}-qor-assessment-report"; path = "${reportDirectory}/${reportPrefix}_qor_assessment${reportSuffix}.rpt"; }
+      ] ++ lib.optionals (phase == "place" && boardProfile.board == "v80") [
+        { role = "place-diagnosis-observations"; path = "${reportDirectory}/${reportPrefix}_diagnosis${reportSuffix}.json"; }
+        { role = "place-congestion-report"; path = "${reportDirectory}/${reportPrefix}_congestion${reportSuffix}.rpt"; }
+        { role = "place-complexity-report"; path = "${reportDirectory}/${reportPrefix}_complexity${reportSuffix}.rpt"; }
+        { role = "place-logic-level-report"; path = "${reportDirectory}/${reportPrefix}_logic_levels${reportSuffix}.rpt"; }
+        { role = "place-high-fanout-report"; path = "${reportDirectory}/${reportPrefix}_high_fanout${reportSuffix}.rpt"; }
       ] ++ lib.optionals (builtins.elem phase [ "route" "validate" ]) [
         { role = "${phase}-route-status-report"; path = "${reportDirectory}/${reportPrefix}_route_status${reportSuffix}.rpt"; }
       ];
@@ -720,6 +726,9 @@ let
         cp "$build_dir/${outputPath}" "$out/${outputPath}"
         cp "$build_dir/${reportDirectory}/"*.rpt "$out/${reportDirectory}/"
         cp "$build_dir/${physicalPath}" "$out/${physicalPath}"
+        ${lib.optionalString (phase == "place" && boardProfile.board == "v80") ''
+          cp "$build_dir/${reportDirectory}/${reportPrefix}_diagnosis${reportSuffix}.json" "$out/${reportDirectory}/"
+        ''}
         ${lib.optionalString (phase == "validate") ''
           cp "$build_dir/${reportDirectory}/validation.json" "$out/${reportDirectory}/"
         ''}

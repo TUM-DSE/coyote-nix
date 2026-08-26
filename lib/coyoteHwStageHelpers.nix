@@ -56,6 +56,46 @@ rec {
     };
 
   implementationStageTool = ../nix/tools/coyote-implementation-stage.py;
+  placementDiagnosisTool = ../nix/tools/coyote-placement-diagnosis.py;
+
+  mkPlacementDiagnosis =
+    {
+      pname,
+      stage,
+      candidateId ? null,
+    }:
+    pkgs.runCommand pname { nativeBuildInputs = [ pkgs.python3 ]; } ''
+      ${pkgs.python3}/bin/python ${implementationStageTool} validate \
+        ${stage} --phase place
+      mkdir -p "$out/metadata"
+      ${pkgs.python3}/bin/python ${placementDiagnosisTool} normalize \
+        ${stage} "$out/metadata/diagnosis.json" \
+        ${lib.optionalString (candidateId != null) "--candidate-id ${lib.escapeShellArg candidateId}"}
+      ln -s ${stage} "$out/place-stage"
+    '';
+
+  mkPlacementRecommendation =
+    {
+      pname,
+      diagnoses,
+      policy,
+    }:
+    let
+      count = builtins.length diagnoses;
+      checkedDiagnoses =
+        if count >= 2 && count <= 3 then diagnoses else
+          throw "coyote-nix: placement recommendation requires two or three diagnoses";
+      policyFile = pkgs.writeText "${pname}-policy.json" (builtins.toJSON policy);
+    in
+    pkgs.runCommand pname { nativeBuildInputs = [ pkgs.python3 ]; } ''
+      mkdir -p "$out/metadata" "$out/candidates"
+      ${pkgs.python3}/bin/python ${placementDiagnosisTool} recommend \
+        ${policyFile} "$out/metadata/recommendation.json" \
+        ${lib.concatMapStringsSep " " (diagnosis: lib.escapeShellArg "${diagnosis}/metadata/diagnosis.json") checkedDiagnoses}
+      ${lib.concatImapStringsSep "\n" (index: diagnosis: ''
+        ln -s ${diagnosis} "$out/candidates/${toString index}"
+      '') checkedDiagnoses}
+    '';
 
   writeImplementationStageManifest =
     {

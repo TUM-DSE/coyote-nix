@@ -59,6 +59,8 @@ let
     importImplementationStageArtifacts
     installCheckpointReports
     mkImplementationStageGate
+    mkPlacementDiagnosis
+    mkPlacementRecommendation
     mkStage
     writeArtifactManifest
     writeImplementationStageManifest
@@ -112,6 +114,41 @@ let
       implementationCores
     else
       throw "coyote-nix: implementation.resources.cores must be a positive integer";
+  placementPortfolio = implementation.placementPortfolio or null;
+  candidateDefinitions = if placementPortfolio == null then [ ] else placementPortfolio.candidates or [ ];
+  candidateIds = map (candidate: candidate.id or "") candidateDefinitions;
+  uniqueCandidateIds = lib.unique candidateIds;
+  validCandidateId = value: builtins.isString value && builtins.match "[a-z][a-z0-9-]{0,31}" value != null;
+  validCandidateResources = resources:
+    builtins.isAttrs resources
+    && builtins.attrNames resources == [ "cores" "licenses" "ramMiB" "scratchMiB" ]
+    && builtins.isInt resources.cores && resources.cores > 0
+    && builtins.isInt resources.ramMiB && resources.ramMiB > 0
+    && builtins.isInt resources.scratchMiB && resources.scratchMiB > 0
+    && builtins.isList resources.licenses && resources.licenses != [ ]
+    && builtins.all (license: builtins.isString license && license != "") resources.licenses;
+  validCandidate = candidate:
+    builtins.isAttrs candidate
+    && builtins.attrNames candidate == [ "id" "physOptDirective" "placeDirective" "resources" ]
+    && validCandidateId candidate.id
+    && builtins.isString candidate.placeDirective && candidate.placeDirective != ""
+    && builtins.isString candidate.physOptDirective && candidate.physOptDirective != ""
+    && validCandidateResources candidate.resources;
+  routeCandidateIds = if placementPortfolio == null then [ ] else placementPortfolio.routeCandidates or [ ];
+  checkedPlacementPortfolio =
+    if placementPortfolio == null then null
+    else if boardProfile.board != "v80" then
+      throw "coyote-nix: placement portfolios currently support only V80"
+    else if builtins.length candidateDefinitions < 2 || builtins.length candidateDefinitions > 3 then
+      throw "coyote-nix: a placement portfolio requires two or three candidates"
+    else if builtins.length uniqueCandidateIds != builtins.length candidateIds || !builtins.all validCandidate candidateDefinitions then
+      throw "coyote-nix: placement candidates require unique canonical IDs, directives, and explicit resources"
+    else if builtins.length routeCandidateIds > 2 || builtins.length (lib.unique routeCandidateIds) != builtins.length routeCandidateIds
+      || !builtins.all (candidateId: builtins.elem candidateId candidateIds) routeCandidateIds then
+      throw "coyote-nix: routeCandidates must select at most two distinct declared candidates"
+    else if !(placementPortfolio ? recommendationPolicy) then
+      throw "coyote-nix: placementPortfolio.recommendationPolicy is required"
+    else placementPortfolio;
   implementationContextWithoutId = {
     board = boardProfile.board;
     architecture = boardProfile.fpgaArchitecture;
@@ -143,6 +180,7 @@ let
       outcome ? "complete",
       outcomePath ? null,
       telemetryPhysicalPath ? null,
+      stageResources ? { cores = checkedImplementationCores; },
     }:
     let
       declaredArtifacts = if artifacts != null then artifacts else [ { role = artifactRole; path = artifactPath; } ];
@@ -161,7 +199,7 @@ let
       inherit phase outcome strategy;
       unit = "config_0";
       context = implementationContext;
-      resources.cores = checkedImplementationCores;
+      resources = stageResources;
       artifacts = declaredArtifacts ++ telemetryArtifacts;
       predecessorPath = if predecessorPath == null then null else toString predecessorPath;
       outcomePath = outcomePath;
@@ -427,6 +465,8 @@ let
       extraFlags ? [ ],
       strategy ? { },
       reports ? false,
+      stageName ? phase,
+      stageResources ? { cores = checkedImplementationCores; },
     }:
     let
       reportPrefix = if phase == "validate" then "shell" else "shell_${phase}";
@@ -436,12 +476,18 @@ let
         { role = "${phase}-timing-summary-report"; path = "reports/config_0/${reportPrefix}_timing_summary_c0.rpt"; }
       ] ++ lib.optionals (builtins.elem phase [ "opt" "place" ]) [
         { role = "${phase}-qor-assessment-report"; path = "reports/config_0/${reportPrefix}_qor_assessment_c0.rpt"; }
+      ] ++ lib.optionals (phase == "place" && boardProfile.board == "v80") [
+        { role = "place-diagnosis-observations"; path = "reports/config_0/${reportPrefix}_diagnosis_c0.json"; }
+        { role = "place-congestion-report"; path = "reports/config_0/${reportPrefix}_congestion_c0.rpt"; }
+        { role = "place-complexity-report"; path = "reports/config_0/${reportPrefix}_complexity_c0.rpt"; }
+        { role = "place-logic-level-report"; path = "reports/config_0/${reportPrefix}_logic_levels_c0.rpt"; }
+        { role = "place-high-fanout-report"; path = "reports/config_0/${reportPrefix}_high_fanout_c0.rpt"; }
       ] ++ lib.optionals (builtins.elem phase [ "route" "validate" ]) [
         { role = "${phase}-route-status-report"; path = "reports/config_0/${reportPrefix}_route_status_c0.rpt"; }
       ];
       spec = mkImplementationSpec {
-        name = phase;
-        inherit phase;
+        name = stageName;
+        inherit phase stageResources;
         artifacts = [ { role = outputRole; path = outputPath; } ] ++ phaseArtifacts ++ lib.optionals reports [
           { role = "bitstream-drc-report"; path = "reports/config_0/shell_drc_bitstream_checks_c0.rpt"; }
           { role = "validation-result"; path = "reports/config_0/validation.json"; }
@@ -454,10 +500,10 @@ let
       };
     in
     mkStage {
-      pname = "${pname}-${phase}";
+      pname = "${pname}-${stageName}";
       board = boardProfile;
       inherit xilinxVersion;
-      cores = checkedImplementationCores;
+      cores = stageResources.cores;
       checkTimingLog = false;
       cmakeFlags = appImplementationBaseFlags ++ [
         "-DSHELL_PATH=${implementationInputs}"
@@ -493,6 +539,9 @@ let
         cp "$build_dir/${outputPath}" "$out/${outputPath}"
         cp "$build_dir/reports/config_0/"*.rpt "$out/reports/config_0/"
         cp "$build_dir/${physicalPath}" "$out/${physicalPath}"
+        ${lib.optionalString (phase == "place" && boardProfile.board == "v80") ''
+          cp "$build_dir/reports/config_0/${reportPrefix}_diagnosis_c0.json" "$out/reports/config_0/"
+        ''}
         ${lib.optionalString reports ''
           cp "$build_dir/reports/config_0/validation.json" "$out/reports/config_0/"
         ''}
@@ -573,6 +622,100 @@ let
   };
   routed = validationGate;
 
+  mkPortfolioCandidate = candidate:
+    let
+      candidatePlace = mkPhysicalStage {
+        phase = "place";
+        stageName = "place-${candidate.id}";
+        predecessor = opt;
+        predecessorPhase = "opt";
+        predecessorRole = "optimized-checkpoint";
+        inputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+        outputRole = "placed-checkpoint";
+        stageResources = candidate.resources;
+        strategy = {
+          candidateId = candidate.id;
+          place = candidate.placeDirective;
+          physOpt = candidate.physOptDirective;
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${candidate.placeDirective}"
+          "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${candidate.physOptDirective}"
+        ];
+      };
+      candidateDiagnosis = mkPlacementDiagnosis {
+        pname = "${pname}-diagnosis-${candidate.id}";
+        stage = candidatePlace;
+        candidateId = candidate.id;
+      };
+      selectedForRoute = builtins.elem candidate.id routeCandidateIds;
+      candidateRoute = if !selectedForRoute then null else mkPhysicalStage {
+        phase = "route";
+        stageName = "route-${candidate.id}";
+        predecessor = candidatePlace;
+        predecessorPhase = "place";
+        predecessorRole = "placed-checkpoint";
+        inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+        outputRole = "routed-checkpoint";
+        stageResources = candidate.resources;
+        strategy = {
+          candidateId = candidate.id;
+          selectionMode = "explicit";
+          route = implementationDirectives.route;
+          postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
+          finalRoute = implementationDirectives.finalRoute;
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}"
+          "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}"
+          "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}"
+        ];
+      };
+      candidateValidate = if candidateRoute == null then null else mkPhysicalStage {
+        phase = "validate";
+        stageName = "validate-${candidate.id}";
+        predecessor = candidateRoute;
+        predecessorPhase = "route";
+        predecessorRole = "routed-checkpoint";
+        inputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_routed_c0.dcp";
+        outputRole = "validated-checkpoint";
+        reports = true;
+        stageResources = candidate.resources;
+        strategy = {
+          candidateId = candidate.id;
+          selectionMode = "explicit";
+          enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming;
+        };
+        extraFlags = lib.optionals (checkedImplementationEnforceTiming != null) [
+          "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming then "1" else "0"}"
+        ];
+      };
+      candidateGate = if candidateValidate == null then null else mkImplementationStageGate {
+        pname = "${pname}-validation-gate-${candidate.id}";
+        stage = candidateValidate;
+        expectedContext = implementationContext.id;
+      };
+    in {
+      definition = candidate;
+      place = candidatePlace;
+      diagnosis = candidateDiagnosis;
+      route = candidateRoute;
+      validate = candidateValidate;
+      gate = candidateGate;
+    };
+  placementCandidates = builtins.listToAttrs (map (candidate: {
+    name = candidate.id;
+    value = mkPortfolioCandidate candidate;
+  }) candidateDefinitions);
+  placementRecommendation = if checkedPlacementPortfolio == null then null else mkPlacementRecommendation {
+    pname = "${pname}-placement-recommendation";
+    diagnoses = map (candidate: placementCandidates.${candidate.id}.diagnosis) candidateDefinitions;
+    policy = checkedPlacementPortfolio.recommendationPolicy;
+  };
+
   contract = {
     schemaVersion = 1;
     api = "coyote-nix.two-stage/v1";
@@ -605,6 +748,17 @@ let
         inherit link opt place route validate;
         gate = validationGate;
         image = "self";
+      };
+      placementPortfolio = if checkedPlacementPortfolio == null then null else {
+        api = "coyote-nix.placement-portfolio/v1";
+        maximumCandidates = 3;
+        maximumRouteCandidates = 2;
+        explicitRouteSelection = true;
+        routeCandidates = routeCandidateIds;
+        recommendation = placementRecommendation;
+        candidates = lib.mapAttrs (_: candidate: {
+          inherit (candidate) definition place diagnosis route validate gate;
+        }) placementCandidates;
       };
     };
   };
@@ -653,7 +807,7 @@ let
     extraAttrs = {
       passthru.coyoteTwoStage = contract // {
         stages = {
-          inherit synth routed link opt place route validate validationGate implementationInputs;
+          inherit synth routed link opt place route validate validationGate implementationInputs placementCandidates placementRecommendation;
         };
       };
     };

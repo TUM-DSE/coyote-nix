@@ -398,6 +398,80 @@
           pname = "example-v80-app";
           shellPackage = evalV80Shell;
         };
+        evalV80AppPortfolio = coyoteNixLib.mkCoyoteAppPackage {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = ./.;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pname = "example-v80-portfolio-app";
+          shellPackage = evalV80Shell;
+          implementation.placementPortfolio = {
+            candidates = [
+              {
+                id = "balanced";
+                placeDirective = "Default";
+                physOptDirective = "Explore";
+                resources = { cores = 8; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
+              }
+              {
+                id = "spread";
+                placeDirective = "SSI_SpreadLogic_high";
+                physOptDirective = "AggressiveExplore";
+                resources = { cores = 6; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
+              }
+            ];
+            routeCandidates = [ "balanced" ];
+            recommendationPolicy = {
+              schemaVersion = 1;
+              api = "coyote-nix.placement-recommendation-policy/v1";
+              maxRouteCandidates = 2;
+              weights = { rqa = 1000000; setupSlackPerPs = 1; logicLevelPenalty = 100; congestionPenalty = 1000; };
+            };
+          };
+        };
+        invalidUnboundedPortfolioEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteAppPackage {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = ./.;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "invalid-v80-portfolio-app";
+            shellPackage = evalV80Shell;
+            implementation.placementPortfolio = {
+              candidates = map (id: {
+                inherit id;
+                placeDirective = "Default";
+                physOptDirective = "Explore";
+                resources = { cores = 8; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
+              }) [ "one" "two" "three" "four" ];
+              routeCandidates = [ ];
+              recommendationPolicy = { };
+            };
+          }).coyoteTwoStage.physical.placementPortfolio
+        );
+        invalidRouteSelectionEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteAppPackage {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = ./.;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "invalid-v80-route-selection";
+            shellPackage = evalV80Shell;
+            implementation.placementPortfolio = {
+              candidates = map (id: {
+                inherit id;
+                placeDirective = "Default";
+                physOptDirective = "Explore";
+                resources = { cores = 8; ramMiB = 65536; scratchMiB = 131072; licenses = [ "vivado-implementation" ]; };
+              }) [ "one" "two" "three" ];
+              routeCandidates = [ "one" "two" "three" ];
+              recommendationPolicy = { };
+            };
+          }).coyoteTwoStage.physical.placementPortfolio
+        );
         evalV80AppRetuned = coyoteNixLib.mkCoyoteAppPackage {
           inherit pkgs;
           tools = evalTools;
@@ -757,6 +831,19 @@
           assert evalV80App.coyoteTwoStage.stages.place.drvPath == evalV80AppRetuned.coyoteTwoStage.stages.place.drvPath;
           assert evalV80App.coyoteTwoStage.stages.route.drvPath != evalV80AppRetuned.coyoteTwoStage.stages.route.drvPath;
           assert evalV80App.coyoteTwoStage.stages.validate.drvPath != evalV80AppRetuned.coyoteTwoStage.stages.validate.drvPath;
+          assert !invalidUnboundedPortfolioEval.success;
+          assert !invalidRouteSelectionEval.success;
+          assert evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.api == "coyote-nix.placement-portfolio/v1";
+          assert evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.explicitRouteSelection;
+          assert evalV80AppPortfolio.coyoteTwoStage.physical.placementPortfolio.routeCandidates == [ "balanced" ];
+          assert builtins.attrNames evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates == [ "balanced" "spread" ];
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.balanced.route != null;
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.balanced.validate != null;
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.spread.route == null;
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.spread.validate == null;
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.balanced.place.drvPath
+            != evalV80AppPortfolio.coyoteTwoStage.stages.placementCandidates.spread.place.drvPath;
+          assert evalV80AppPortfolio.coyoteTwoStage.stages.placementRecommendation != null;
           assert !mismatchedAppBoardEval.success;
           pkgs.runCommand "two-stage-packages-eval" { } ''
             touch $out
@@ -864,6 +951,17 @@
               bash ${./tests/implementation-stage-manifest.sh} \
                 ${./nix/tools/coyote-implementation-stage.py} \
                 ${./tests/fixtures}
+              touch "$out"
+            '';
+
+        checks.placement-diagnosis-contract =
+          pkgs.runCommand "placement-diagnosis-contract"
+            {
+              nativeBuildInputs = [ pkgs.python3 pkgs.jq ];
+            }
+            ''
+              bash ${./tests/placement-diagnosis.sh} \
+                ${./nix/tools/coyote-placement-diagnosis.py}
               touch "$out"
             '';
 
