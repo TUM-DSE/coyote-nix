@@ -172,6 +172,12 @@ let
           "$TMPDIR/peer-u280/export.cmake"
         grep -q 'set(COYOTE_PEER_INTERFACE_VERSION 1)' \
           "$TMPDIR/peer-u280/export.cmake"
+        grep -q 'rx_tvalid && !rx_fifo_ready' \
+          ${coyoteRoot}/hw/hdl/aurora/aurora_module.sv
+        grep -q 'peer_link_up = aurora_channel_up && !aurora_rx_overflow' \
+          ${coyoteRoot}/hw/hdl/peer/peer_backend_aurora_qsfp1.sv
+        grep -q 'if (!aresetn || !peer_link_up)' \
+          ${coyoteRoot}/hw/hdl/peer/peer_backend_aurora_qsfp1.sv
         ! grep -q 'axis_peer_recv_tdata' \
           "$TMPDIR/peer-u280/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
         ! grep -q 's_slot_decoupled' \
