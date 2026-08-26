@@ -40,6 +40,7 @@ let
     copyPreviousStageSetup
     finalBitgenCommand
     implementationStageTool
+    incrementalReferenceTool
     importImplementationStageArtifacts
     installCheckpointReports
     mkImplementationStageGate
@@ -170,6 +171,14 @@ let
     implementationCores
   else
     throw "coyote-nix: implementation.resources.cores must be a positive integer";
+  incrementalReference = implementation.incrementalReference or null;
+  checkedIncrementalReference =
+    if incrementalReference == null then null
+    else if boardProfile.board != "u280" then
+      throw "coyote-nix: incremental implementation references support only U280"
+    else if !lib.isDerivation incrementalReference then
+      throw "coyote-nix: implementation.incrementalReference must be an immutable Nix derivation"
+    else incrementalReference;
   effectivePcieGeneration = effectiveFlagValue "PCIE_GEN" cmakeFlags;
   implementationPcieGeneration = if effectivePcieGeneration == null then "4" else
     if builtins.elem effectivePcieGeneration [ "4" "5" ] then effectivePcieGeneration else
@@ -193,6 +202,7 @@ let
   implementationContext = implementationContextWithoutId // {
     id = builtins.hashString "sha256" (builtins.toJSON implementationContextWithoutId);
   };
+  implementationContextFile = pkgs.writeText "${pname}-implementation-context.json" (builtins.toJSON implementationContext);
   mkImplementationSpec =
     {
       name,
@@ -659,7 +669,12 @@ let
     '';
   };
 
-  mkPhysicalStage = { name, unit, phase, predecessor, predecessorPhase, predecessorRole, inputPath, outputPath, outputRole, strategy, extraFlags }:
+  mkPhysicalStage = {
+    name, unit, phase, predecessor, predecessorPhase, predecessorRole,
+    inputPath, outputPath, outputRole, strategy, extraFlags,
+    incrementalMode ? "none", incrementalEvidence ? false,
+    extraPreBuildSetup ? "",
+  }:
     let
       reportPrefix = if phase == "validate" then "shell" else "shell_${phase}";
       reportDirectory = if unit == "config_0" then "reports/config_0" else "reports";
@@ -678,17 +693,21 @@ let
         { role = "place-high-fanout-report"; path = "${reportDirectory}/${reportPrefix}_high_fanout${reportSuffix}.rpt"; }
       ] ++ lib.optionals (builtins.elem phase [ "route" "validate" ]) [
         { role = "${phase}-route-status-report"; path = "${reportDirectory}/${reportPrefix}_route_status${reportSuffix}.rpt"; }
+      ] ++ lib.optionals (incrementalMode == "reference" && builtins.elem phase [ "place" "route" ]) [
+        { role = "incremental-reuse-report"; path = "${reportDirectory}/${reportPrefix}_incremental_reuse${reportSuffix}.rpt"; }
+      ] ++ lib.optionals incrementalEvidence [
+        { role = "incremental-reference-evidence"; path = "metadata/incremental-reference.json"; }
       ];
       spec = mkImplementationSpec {
       inherit phase strategy unit;
       name = "${name}-${phase}";
       predecessorPath = predecessor;
       artifacts = [ { role = outputRole; path = outputPath; } ] ++ phaseArtifacts ++ lib.optionals (phase == "validate") [
-        { role = "bitstream-drc-report"; path = "reports/shell_drc_bitstream_checks.rpt"; }
-        { role = "validation-result"; path = "reports/validation.json"; }
+        { role = "bitstream-drc-report"; path = "${reportDirectory}/shell_drc_bitstream_checks${reportSuffix}.rpt"; }
+        { role = "validation-result"; path = "${reportDirectory}/validation.json"; }
       ];
       outcome = if phase == "validate" then "accepted" else "complete";
-      outcomePath = if phase == "validate" then "reports/validation.json" else null;
+      outcomePath = if phase == "validate" then "${reportDirectory}/validation.json" else null;
       telemetryPhysicalPath = physicalPath;
     };
     in mkStage {
@@ -706,13 +725,18 @@ let
         "-DIMPLEMENTATION_REPORT_SUFFIX:STRING=${reportSuffix}"
         "-DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH=$build_dir/${reportDirectory}/validation.json"
         "-DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH=$build_dir/${physicalPath}"
+      ] ++ lib.optionals (incrementalMode != "none") [
+        "-DIMPLEMENTATION_INCREMENTAL_MODE:STRING=${incrementalMode}"
       ] ++ extraFlags;
-      preBuildSetup = importImplementationStageArtifacts {
-        previousStage = predecessor;
-        roles = [ predecessorRole ];
-        expectedPhase = predecessorPhase;
-        expectedContext = implementationContext.id;
-      };
+      preBuildSetup = ''
+        ${importImplementationStageArtifacts {
+          previousStage = predecessor;
+          roles = [ predecessorRole ];
+          expectedPhase = predecessorPhase;
+          expectedContext = implementationContext.id;
+        }}
+        ${extraPreBuildSetup}
+      '';
       buildCommands = [ "make physical_stage" ];
       expectedPaths = [ outputPath "checkpoints/${name}_${phase}_complete" physicalPath ]
         ++ map (artifact: artifact.path) phaseArtifacts
@@ -720,7 +744,7 @@ let
           "${reportDirectory}/shell_drc_bitstream_checks${reportSuffix}.rpt"
           "${reportDirectory}/validation.json"
         ];
-      nativeBuildInputs = [ pkgs.python3 ];
+      nativeBuildInputs = [ pkgs.jq pkgs.python3 ];
       extraInstallPhase = ''
         mkdir -p "$out/$(dirname ${outputPath})" "$out/metadata" "$out/${reportDirectory}"
         cp "$build_dir/${outputPath}" "$out/${outputPath}"
@@ -731,6 +755,9 @@ let
         ''}
         ${lib.optionalString (phase == "validate") ''
           cp "$build_dir/${reportDirectory}/validation.json" "$out/${reportDirectory}/"
+        ''}
+        ${lib.optionalString incrementalEvidence ''
+          cp "$build_dir/metadata/incremental-reference.json" "$out/metadata/incremental-reference.json"
         ''}
         ${writeImplementationStageManifest { inherit spec; }}
       '';
@@ -843,6 +870,78 @@ let
     strategy = { route = implementationDirectives.route; postRoutePhysOpt = implementationDirectives.postRoutePhysOpt; finalRoute = implementationDirectives.finalRoute; };
     extraFlags = [ "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}" "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}" "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}" ];
   };
+  incrementalReferenceSetup = reference: ''
+    mkdir -p "$build_dir/metadata" "$build_dir/checkpoints/config_0"
+    ${pkgs.python3}/bin/python ${incrementalReferenceTool} \
+      ${implementationStageTool} ${reference} ${implementationContextFile} \
+      "$build_dir/metadata/incremental-reference.json"
+    reference_relative="$(${pkgs.jq}/bin/jq -r '.reference.checkpoint.path' \
+      "$build_dir/metadata/incremental-reference.json")"
+    reference_sha256="$(${pkgs.jq}/bin/jq -r '.reference.checkpoint.sha256' \
+      "$build_dir/metadata/incremental-reference.json")"
+    cp "${reference}/$reference_relative" \
+      "$build_dir/checkpoints/config_0/incremental_reference.dcp"
+    test "$(sha256sum "$build_dir/checkpoints/config_0/incremental_reference.dcp" | cut -d ' ' -f 1)" = \
+      "$reference_sha256"
+  '';
+  incrementalOpt = if checkedIncrementalReference == null then null else mkPhysicalStage {
+    name = "config_0_incremental"; unit = "config_0"; phase = "opt";
+    predecessor = dynamicLink; predecessorPhase = "link"; predecessorRole = "linked-checkpoint";
+    inputPath = "checkpoints/config_0/shell_linked_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_opted_c0.dcp"; outputRole = "optimized-checkpoint";
+    incrementalMode = "reference"; incrementalEvidence = true;
+    extraPreBuildSetup = incrementalReferenceSetup checkedIncrementalReference;
+    strategy = {
+      opt = implementationDirectives.opt;
+      incremental = { mode = "explicit-reference"; referencePath = toString checkedIncrementalReference; signoffAuthority = false; };
+    };
+    extraFlags = [
+      "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}"
+      "-DIMPLEMENTATION_INCREMENTAL_REFERENCE_DCP:FILEPATH=$build_dir/checkpoints/config_0/incremental_reference.dcp"
+    ];
+  };
+  incrementalPlace = if incrementalOpt == null then null else mkPhysicalStage {
+    name = "config_0_incremental"; unit = "config_0"; phase = "place";
+    predecessor = incrementalOpt; predecessorPhase = "opt"; predecessorRole = "optimized-checkpoint";
+    inputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp"; outputRole = "placed-checkpoint";
+    incrementalMode = "reference";
+    strategy = { place = implementationDirectives.place; physOpt = implementationDirectives.physOpt; incremental.mode = "explicit-reference"; };
+    extraFlags = [ "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}" "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}" ];
+  };
+  incrementalRoute = if incrementalPlace == null then null else mkPhysicalStage {
+    name = "config_0_incremental"; unit = "config_0"; phase = "route";
+    predecessor = incrementalPlace; predecessorPhase = "place"; predecessorRole = "placed-checkpoint";
+    inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp"; outputRole = "routed-checkpoint";
+    incrementalMode = "reference";
+    strategy = {
+      route = implementationDirectives.route;
+      postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
+      finalRoute = implementationDirectives.finalRoute;
+      incremental.mode = "explicit-reference";
+    };
+    extraFlags = [ "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}" "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}" "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}" ];
+  };
+  incrementalValidate = if incrementalRoute == null then null else mkPhysicalStage {
+    name = "config_0_incremental"; unit = "config_0"; phase = "validate";
+    predecessor = incrementalRoute; predecessorPhase = "route"; predecessorRole = "routed-checkpoint";
+    inputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+    outputPath = "checkpoints/config_0/shell_routed_c0.dcp"; outputRole = "validated-checkpoint";
+    incrementalMode = "reference";
+    strategy = { incremental.mode = "explicit-reference"; enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming; };
+    extraFlags = [
+      "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming == null then "project" else if checkedImplementationEnforceTiming then "1" else "0"}"
+      "-DIMPLEMENTATION_LABEL:STRING=config_0_incremental_routed_shell"
+      "-DIMPLEMENTATION_DRC_NAME:STRING=config_0_incremental_bitstream_gate"
+    ];
+  };
+  incrementalGate = if incrementalValidate == null then null else mkImplementationStageGate {
+    pname = "${pname}-incremental-validation-gate";
+    stage = incrementalValidate;
+    expectedContext = implementationContext.id;
+  };
+
   dynamicValidateSpec = mkImplementationSpec {
     name = "config-0-validate"; phase = "validate"; unit = "config_0"; predecessorPath = dynamicRoute;
     strategy.enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming;
@@ -986,6 +1085,19 @@ let
       resources.cores = checkedImplementationCores;
       directives = implementationDirectives;
       image = "self";
+      incremental = if checkedIncrementalReference == null then null else {
+        api = "coyote-nix.incremental-implementation/v1";
+        experimental = true;
+        signoffAuthority = false;
+        reference = checkedIncrementalReference;
+        stages = {
+          opt = incrementalOpt;
+          place = incrementalPlace;
+          route = incrementalRoute;
+          validate = incrementalValidate;
+          gate = incrementalGate;
+        };
+      };
       units = {
         config_0 = {
           inputs = dynamicInputs;
@@ -1066,6 +1178,13 @@ let
           finalize = dynamic;
           timingOracle = timingOracleStage;
           timingGate = timingOracleGate;
+          incremental = if checkedIncrementalReference == null then null else {
+            opt = incrementalOpt;
+            place = incrementalPlace;
+            route = incrementalRoute;
+            validate = incrementalValidate;
+            gate = incrementalGate;
+          };
         }
         // lib.optionalAttrs synthesisAnalysisPolicy.enable {
           synthesisAnalysisRaw = synthesisAnalysisRaw;

@@ -3,6 +3,7 @@ set -euo pipefail
 
 tool=${1:?implementation-stage tool required}
 fixtures=${2:?Vivado report fixture directory required}
+incremental_tool=${3:?incremental-reference tool required}
 work=${TMPDIR:-/tmp}/implementation-stage-contract
 rm -rf "$work"
 mkdir -p "$work"
@@ -79,6 +80,57 @@ cat > "$work/validate.json" <<EOF
 EOF
 python3 "$tool" write "$work/validate.json" "$work/validate" "$work/validate"
 python3 "$tool" validate "$work/validate" --phase validate --context "$context_id"
+
+u280_context_without_id='{"board":"u280","architecture":"ultrascale_plus","part":"xcu280","flow":"build-app","topology":{"configurations":1,"regions":1},"sourceId":"source-u280","constraintsId":"constraints-u280","toolId":"vivado-2023.2@fixture","toolVersion":"2023.2"}'
+u280_context=$(python3 - "$u280_context_without_id" <<'PY'
+import hashlib, json, sys
+value = json.loads(sys.argv[1])
+encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+value["id"] = hashlib.sha256(encoded).hexdigest()
+print(json.dumps(value, sort_keys=True, separators=(",", ":")))
+PY
+)
+u280_previous=""
+for phase in inputs link opt place route validate; do
+  stage="$work/u280-$phase"
+  mkdir -p "$stage/checkpoints" "$stage/reports"
+  printf '%s checkpoint\n' "$phase" > "$stage/checkpoints/$phase.dcp"
+  if [ "$phase" = inputs ]; then
+    predecessor=''
+    artifacts='[{"role":"inputs-checkpoint","path":"checkpoints/inputs.dcp"}]'
+    outcome='"complete"'
+  else
+    predecessor="\"predecessorPath\": \"$u280_previous\","
+    artifacts="[{\"role\":\"$phase-checkpoint\",\"path\":\"checkpoints/$phase.dcp\"}]"
+    outcome='"complete"'
+  fi
+  if [ "$phase" = validate ]; then
+    printf '{"outcome":"accepted","reasons":[]}\n' > "$stage/reports/validation.json"
+    artifacts='[{"role":"validated-checkpoint","path":"checkpoints/validate.dcp"},{"role":"validation-result","path":"reports/validation.json"}]'
+    outcome='"accepted"'
+  fi
+  cat > "$work/u280-$phase.json" <<EOF
+{"phase":"$phase","unit":"config_0","context":$u280_context,$predecessor"outcome":$outcome,"artifacts":$artifacts}
+EOF
+  python3 "$tool" write "$work/u280-$phase.json" "$stage" "$stage"
+  u280_previous=$stage
+done
+printf '%s\n' "$u280_context" > "$work/u280-current-context.json"
+python3 "$incremental_tool" "$tool" \
+  "$work/u280-validate" "$work/u280-current-context.json" "$work/incremental-reference.json"
+jq -e '
+  .api == "coyote-nix.incremental-reference/v1"
+  and .selection == "explicit"
+  and .reference.outcome == "accepted"
+  and .reference.checkpoint.role == "validated-checkpoint"
+  and .compatibility.board == "u280"
+  and .signoffAuthority == false
+' "$work/incremental-reference.json" >/dev/null
+expect_failure python3 "$incremental_tool" "$tool" \
+  "$work/validate" "$work/u280-current-context.json" "$work/wrong-board-reference.json"
+printf '%s\n' "$context" > "$work/v80-current-context.json"
+expect_failure python3 "$incremental_tool" "$tool" \
+  "$work/u280-validate" "$work/v80-current-context.json" "$work/v80-reference.json"
 
 mkdir -p "$work/telemetry-opt/checkpoints" "$work/telemetry-opt/logs" "$work/telemetry-opt/metadata" "$work/telemetry-opt/reports"
 printf 'telemetry checkpoint\n' > "$work/telemetry-opt/checkpoints/opt.dcp"

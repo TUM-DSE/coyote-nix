@@ -56,6 +56,7 @@ rec {
     };
 
   implementationStageTool = ../nix/tools/coyote-implementation-stage.py;
+  incrementalReferenceTool = ../nix/tools/coyote-incremental-reference.py;
   placementDiagnosisTool = ../nix/tools/coyote-placement-diagnosis.py;
 
   mkPlacementDiagnosis =

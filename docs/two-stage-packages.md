@@ -293,6 +293,18 @@ Every candidate has an independently rootable place stage and normalized diagnos
 
 `placementRecommendation` ranks the complete candidate set under the separately versioned policy and emits an advisory-only recommendation. It never causes Nix to route a newly selected candidate. The user must copy at most two candidate IDs into `routeCandidates` and evaluate/build those explicit route/validate/gate outputs in a second step. Candidate count, identifiers, resource declarations, and selection bounds are rejected during evaluation. The ordinary canonical route and all final DRC/setup/hold/image gates remain unchanged.
 
+### U280 incremental implementation
+
+U280 shell and application packages may use one explicitly selected prior accepted validation stage as an experimental Vivado incremental reference:
+
+```nix
+implementation.incrementalReference = previous.coyoteTwoStage.stages.validate;
+```
+
+The reference must be an immutable Nix derivation. At build time coyote-nix validates its complete stage manifest, accepted outcome, checkpoint hash, U280 part, topology, flow, and exact Vivado installation identity. It then records `metadata/incremental-reference.json`, loads the declared checkpoint through `read_checkpoint -incremental`, and retains place/route incremental-reuse reports.
+
+The resulting `coyoteTwoStage.stages.incremental.{opt,place,route,validate,gate}` branch is separate from the ordinary clean stages. It is an iteration experiment and has `signoffAuthority = false`; final shell/application images continue to consume only the clean validation path. The first physical pilot must verify checkpoint-state continuity and reuse reporting under the pinned Vivado 2023.2 U280 toolchain before runtime or QoR improvements are claimed.
+
 ### App output
 
 ```text

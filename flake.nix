@@ -950,7 +950,8 @@
             ''
               bash ${./tests/implementation-stage-manifest.sh} \
                 ${./nix/tools/coyote-implementation-stage.py} \
-                ${./tests/fixtures}
+                ${./tests/fixtures} \
+                ${./nix/tools/coyote-incremental-reference.py}
               touch "$out"
             '';
 
