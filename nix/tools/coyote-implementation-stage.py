@@ -359,9 +359,13 @@ def write_telemetry(
         utilization_resources = parse_utilization_report(
             resolve_contained(artifact_root, utilization_relative)
         )
+        qor_assessment_declared = any(
+            declaration.get("role") == f"{phase}-qor-assessment-report"
+            for declaration in declarations
+        )
         report_requirements = {
             "timingSummary": True,
-            "qorAssessment": phase in ("opt", "place"),
+            "qorAssessment": qor_assessment_declared,
             "routeStatus": phase in ("route", "validate"),
         }
         for report_key, required in report_requirements.items():

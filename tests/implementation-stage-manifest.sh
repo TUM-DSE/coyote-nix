@@ -183,6 +183,30 @@ jq -e '
   and .metrics.physical.routing.unroutedNets.reason == "not-applicable"
 ' "$work/telemetry-opt/metadata/telemetry.json" >/dev/null
 
+cp -a "$work/telemetry-opt" "$work/telemetry-no-qor"
+rm -f \
+  "$work/telemetry-no-qor/reports/opt-qor.rpt" \
+  "$work/telemetry-no-qor/metadata/stage.json" \
+  "$work/telemetry-no-qor/metadata/telemetry.json" \
+  "$work/telemetry-no-qor/metadata/complete"
+jq '
+  .artifacts |= map(select(.role != "opt-qor-assessment-report"))
+' "$work/telemetry-opt.json" > "$work/telemetry-no-qor.json"
+jq '
+  .qor.rqaScore = null
+  | .reports.qorAssessment = ""
+' "$work/telemetry-no-qor/reports/physical.json" \
+  > "$work/telemetry-no-qor/reports/physical.json.tmp"
+mv "$work/telemetry-no-qor/reports/physical.json.tmp" \
+  "$work/telemetry-no-qor/reports/physical.json"
+python3 "$tool" write \
+  "$work/telemetry-no-qor.json" "$work/telemetry-no-qor" "$work/telemetry-no-qor"
+python3 "$tool" validate "$work/telemetry-no-qor" --phase opt --context "$context_id"
+jq -e '
+  .metrics.physical.qor.rqaScore.state == "unavailable"
+  and .metrics.physical.qor.rqaScore.reason == "not-published"
+' "$work/telemetry-no-qor/metadata/telemetry.json" >/dev/null
+
 cp -a "$work/telemetry-opt" "$work/telemetry-repeat"
 sed -i 's/12.50/13.50/' "$work/telemetry-repeat/metadata/execution.json"
 sed -i 's/wallSeconds=12.50/wallSeconds=13.50/' "$work/telemetry-repeat/metadata/gnu-time.txt"

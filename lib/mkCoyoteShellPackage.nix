@@ -23,6 +23,7 @@ let
   boardProfile =
     boardProfiles.${board}
       or (throw "coyote-nix: mkCoyoteShellPackage supports only u280 and v80, not ${board}");
+  collectPhysicalQorAssessment = !(board == "u280" && xilinxVersion == "2023.2");
 
   stageHelpers = import ./coyoteHwStageHelpers.nix {
     inherit
@@ -688,7 +689,7 @@ let
       phaseArtifacts = [
         { role = "${phase}-utilization-report"; path = "${reportDirectory}/${reportPrefix}_utilization${reportSuffix}.rpt"; }
         { role = "${phase}-timing-summary-report"; path = "${reportDirectory}/${reportPrefix}_timing_summary${reportSuffix}.rpt"; }
-      ] ++ lib.optionals (builtins.elem phase [ "opt" "place" ]) [
+      ] ++ lib.optionals (collectPhysicalQorAssessment && builtins.elem phase [ "opt" "place" ]) [
         { role = "${phase}-qor-assessment-report"; path = "${reportDirectory}/${reportPrefix}_qor_assessment${reportSuffix}.rpt"; }
       ] ++ lib.optionals (phase == "place" && boardProfile.board == "v80") [
         { role = "place-diagnosis-observations"; path = "${reportDirectory}/${reportPrefix}_diagnosis${reportSuffix}.json"; }
@@ -741,6 +742,10 @@ let
           expectedContext = implementationContext.id;
         }}
         ${extraPreBuildSetup}
+        ${lib.optionalString (!collectPhysicalQorAssessment && builtins.elem phase [ "opt" "place" ]) ''
+          substituteInPlace "$build_dir/base.tcl" \
+            --replace-fail 'if {$phase in {opt place}} {' 'if {0 && $phase in {opt place}} {'
+        ''}
       '';
       buildCommands = [ "make physical_stage" ];
       expectedPaths = [ outputPath "checkpoints/${name}_${phase}_complete" physicalPath ]

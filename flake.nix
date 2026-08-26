@@ -242,7 +242,7 @@
           xilinxShareRoot = "/nonexistent/xilinx";
           pname = "example-u280-shell";
           board = "u280";
-          xilinxVersion = "site-selected-u280-build-version";
+          xilinxVersion = "2023.2";
           synthesisAnalysis = {
             enable = true;
             enforce = true;
@@ -1051,6 +1051,13 @@
           if grep -F 'synthesis-analysis-gate' \
             ${phaseScript "v80-oracle-advisory-contract.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.buildPhase} >/dev/null; then
             echo 'timing oracle unexpectedly depends on synthesized-shell classification' >&2
+            exit 1
+          fi
+          grep -F 'if {0 && $phase in {opt place}} {' \
+            ${phaseScript "u280-physical-rqa-safety.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.opt.buildPhase} >/dev/null
+          if grep -F 'if {0 && $phase in {opt place}} {' \
+            ${phaseScript "v80-physical-rqa-availability.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.opt.buildPhase} >/dev/null; then
+            echo 'physical QoR Assessment was unexpectedly disabled for V80' >&2
             exit 1
           fi
           for script in \
