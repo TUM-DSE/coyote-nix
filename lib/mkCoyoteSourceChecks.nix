@@ -188,6 +188,7 @@ let
           cmake --build "$build" --target project
           test -f "$build/.coyote_project.stamp"
           test -f "$build/synthesis_analysis.tcl"
+          grep -q 'shell_synthesis_checkpoint' "$build/target-help.txt"
           grep -q 'synthesis_analysis' "$build/target-help.txt"
           ${pkgs.tcl}/bin/tclsh \
             ${coyoteRoot}/tests/synthesis_analysis/template_contract.tcl \

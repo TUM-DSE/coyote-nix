@@ -341,11 +341,31 @@ let
     printf '%s\n' "$compatibility_id" > "$out/metadata/compatibility-id"
   '';
 
+  residentShellSynthesis = mkStage {
+    pname = "${pname}-resident-shell-synth";
+    board = boardProfile;
+    inherit xilinxVersion;
+    cmakeFlags = shellSynthesisCmakeFlags;
+    buildCommands = [
+      "make project"
+      "make shell_synthesis_checkpoint"
+    ];
+    expectedPaths = [
+      "checkpoints/shell/shell_synthed.dcp"
+    ];
+    extraInstallPhase = installCheckpointReports {
+      checkpointDirs = [ "shell" ];
+      reportDirs = [ "shell" ];
+    };
+    description = "Coyote ${boardProfile.platform} resident-shell synthesis checkpoint";
+  };
+
   synthesisAnalysisRaw = mkStage {
     pname = "${pname}-synthesis-analysis-raw";
     board = boardProfile;
     inherit xilinxVersion;
     cmakeFlags = shellSynthesisCmakeFlags;
+    preBuildSetup = copyPreviousStageSetup residentShellSynthesis { };
     buildCommands = [
       "make project"
       "make synthesis_analysis"
@@ -469,9 +489,9 @@ let
       ''
         test -e ${synthesisAnalysisGate}/metadata/synthesis-analysis.json
       '';
-  synthesisAnalysisReuseSetup = lib.optionalString synthesisAnalysisPolicy.enable (
-    copyPreviousStageSetup synthesisAnalysisRaw { }
-  );
+  synthesisAnalysisReuseSetup = copyPreviousStageSetup (
+    if synthesisAnalysisPolicy.enable then synthesisAnalysisRaw else residentShellSynthesis
+  ) { };
 
   synth = mkStage {
     pname = "${pname}-synth";
@@ -1066,6 +1086,7 @@ let
     inherit shellCmakeFlags shellSynthesisCmakeFlags;
     synthesisAnalysis = {
       policy = synthesisAnalysisPolicy;
+      synthesis = residentShellSynthesis;
       raw = synthesisAnalysisRaw;
       stage = synthesisAnalysisStage;
       gate = synthesisAnalysisGate;
@@ -1167,7 +1188,7 @@ let
     extraAttrs = {
       passthru.coyoteTwoStage = contract // {
         stages = {
-          inherit synth dynamic;
+          inherit residentShellSynthesis synth dynamic;
           implementationInputs = dynamicInputs;
           link = dynamicLink;
           opt = dynamicOpt;
