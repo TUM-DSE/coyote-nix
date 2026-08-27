@@ -190,6 +190,10 @@ let
           ${coyoteRoot}/hw/hdl/peer/peer_backend_aurora_qsfp1.sv
         ! grep -q 'tx_hi_valid\|rx_out_valid\|rx_have_low' \
           ${coyoteRoot}/hw/hdl/peer/peer_backend_aurora_qsfp1.sv
+        grep -q '{CLOCKREGION_X0Y8:CLOCKREGION_X3Y11}' \
+          ${coyoteRoot}/scripts/impl/physical_stage.tcl.in
+        grep -q 'set_property IS_SOFT FALSE' \
+          ${coyoteRoot}/scripts/impl/physical_stage.tcl.in
         ! grep -q 'axis_peer_recv_tdata' \
           "$TMPDIR/peer-u280/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
         ! grep -q 's_slot_decoupled' \
