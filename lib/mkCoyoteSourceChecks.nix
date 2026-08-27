@@ -948,6 +948,38 @@ let
         touch "$out"
       '';
 
+  auroraRegisteredReadySimulation =
+    pkgs.runCommand "coyote-aurora-registered-ready-simulation"
+      {
+        nativeBuildInputs = [
+          pkgs.python3
+          pkgs.stdenv.cc
+          pkgs.verilator
+        ];
+      }
+      ''
+        set -euo pipefail
+        buffer=${coyoteRoot}/hw/hdl/aurora/aurora_axis_skid_buffer.sv
+        wrapper=${coyoteRoot}/hw/hdl/aurora/aurora_module.sv
+        grep -Fq "queue_count != 2'd2" "$buffer"
+        if grep -Eq 's_tready[[:space:]]*=.*m_tready' "$buffer"; then
+          echo "Aurora RX ready must not depend on downstream ready" >&2
+          exit 1
+        fi
+        if grep -Eq 'queue_(data|keep|last).*<=[[:space:]]*'"'"'0' "$buffer"; then
+          echo "invalid Aurora skid-buffer payload must not be reset" >&2
+          exit 1
+        fi
+        grep -Fq '.m_axis_tready  (rx_cdc_ready)' "$wrapper"
+        grep -Fq 'aurora_axis_skid_buffer inst_rx_output_buffer' "$wrapper"
+        verilator --binary --timing -Wall -Wno-fatal \
+          --top-module aurora_axis_skid_buffer_tb \
+          "$buffer" \
+          ${coyoteRoot}/hw/tests/aurora_axis_skid_buffer_tb.sv
+        ./obj_dir/Vaurora_axis_skid_buffer_tb
+        touch "$out"
+      '';
+
   auroraModuleElaboration =
     pkgs.runCommand "coyote-aurora-module-elaboration"
       {
@@ -963,6 +995,7 @@ let
           --top-module aurora_module_elaboration_tb \
           ${coyoteRoot}/hw/tests/aurora_module_elaboration_tb.sv \
           ${coyoteRoot}/hw/hdl/aurora/aurora_width_adapter.sv \
+          ${coyoteRoot}/hw/hdl/aurora/aurora_axis_skid_buffer.sv \
           ${coyoteRoot}/hw/hdl/aurora/aurora_module.sv
         ./obj_dir/Vaurora_module_elaboration_tb
         touch "$out"
@@ -992,6 +1025,7 @@ in
 {
   inherit
     auroraModuleElaboration
+    auroraRegisteredReadySimulation
     auroraWidthAdapterSimulation
     coprocessorHostApi
     coprocessorRenderContract
