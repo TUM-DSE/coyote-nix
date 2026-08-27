@@ -96,6 +96,15 @@ let
         render_case no-service-v80 v80 \
           -DTEST_ENABLE_SERVICE:BOOL=OFF \
           -DTEST_ENABLE_CONTROL:BOOL=OFF
+
+        u280_shell_clock="$TMPDIR/control-u280/coyote-resident-service-control-fixture_shell/xdc/shell_clk.xdc"
+        test -f "$u280_shell_clock"
+        test "$(grep -Fxc 'set_property CLOCK_BUFFER_TYPE NONE [get_ports dclk]' "$u280_shell_clock")" -eq 1
+        if grep -Fq '[get_ports xclk]' "$u280_shell_clock"; then
+          echo 'UltraScale+ shell clock constraint targets the wrong PR-boundary port' >&2
+          exit 1
+        fi
+
         render_case immutable-v80 v80 \
           -DTEST_ENABLE_SERVICE:BOOL=ON \
           -DTEST_ENABLE_CONTROL:BOOL=ON \
