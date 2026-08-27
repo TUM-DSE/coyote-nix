@@ -16,23 +16,13 @@ def replace_once(text: str, old: str, new: str, source: Path) -> str:
 def patch_base(path: Path) -> None:
     text = path.read_text()
     replacements = [
-        ('    set prefix "shell_"', '    set prefix "shell_${phase}"'),
         ('    if {$phase in {opt place}} {', '    if {0 && $phase in {opt place}} {'),
-        ('"$report_dir/_utilization.rpt"', '"$report_dir/${prefix}_utilization${report_suffix}.rpt"'),
-        ('"$report_dir/_timing_summary.rpt"', '"$report_dir/${prefix}_timing_summary${report_suffix}.rpt"'),
-        ('"$report_dir/_qor_assessment.rpt"', '"$report_dir/${prefix}_qor_assessment${report_suffix}.rpt"'),
-        ('"$report_dir/_route_status.rpt"', '"$report_dir/${prefix}_route_status${report_suffix}.rpt"'),
-        ('"$report_dir/_congestion.rpt"', '"$report_dir/${prefix}_congestion${report_suffix}.rpt"'),
-        ('"$report_dir/_complexity.rpt"', '"$report_dir/${prefix}_complexity${report_suffix}.rpt"'),
-        ('"$report_dir/_logic_levels.rpt"', '"$report_dir/${prefix}_logic_levels${report_suffix}.rpt"'),
-        ('"$report_dir/_high_fanout.rpt"', '"$report_dir/${prefix}_high_fanout${report_suffix}.rpt"'),
-        ('"$report_dir/_diagnosis.json"', '"$report_dir/${prefix}_diagnosis${report_suffix}.json"'),
         (
             '    set unrouted ""',
             "\n".join(
                 [
                     '    if {$phase in {opt place} && $rqa_report eq ""} {',
-                    '      set rqa_report "$report_dir/${prefix}_qor_assessment${report_suffix}.rpt"',
+                    '      set rqa_report [file join $report_dir [format "%s_qor_assessment%s.rpt" $prefix $report_suffix]]',
                     '      set rqa_fd [open $rqa_report w]',
                     '      puts $rqa_fd "QoR Assessment unavailable: disabled for U280 under Vivado 2023.2 after a native tool crash"',
                     '      close $rqa_fd',

@@ -1145,22 +1145,46 @@
           u280_rqa_script=${phaseScript "u280-physical-rqa-safety.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.place.buildPhase}
           grep -F 'chmod u+w "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"' "$u280_rqa_script" >/dev/null
           grep -F 'patch-u280-vivado-2023.2-physical-stage.py' "$u280_rqa_script" >/dev/null
+          u280_app_place_script=${phaseScript "u280-app-place-generated-tcl-repair.sh" evalU280App.coyoteTwoStage.stages.place.buildPhase}
+          grep -F 'patch-u280-vivado-2023.2-physical-stage.py' "$u280_app_place_script" >/dev/null
+          for v80_place_script in \
+            ${phaseScript "v80-shell-place-no-u280-transform.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.place.buildPhase} \
+            ${phaseScript "v80-app-place-no-u280-transform.sh" evalV80App.coyoteTwoStage.stages.place.buildPhase}; do
+            if grep -F 'patch-u280-vivado-2023.2-physical-stage.py' "$v80_place_script" >/dev/null; then
+              echo "V80 placement unexpectedly uses the U280/Vivado-2023.2 transform: $v80_place_script" >&2
+              exit 1
+            fi
+          done
+          for route_spec in \
+            ${phaseScript "u280-shell-route-report-contract.sh" evalU280Shell.coyoteTwoStage.physical.units.shell.route.buildPhase}:reports/shell_route_utilization.rpt \
+            ${phaseScript "u280-config-route-report-contract.sh" evalU280Shell.coyoteTwoStage.physical.units.config_0.route.buildPhase}:reports/config_0/shell_route_utilization_c0.rpt \
+            ${phaseScript "u280-app-route-report-contract.sh" evalU280App.coyoteTwoStage.stages.route.buildPhase}:reports/config_0/shell_route_utilization_c0.rpt \
+            ${phaseScript "v80-shell-route-report-contract.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.route.buildPhase}:reports/config_0/shell_route_utilization_c0.rpt \
+            ${phaseScript "v80-app-route-report-contract.sh" evalV80App.coyoteTwoStage.stages.route.buildPhase}:reports/config_0/shell_route_utilization_c0.rpt; do
+            script="''${route_spec%%:*}"
+            expected="''${route_spec#*:}"
+            grep -F "$expected" "$script" >/dev/null
+            if grep -F 'patch-u280-vivado-2023.2-physical-stage.py' "$script" >/dev/null; then
+              echo "route unexpectedly uses the U280 opt/place compatibility transform: $script" >&2
+              exit 1
+            fi
+          done
           mkdir generated-rqa-test
           cat > generated-rqa-test/base.tcl <<'EOF'
-              set congestion_path "$report_dir/_congestion.rpt"
-              set complexity_path "$report_dir/_complexity.rpt"
-              set logic_levels_path "$report_dir/_logic_levels.rpt"
-              set high_fanout_path "$report_dir/_high_fanout.rpt"
-              set output_path "$report_dir/_diagnosis.json"
-              set prefix "shell_"
+              set congestion_path [file join $report_dir [format "%s_congestion%s.rpt" $prefix $report_suffix]]
+              set complexity_path [file join $report_dir [format "%s_complexity%s.rpt" $prefix $report_suffix]]
+              set logic_levels_path [file join $report_dir [format "%s_logic_levels%s.rpt" $prefix $report_suffix]]
+              set high_fanout_path [file join $report_dir [format "%s_high_fanout%s.rpt" $prefix $report_suffix]]
+              set output_path [file join $report_dir [format "%s_diagnosis%s.json" $prefix $report_suffix]]
+              set prefix [format "shell_%s" $phase]
               if {$phase in {opt place}} {
-                  set utilization_path "$report_dir/_utilization.rpt"
-                  set timing_path "$report_dir/_timing_summary.rpt"
-                  set rqa_report "$report_dir/_qor_assessment.rpt"
+                  set utilization_path [file join $report_dir [format "%s_utilization%s.rpt" $prefix $report_suffix]]
+                  set timing_path [file join $report_dir [format "%s_timing_summary%s.rpt" $prefix $report_suffix]]
+                  set rqa_report [file join $report_dir [format "%s_qor_assessment%s.rpt" $prefix $report_suffix]]
                   report_qor_assessment
               }
               set unrouted ""
-              set route_report "$report_dir/_route_status.rpt"
+              set route_report [file join $report_dir [format "%s_route_status%s.rpt" $prefix $report_suffix]]
               if {$phase in {route validate}} {
               } elseif {$phase in {opt place}} {
               }
@@ -1191,14 +1215,10 @@
           ${pkgs.python3}/bin/python3 \
             ${./nix/tools/patch-u280-vivado-2023.2-physical-stage.py} \
             generated-rqa-test/base.tcl generated-rqa-test/physical_stage.tcl
-          grep -F 'set prefix "shell_''${phase}"' generated-rqa-test/base.tcl >/dev/null
+          grep -F 'set prefix [format "shell_%s" $phase]' generated-rqa-test/base.tcl >/dev/null
           grep -F 'if {0 && $phase in {opt place}} {' generated-rqa-test/base.tcl >/dev/null
-          grep -F '"$report_dir/''${prefix}_timing_summary''${report_suffix}.rpt"' generated-rqa-test/base.tcl >/dev/null
+          grep -F '[format "%s_timing_summary%s.rpt" $prefix $report_suffix]' generated-rqa-test/base.tcl >/dev/null
           grep -F 'QoR Assessment unavailable: disabled for U280 under Vivado 2023.2' generated-rqa-test/base.tcl >/dev/null
-          if grep -F '$report_dir/_' generated-rqa-test/base.tcl >/dev/null; then
-            echo 'U280 physical report path lost its Tcl runtime prefix during CMake configuration' >&2
-            exit 1
-          fi
           awk '/^        place \{/ { copying = 1 } /^        route \{/ { copying = 0 } copying { print }' \
             generated-rqa-test/physical_stage.tcl > generated-rqa-test/place-case.tcl
           grep -F 'opt_design -directive $directive' generated-rqa-test/place-case.tcl >/dev/null

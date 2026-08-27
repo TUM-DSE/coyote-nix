@@ -789,6 +789,10 @@ let
       }
       ''
         set -euo pipefail
+        if grep -R --include='*.in' -E '\$\{[a-z_]' ${coyoteRoot}/scripts >/dev/null; then
+          echo 'configured Coyote template contains Tcl runtime syntax consumed by configure_file' >&2
+          exit 1
+        fi
         fixture=${coyoteRoot}/tests/resident_service_control
         build="$TMPDIR/generated-u280-place"
         cmake -S "$fixture" -B "$build" \
@@ -814,11 +818,11 @@ let
           ${../nix/tools/patch-u280-vivado-2023.2-physical-stage.py} \
           "$build/base.tcl" "$build/physical_stage.tcl"
 
-        grep -F 'set prefix "shell_''${phase}"' "$build/base.tcl" >/dev/null
-        grep -F '"$report_dir/''${prefix}_timing_summary''${report_suffix}.rpt"' \
+        grep -F 'set prefix [format "shell_%s" $phase]' "$build/base.tcl" >/dev/null
+        grep -F '[format "%s_timing_summary%s.rpt" $prefix $report_suffix]' \
           "$build/base.tcl" >/dev/null
-        if grep -F '$report_dir/_' "$build/base.tcl" >/dev/null; then
-          echo 'generated physical Tcl lost a runtime report name component' >&2
+        if grep -E '\$\{[a-z_]' "$build/base.tcl" "$build/physical_stage.tcl" >/dev/null; then
+          echo 'generated physical Tcl contains runtime syntax consumed by configure_file' >&2
           exit 1
         fi
 
@@ -845,6 +849,67 @@ let
         observation_line="$(grep -n 'write_implementation_observations' \
           "$build/physical_stage.tcl" | tail -1 | cut -d: -f1)"
         test "$checkpoint_line" -lt "$observation_line"
+
+        v80_build="$TMPDIR/generated-v80-route"
+        cmake -S "$fixture" -B "$v80_build" \
+          -DCYT_DIR=${coyoteRoot} \
+          -DFDEV_NAME:STRING=v80 \
+          -DBUILD_APP:STRING=0 \
+          -DBUILD_STATIC:STRING=0 \
+          -DBUILD_SHELL:STRING=1 \
+          -DSTATIC_PATH=${coyoteRoot}/hw/checkpoints \
+          -DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON \
+          -DIMPLEMENTATION_PHASE:STRING=route \
+          -DIMPLEMENTATION_INPUT_DCP:FILEPATH="$v80_build/checkpoints/input.dcp" \
+          -DIMPLEMENTATION_OUTPUT_DCP:FILEPATH="$v80_build/checkpoints/output.dcp" \
+          -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$v80_build/checkpoints/route_complete" \
+          -DIMPLEMENTATION_REPORT_DIR:PATH="$v80_build/reports" \
+          -DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH="$v80_build/reports/physical.json"
+        grep -F 'set phase "route"' "$v80_build/physical_stage.tcl" >/dev/null
+        grep -F 'set prefix [format "shell_%s" $phase]' "$v80_build/base.tcl" >/dev/null
+        grep -F '[format "%s_utilization%s.rpt" $prefix $report_suffix]' \
+          "$v80_build/base.tcl" >/dev/null
+        grep -F '[format "%s_route_status%s.rpt" $prefix $report_suffix]' \
+          "$v80_build/base.tcl" >/dev/null
+        grep -F '[format "shell_%s_incremental_reuse%s.rpt" $phase $report_suffix]' \
+          "$v80_build/physical_stage.tcl" >/dev/null
+        if grep -E '\$\{[a-z_]' "$v80_build/base.tcl" "$v80_build/physical_stage.tcl" >/dev/null; then
+          echo 'generated V80 physical Tcl contains runtime syntax consumed by configure_file' >&2
+          exit 1
+        fi
+
+        for board_phase in u280:route u280:validate v80:validate; do
+          board="''${board_phase%%:*}"
+          phase="''${board_phase#*:}"
+          phase_build="$TMPDIR/generated-$board-$phase"
+          cmake -S "$fixture" -B "$phase_build" \
+            -DCYT_DIR=${coyoteRoot} \
+            -DFDEV_NAME:STRING="$board" \
+            -DBUILD_APP:STRING=0 \
+            -DBUILD_STATIC:STRING=0 \
+            -DBUILD_SHELL:STRING=1 \
+            -DSTATIC_PATH=${coyoteRoot}/hw/checkpoints \
+            -DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON \
+            -DIMPLEMENTATION_PHASE:STRING="$phase" \
+            -DIMPLEMENTATION_INPUT_DCP:FILEPATH="$phase_build/checkpoints/input.dcp" \
+            -DIMPLEMENTATION_OUTPUT_DCP:FILEPATH="$phase_build/checkpoints/output.dcp" \
+            -DIMPLEMENTATION_COMPLETION_PATH:FILEPATH="$phase_build/checkpoints/complete" \
+            -DIMPLEMENTATION_REPORT_DIR:PATH="$phase_build/reports" \
+            -DIMPLEMENTATION_REPORT_SUFFIX:STRING=_c0 \
+            -DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH="$phase_build/reports/physical.json" \
+            -DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH="$phase_build/reports/validation.json"
+          grep -F "set phase \"$phase\"" "$phase_build/physical_stage.tcl" >/dev/null
+          grep -F '[format "%s_utilization%s.rpt" $prefix $report_suffix]' \
+            "$phase_build/base.tcl" >/dev/null
+          grep -F '[format "%s_route_status%s.rpt" $prefix $report_suffix]' \
+            "$phase_build/base.tcl" >/dev/null
+          grep -F '[format "shell_drc_bitstream_checks%s.rpt" $report_suffix]' \
+            "$phase_build/physical_stage.tcl" >/dev/null
+          if grep -E '\$\{[a-z_]' "$phase_build/base.tcl" "$phase_build/physical_stage.tcl" >/dev/null; then
+            echo "generated $board $phase Tcl contains runtime syntax consumed by configure_file" >&2
+            exit 1
+          fi
+        done
         touch "$out"
       '';
 
