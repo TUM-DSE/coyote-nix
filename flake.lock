@@ -3,11 +3,11 @@
     "coyote": {
       "flake": false,
       "locked": {
-        "lastModified": 1787839693,
-        "narHash": "sha256-6+qfjj0Vph8toJAcvHis3BABl372035LvbKkw6zQiOI=",
+        "lastModified": 1787840191,
+        "narHash": "sha256-Y3hNOXC7US/Nk/rvkCTiR3Rwd9E+ahnHviQtMI4Kgz0=",
         "owner": "taugoust",
         "repo": "Coyote",
-        "rev": "80bccb1351c8c3ff1e4c8dfd00efdc28bf8cce07",
+        "rev": "379374baa738eaac94c02ab51364c35eb90a4959",
         "type": "github"
       },
       "original": {
