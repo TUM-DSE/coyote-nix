@@ -944,6 +944,26 @@ let
         touch "$out"
       '';
 
+  auroraModuleElaboration =
+    pkgs.runCommand "coyote-aurora-module-elaboration"
+      {
+        nativeBuildInputs = [
+          pkgs.python3
+          pkgs.stdenv.cc
+          pkgs.verilator
+        ];
+      }
+      ''
+        set -euo pipefail
+        verilator --binary --timing -Wall -Wno-fatal \
+          --top-module aurora_module_elaboration_tb \
+          ${coyoteRoot}/hw/tests/aurora_module_elaboration_tb.sv \
+          ${coyoteRoot}/hw/hdl/aurora/aurora_width_adapter.sv \
+          ${coyoteRoot}/hw/hdl/aurora/aurora_module.sv
+        ./obj_dir/Vaurora_module_elaboration_tb
+        touch "$out"
+      '';
+
   hostApiCompile =
     pkgs.runCommand "coyote-resident-service-control-host-api-compile"
       {
@@ -967,6 +987,7 @@ let
 in
 {
   inherit
+    auroraModuleElaboration
     auroraWidthAdapterSimulation
     coprocessorHostApi
     coprocessorRenderContract
