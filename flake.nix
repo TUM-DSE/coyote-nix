@@ -589,6 +589,7 @@
       in
       {
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
+        checks.coyote-aurora-width-adapter = defaultCoyoteSourceChecks.auroraWidthAdapterSimulation;
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
         checks.coyote-resident-control-host-api = defaultCoyoteSourceChecks.hostApiCompile;

@@ -168,15 +168,27 @@ let
           "$TMPDIR/peer-u280/export.cmake"
         grep -q 'set(PEER_CONNECTOR QSFP1)' \
           "$TMPDIR/peer-u280/export.cmake"
-        grep -q 'set(PEER_FLOW_CONTROL_MODE finite-rx-fifo)' \
+        grep -q 'set(PEER_FLOW_CONTROL_MODE aurora-immediate-nfc)' \
           "$TMPDIR/peer-u280/export.cmake"
         grep -q 'set(COYOTE_PEER_INTERFACE_VERSION 1)' \
           "$TMPDIR/peer-u280/export.cmake"
-        grep -q 'rx_tvalid && !rx_fifo_ready' \
+        test "$(grep -c 'CONFIG.TDATA_NUM_BYTES        {64}' \
+          ${coyoteRoot}/scripts/ip_inst/aurora_infrastructure.tcl)" -eq 2
+        grep -q 'CONFIG.flow_mode            {Immediate_NFC}' \
+          ${coyoteRoot}/scripts/ip_inst/aurora_infrastructure.tcl
+        grep -q 'CONFIG.HAS_PROG_FULL          {1}' \
+          ${coyoteRoot}/scripts/ip_inst/aurora_infrastructure.tcl
+        grep -q 'aurora_tx_512_to_256 inst_tx_width_adapter' \
           ${coyoteRoot}/hw/hdl/aurora/aurora_module.sv
-        grep -q 'peer_link_up = aurora_channel_up && !aurora_rx_overflow' \
+        grep -q 'aurora_rx_256_to_512 inst_rx_width_adapter' \
+          ${coyoteRoot}/hw/hdl/aurora/aurora_module.sv
+        grep -q 'else if (rx_pack_overflow)' \
+          ${coyoteRoot}/hw/hdl/aurora/aurora_module.sv
+        grep -q 'u_transport_fault_init_sync' \
+          ${coyoteRoot}/hw/hdl/aurora/aurora_module.sv
+        grep -q '!aurora_hard_err && !aurora_mmcm_not_locked' \
           ${coyoteRoot}/hw/hdl/peer/peer_backend_aurora_qsfp1.sv
-        grep -q 'if (!aresetn || !peer_link_up)' \
+        ! grep -q 'tx_hi_valid\|rx_out_valid\|rx_have_low' \
           ${coyoteRoot}/hw/hdl/peer/peer_backend_aurora_qsfp1.sv
         ! grep -q 'axis_peer_recv_tdata' \
           "$TMPDIR/peer-u280/coyote-resident-service-control-fixture_shell/hdl/dynamic_top.sv"
@@ -913,6 +925,25 @@ let
         touch "$out"
       '';
 
+  auroraWidthAdapterSimulation =
+    pkgs.runCommand "coyote-aurora-width-adapter-simulation"
+      {
+        nativeBuildInputs = [
+          pkgs.python3
+          pkgs.stdenv.cc
+          pkgs.verilator
+        ];
+      }
+      ''
+        set -euo pipefail
+        verilator --binary --timing -Wall -Wno-fatal \
+          --top-module aurora_width_adapter_tb \
+          ${coyoteRoot}/hw/hdl/aurora/aurora_width_adapter.sv \
+          ${coyoteRoot}/hw/tests/aurora_width_adapter_tb.sv
+        ./obj_dir/Vaurora_width_adapter_tb
+        touch "$out"
+      '';
+
   hostApiCompile =
     pkgs.runCommand "coyote-resident-service-control-host-api-compile"
       {
@@ -936,6 +967,7 @@ let
 in
 {
   inherit
+    auroraWidthAdapterSimulation
     coprocessorHostApi
     coprocessorRenderContract
     coprocessorSimulation

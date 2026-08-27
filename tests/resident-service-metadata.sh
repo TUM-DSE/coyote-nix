@@ -24,7 +24,7 @@ set(EXTERNAL_DYNAMIC_SERVICE_PEER_INTERFACE_VERSION 1)
 set(EN_PEER 1)
 set(PEER_BACKEND "aurora_qsfp1")
 set(PEER_CONNECTOR "QSFP1")
-set(PEER_FLOW_CONTROL_MODE "finite-rx-fifo")
+set(PEER_FLOW_CONTROL_MODE "aurora-immediate-nfc")
 set(COYOTE_PEER_INTERFACE_VERSION 1)
 set(N_PEER_LINKS 1)
 set(N_PEER_AXI 1)
@@ -65,13 +65,13 @@ jq -e '
     enabled: true,
     backend: "aurora_qsfp1",
     connector: "QSFP1",
-    flowControl: "finite-rx-fifo",
+    flowControl: "aurora-immediate-nfc",
     owner: "resident-service",
     interfaceVersion: 1,
     links: 1,
     endpoints: 1,
     streamBits: 512,
-    backpressure: "finite-rx-fifo"
+    backpressure: "aurora-immediate-nfc"
   }
 ' "$tmp/control.json" >/dev/null
 
