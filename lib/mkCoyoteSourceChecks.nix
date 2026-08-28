@@ -971,7 +971,15 @@ let
       ''
         set -euo pipefail
         buffer=${coyoteRoot}/hw/hdl/aurora/aurora_axis_skid_buffer.sv
+        adapter=${coyoteRoot}/hw/hdl/aurora/aurora_width_adapter.sv
         wrapper=${coyoteRoot}/hw/hdl/aurora/aurora_module.sv
+        grep -Fq 'logic         completed_valid;' "$adapter"
+        grep -Fq 'assign m_tvalid = completed_valid;' "$adapter"
+        grep -Fq 'assign overflow = completion && !completion_ready;' "$adapter"
+        if grep -Eq '(low_data|low_keep|completed_data|completed_keep)[[:space:]]*<=[[:space:]]*'"'"'0' "$adapter"; then
+          echo "invalid Aurora width-adapter payload must not be reset" >&2
+          exit 1
+        fi
         grep -Fq "queue_count != 2'd2" "$buffer"
         if grep -Eq 's_tready[[:space:]]*=.*m_tready' "$buffer"; then
           echo "Aurora RX ready must not depend on downstream ready" >&2
