@@ -201,6 +201,8 @@ let
           ${coyoteRoot}/hw/hdl/peer/peer_backend_aurora_qsfp1.sv
         grep -q '{CLOCKREGION_X0Y8:CLOCKREGION_X3Y11}' \
           ${coyoteRoot}/scripts/impl/physical_stage.tcl.in
+        grep -Fq 'set_property PROCESSING_ORDER LATE [get_files $xdc]' \
+          ${coyoteRoot}/scripts/impl/link.tcl.in
         grep -q 'set_property IS_SOFT FALSE' \
           ${coyoteRoot}/scripts/impl/physical_stage.tcl.in
         ! grep -q 'axis_peer_recv_tdata' \
@@ -981,6 +983,14 @@ let
         fi
         grep -Fq '.m_axis_tready  (rx_cdc_ready)' "$wrapper"
         grep -Fq 'aurora_axis_skid_buffer inst_rx_output_buffer' "$wrapper"
+        grep -Fq ') inst_tx_output_buffer (' "$wrapper"
+        grep -Fq '.m_tready  (tx_adapter_ready)' "$wrapper"
+        grep -Fq '.m_tready  (tx_tready)' "$wrapper"
+        if grep -A20 -F 'aurora_tx_512_to_256 inst_tx_width_adapter' "$wrapper" |
+          grep -Fq '.m_tready  (tx_tready)'; then
+          echo "Aurora TX width adapter regressed across the registered core boundary" >&2
+          exit 1
+        fi
         verilator --binary --timing -Wall -Wno-fatal \
           --top-module aurora_axis_skid_buffer_tb \
           "$buffer" \
