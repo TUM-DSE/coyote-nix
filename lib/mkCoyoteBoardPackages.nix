@@ -325,7 +325,7 @@ let
         "config_0"
       ]
       ++ lib.optionals includeStaticCheckpoint [ "static" ];
-      synth = mkStage {
+      generatedSynth = mkStage {
         pname = board.synthPname or "${pnamePrefix}-${board.platform}-synth";
         inherit board xilinxVersion;
         cmakeFlags = board.cmakeFlags or [ ];
@@ -346,6 +346,7 @@ let
         };
         description = "Coyote ${board.platform} synthesis stage";
       };
+      synth = board.synthesisPackage or generatedSynth;
 
       routed = mkStage {
         pname = board.routedPname or "${pnamePrefix}-${board.platform}-routed";

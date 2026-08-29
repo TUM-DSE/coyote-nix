@@ -236,6 +236,20 @@
             };
           };
         };
+        evalReusedV80Synthesis = coyoteNixLib.mkCoyoteBoardPackages {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = ./.;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pnamePrefix = "example-v80-candidate";
+          projectName = "example-project";
+          boards.v80 = {
+            xilinxVersion = "site-selected-v80-build-version";
+            staticBuild = true;
+            synthesisPackage = evalBoardPackages."example-v80-synth";
+          };
+        };
         evalU280Shell = coyoteNixLib.mkCoyoteShellPackage {
           inherit pkgs;
           tools = evalTools;
@@ -750,6 +764,8 @@
             '';
 
         checks.board-packages-eval =
+          assert
+            evalReusedV80Synthesis."example-v80-candidate-v80-synth" == evalBoardPackages."example-v80-synth";
           assert
             builtins.attrNames evalBoardPackages == [
               "example-u280"
