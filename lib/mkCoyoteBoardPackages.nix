@@ -319,6 +319,12 @@ let
     board:
     let
       xilinxVersion = board.xilinxVersion;
+      includeStaticCheckpoint = board.staticBuild or false;
+      synthesisCheckpointDirs = [
+        "shell"
+        "config_0"
+      ]
+      ++ lib.optionals includeStaticCheckpoint [ "static" ];
       synth = mkStage {
         pname = board.synthPname or "${pnamePrefix}-${board.platform}-synth";
         inherit board xilinxVersion;
@@ -330,16 +336,13 @@ let
         expectedPaths = [
           "checkpoints/shell/shell_synthed.dcp"
           "checkpoints/config_0/user_synthed_c0_0.dcp"
+        ]
+        ++ lib.optionals includeStaticCheckpoint [
+          "checkpoints/static/static_synthed.dcp"
         ];
         extraInstallPhase = installCheckpointReports {
-          checkpointDirs = [
-            "shell"
-            "config_0"
-          ];
-          reportDirs = [
-            "shell"
-            "config_0"
-          ];
+          checkpointDirs = synthesisCheckpointDirs;
+          reportDirs = synthesisCheckpointDirs;
         };
         description = "Coyote ${board.platform} synthesis stage";
       };
@@ -349,18 +352,9 @@ let
         inherit board xilinxVersion;
         cmakeFlags = (board.cmakeFlags or [ ]) ++ (board.routedCmakeFlags or [ ]);
         preBuildSetup = copyPreviousStageSetup synth {
-          checkpointDirs = [
-            "shell"
-            "config_0"
-          ];
-          reportDirs = [
-            "shell"
-            "config_0"
-          ];
-          logDirs = [
-            "shell"
-            "config_0"
-          ];
+          checkpointDirs = synthesisCheckpointDirs;
+          reportDirs = synthesisCheckpointDirs;
+          logDirs = synthesisCheckpointDirs;
         };
         buildCommands = [
           "make project"
@@ -369,6 +363,11 @@ let
         expectedPaths = [
           "checkpoints/shell/shell_synthed.dcp"
           "checkpoints/config_0/user_synthed_c0_0.dcp"
+        ]
+        ++ lib.optionals includeStaticCheckpoint [
+          "checkpoints/static/static_synthed.dcp"
+        ]
+        ++ [
           "checkpoints/shell_linked.dcp"
           "checkpoints/shell_opted.dcp"
           "checkpoints/shell_placed.dcp"
