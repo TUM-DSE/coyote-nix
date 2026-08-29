@@ -231,6 +231,7 @@
             };
             v80 = {
               xilinxVersion = "site-selected-v80-build-version";
+              staticBuild = true;
               routedCmakeFlags = [ "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=AggressiveExplore" ];
             };
           };
@@ -769,6 +770,7 @@
               echo 'route-only CMake flags leaked into V80 synthesis' >&2
               exit 1
             fi
+            grep -F 'checkpoints/static/static_synthed.dcp' synth-build-phase >/dev/null
             grep -F 'IMPLEMENTATION_ROUTE_DIRECTIVE:STRING=AggressiveExplore' \
               routed-build-phase >/dev/null
             touch $out
