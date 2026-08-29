@@ -981,6 +981,13 @@ let
           exit 1
         fi
         grep -Fq "queue_count != 2'd2" "$buffer"
+        grep -Fq 'm_tdata = head_data;' "$buffer"
+        grep -Fq 'm_tkeep = head_keep;' "$buffer"
+        if grep -Eq 'queue_(data|keep|last)[[:space:]]*\[' "$buffer" ||
+           grep -Fq 'read_pointer' "$buffer"; then
+          echo "Aurora skid-buffer output regressed to addressed shallow storage" >&2
+          exit 1
+        fi
         if grep -Eq 's_tready[[:space:]]*=.*m_tready' "$buffer"; then
           echo "Aurora RX ready must not depend on downstream ready" >&2
           exit 1
