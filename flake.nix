@@ -231,6 +231,7 @@
             };
             v80 = {
               xilinxVersion = "site-selected-v80-build-version";
+              routedCmakeFlags = [ "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=AggressiveExplore" ];
             };
           };
         };
@@ -754,8 +755,22 @@
               "example-u280-sim"
               "example-u280-static"
               "example-v80"
+              "example-v80-routed"
+              "example-v80-synth"
             ];
           pkgs.runCommand "board-packages-eval" { } ''
+            cat > synth-build-phase <<'EOF'
+            ${builtins.unsafeDiscardStringContext evalBoardPackages."example-v80-synth".buildPhase}
+            EOF
+            cat > routed-build-phase <<'EOF'
+            ${builtins.unsafeDiscardStringContext evalBoardPackages."example-v80-routed".buildPhase}
+            EOF
+            if grep -F 'IMPLEMENTATION_ROUTE_DIRECTIVE' synth-build-phase; then
+              echo 'route-only CMake flags leaked into V80 synthesis' >&2
+              exit 1
+            fi
+            grep -F 'IMPLEMENTATION_ROUTE_DIRECTIVE:STRING=AggressiveExplore' \
+              routed-build-phase >/dev/null
             touch $out
           '';
 

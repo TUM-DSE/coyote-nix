@@ -347,7 +347,7 @@ let
       routed = mkStage {
         pname = board.routedPname or "${pnamePrefix}-${board.platform}-routed";
         inherit board xilinxVersion;
-        cmakeFlags = board.cmakeFlags or [ ];
+        cmakeFlags = (board.cmakeFlags or [ ]) ++ (board.routedCmakeFlags or [ ]);
         preBuildSetup = copyPreviousStageSetup synth {
           checkpointDirs = [
             "shell"
@@ -405,6 +405,8 @@ let
       };
     in
     {
+      "${board.synthPname or "${pnamePrefix}-${board.platform}-synth"}" = synth;
+      "${board.routedPname or "${pnamePrefix}-${board.platform}-routed"}" = routed;
       "${board.finalPname or "${pnamePrefix}-${board.platform}"}" = final;
     }
     // simPackages;
