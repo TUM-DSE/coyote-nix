@@ -228,6 +228,7 @@
             u280 = {
               xilinxVersion = "site-selected-u280-build-version";
               simXilinxVersion = "site-selected-u280-sim-version";
+              finalEnablePr = false;
             };
             v80 = {
               xilinxVersion = "site-selected-v80-build-version";
@@ -782,6 +783,9 @@
             cat > routed-build-phase <<'EOF'
             ${builtins.unsafeDiscardStringContext evalBoardPackages."example-v80-routed".buildPhase}
             EOF
+            cat > u280-final-build-phase <<'EOF'
+            ${builtins.unsafeDiscardStringContext evalBoardPackages."example-u280".buildPhase}
+            EOF
             if grep -F 'IMPLEMENTATION_ROUTE_DIRECTIVE' synth-build-phase; then
               echo 'route-only CMake flags leaked into V80 synthesis' >&2
               exit 1
@@ -789,6 +793,9 @@
             grep -F 'checkpoints/static/static_synthed.dcp' synth-build-phase >/dev/null
             grep -F 'IMPLEMENTATION_ROUTE_DIRECTIVE:STRING=AggressiveExplore' \
               routed-build-phase >/dev/null
+            grep -F 'expected_en_pr="0"' u280-final-build-phase >/dev/null
+            grep -F 'generated base.tcl has no canonical cfg(en_pr) assignment' \
+              u280-final-build-phase >/dev/null
             touch $out
           '';
 

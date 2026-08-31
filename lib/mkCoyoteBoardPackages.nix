@@ -316,7 +316,18 @@ let
           "-DSTATIC_PATH=${static}/checkpoints"
         ]
         ++ (board.appCmakeFlags or [ ]);
-        preBuildSetup = copyPreviousStageSetup routed { };
+        preBuildSetup =
+          copyPreviousStageSetup routed { }
+          + lib.optionalString (board ? finalEnablePr) ''
+            base_tcl="$build_dir/base.tcl"
+            expected_en_pr="${if board.finalEnablePr then "1" else "0"}"
+            if ! grep -Eq '^set cfg\(en_pr\)[[:space:]]+[01]$' "$base_tcl"; then
+              echo "ERROR: generated base.tcl has no canonical cfg(en_pr) assignment" >&2
+              exit 1
+            fi
+            sed -E -i "s|^set cfg\(en_pr\)[[:space:]]+[01]$|set cfg(en_pr)                  $expected_en_pr|" "$base_tcl"
+            grep -Eq "^set cfg\(en_pr\)[[:space:]]+$expected_en_pr$" "$base_tcl"
+          '';
         buildCommands = [
           (finalBitgenCommand board.finalArtifacts)
         ];

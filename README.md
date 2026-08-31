@@ -120,6 +120,8 @@ This produces public packages named by default:
 
 Intermediate synth/routed derivations are internal dependencies of those outputs.
 
+For a U280 flow that implements one seed application together with the shell but only needs a full deployment image, set `finalEnablePr = false` on the board. Synthesis and routing retain their configured PR hierarchy; only the final bitstream invocation uses the routed aggregate checkpoint directly instead of expecting separately finalized `config_*` and recombined-shell checkpoints. Omitting the option preserves the generated Coyote bitgen mode.
+
 ## Two-stage PR shell and application packages
 
 `mkCoyoteShellPackage` builds an `EN_PR=1` shell and exports the locked shell contract. `mkCoyoteAppPackage` accepts that exact derivation, passes it to Coyote as `SHELL_PATH`, and builds only application partial artifacts with `BUILD_APP=1`.
