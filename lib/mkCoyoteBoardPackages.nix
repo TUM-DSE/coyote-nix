@@ -120,16 +120,33 @@ let
       };
     };
 
+  mkStaticImport =
+    {
+      pname,
+      board,
+      checkpointDirectory,
+    }:
+    pkgs.runCommand pname { inherit version; } ''
+      checkpoint=${checkpointDirectory}/static_routed_locked_${board.platform}.dcp
+      if [ ! -f "$checkpoint" ]; then
+        echo "missing imported static checkpoint: $checkpoint" >&2
+        exit 1
+      fi
+      mkdir -p "$out/checkpoints"
+      cp "$checkpoint" "$out/checkpoints/"
+    '';
+
   mkU280Packages =
     board:
     let
       xilinxVersion = board.xilinxVersion;
+      importedStaticCheckpointDirectory = board.staticCheckpointDirectory or null;
       intermediateRouteCheckpoints = lib.optionals (!(board.skipIntermediateRouteCheckpoints or false)) [
         "checkpoints/shell_opted.dcp"
         "checkpoints/shell_placed.dcp"
         "checkpoints/shell_phys_opted.dcp"
       ];
-      staticSynth = mkStage {
+      staticSynth = if importedStaticCheckpointDirectory != null then null else mkStage {
         pname = board.staticSynthPname or "${pnamePrefix}-${board.platform}-static-synth";
         inherit board xilinxVersion;
         cmakeFlags = [
@@ -162,7 +179,7 @@ let
         description = "Coyote ${board.platform} static synthesis stage";
       };
 
-      staticRouted = mkStage {
+      staticRouted = if staticSynth == null then null else mkStage {
         pname = board.staticRoutedPname or "${pnamePrefix}-${board.platform}-static-routed";
         inherit board xilinxVersion;
         cmakeFlags = [
@@ -205,11 +222,19 @@ let
         description = "Coyote ${board.platform} static routed checkpoint stage";
       };
 
-      static = mkStaticExport {
-        pname = board.staticPname or "${pnamePrefix}-${board.platform}-static";
-        inherit board;
-        routedStage = staticRouted;
-      };
+      static =
+        if importedStaticCheckpointDirectory != null then
+          mkStaticImport {
+            pname = board.staticPname or "${pnamePrefix}-${board.platform}-static";
+            inherit board;
+            checkpointDirectory = importedStaticCheckpointDirectory;
+          }
+        else
+          mkStaticExport {
+            pname = board.staticPname or "${pnamePrefix}-${board.platform}-static";
+            inherit board;
+            routedStage = staticRouted;
+          };
 
       synth = mkStage {
         pname = board.synthPname or "${pnamePrefix}-${board.platform}-synth";
