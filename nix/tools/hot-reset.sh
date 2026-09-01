@@ -28,6 +28,7 @@ ready_poll_s="${COYOTE_NIX_HOT_RESET_READY_POLL_S:-0.2}"
 # the old pure-hot-reset behavior.
 pci_rescan="${COYOTE_NIX_HOT_RESET_PCI_RESCAN:-1}"
 rescan_settle_s="${COYOTE_NIX_HOT_RESET_RESCAN_SETTLE_S:-2}"
+pci_sysfs_root="${COYOTE_NIX_PCI_SYSFS_ROOT:-/sys/bus/pci}"
 
 dev="$bdf"
 if [ -z "$dev" ]; then
@@ -35,11 +36,11 @@ if [ -z "$dev" ]; then
   exit 1
 fi
 
-if [ ! -e "/sys/bus/pci/devices/$dev" ]; then
+if [ ! -e "$pci_sysfs_root/devices/$dev" ]; then
   dev="0000:$dev"
 fi
 
-if [ ! -e "/sys/bus/pci/devices/$dev" ]; then
+if [ ! -e "$pci_sysfs_root/devices/$dev" ]; then
   echo "ERROR: device $dev not found" >&2
   exit 1
 fi
@@ -49,8 +50,8 @@ if ! command -v setpci >/dev/null 2>&1; then
   exit 1
 fi
 
-port="$(basename "$(dirname "$(readlink "/sys/bus/pci/devices/$dev")")")"
-if [ ! -e "/sys/bus/pci/devices/$port" ]; then
+port="$(basename "$(dirname "$(readlink "$pci_sysfs_root/devices/$dev")")")"
+if [ ! -e "$pci_sysfs_root/devices/$port" ]; then
   echo "ERROR: upstream port $port not found" >&2
   exit 1
 fi
@@ -91,7 +92,7 @@ wait_for_endpoint_in_sysfs() {
   deadline=$(( $(date +%s) + ready_timeout_s ))
 
   while :; do
-    if [ -e "/sys/bus/pci/devices/$dev" ]; then
+    if [ -e "$pci_sysfs_root/devices/$dev" ]; then
       return 0
     fi
 
@@ -113,16 +114,28 @@ pci_rescan_enabled() {
 }
 
 remove_and_rescan_endpoint() {
-  echo "Removing endpoint $dev from Linux PCI tree and rescanning..."
+  local function_path function_dev slot_prefix
 
-  if [ ! -e "/sys/bus/pci/devices/$dev/remove" ]; then
-    echo "ERROR: /sys/bus/pci/devices/$dev/remove is not available" >&2
+  echo "Removing endpoint functions for $dev from Linux PCI tree and rescanning..."
+
+  if [ ! -e "$pci_sysfs_root/devices/$dev/remove" ]; then
+    echo "ERROR: $pci_sysfs_root/devices/$dev/remove is not available" >&2
     return 1
   fi
 
-  echo 1 | sudo tee "/sys/bus/pci/devices/$dev/remove" >/dev/null
+  slot_prefix="${dev%.*}."
+  for function_path in "$pci_sysfs_root"/devices/"$slot_prefix"*; do
+    [ -e "$function_path/remove" ] || continue
+    function_dev="$(basename "$function_path")"
+    if [ "$function_dev" != "$dev" ]; then
+      echo "Removing sibling function $function_dev"
+      echo 1 | sudo tee "$function_path/remove" >/dev/null
+    fi
+  done
+
+  echo 1 | sudo tee "$pci_sysfs_root/devices/$dev/remove" >/dev/null
   sleep 1
-  echo 1 | sudo tee /sys/bus/pci/rescan >/dev/null
+  echo 1 | sudo tee "$pci_sysfs_root/rescan" >/dev/null
 
   wait_for_endpoint_in_sysfs "PCI rescan"
   wait_for_endpoint_ready "PCI rescan"
