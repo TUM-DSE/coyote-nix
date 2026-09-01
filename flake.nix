@@ -643,6 +643,11 @@
           touch $out
         '';
 
+        checks.hot-reset-multifunction = pkgs.runCommand "hot-reset-multifunction-check" { } ''
+          bash ${./tests/hot-reset-multifunction.sh} ${./nix/tools/hot-reset.sh}
+          touch $out
+        '';
+
         checks.shellcheck = pkgs.runCommand "shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
           cd ${./.}
           shellcheck -s bash nix/tools/*.sh tests/*.sh
