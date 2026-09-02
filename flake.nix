@@ -1232,6 +1232,28 @@
             echo 'U280 physical report path lost its Tcl runtime prefix during CMake configuration' >&2
             exit 1
           fi
+          mkdir generated-current-rqa-test
+          cat > generated-current-rqa-test/base.tcl <<'EOF'
+              set output_path [file join $report_dir [format "%s_diagnosis%s.json" $prefix $report_suffix]]
+              if {$phase eq "validate"} {
+                  set prefix "shell"
+              } else {
+                  set prefix [format "shell_%s" $phase]
+              }
+              set timing_path [file join $report_dir [format "%s_timing_summary%s.rpt" $prefix $report_suffix]]
+              if {$phase in {opt place}} {
+                  set rqa_report [file join $report_dir [format "%s_qor_assessment%s.rpt" $prefix $report_suffix]]
+                  report_qor_assessment
+              }
+              set unrouted ""
+          EOF
+          cp generated-rqa-test/physical_stage.tcl generated-current-rqa-test/physical_stage.tcl
+          ${pkgs.python3}/bin/python3 \
+            ${./nix/tools/patch-u280-vivado-2023.2-physical-stage.py} \
+            generated-current-rqa-test/base.tcl generated-current-rqa-test/physical_stage.tcl
+          grep -F 'if {0 && $phase in {opt place}} {' generated-current-rqa-test/base.tcl >/dev/null
+          grep -F 'QoR Assessment unavailable: disabled for U280 under Vivado 2023.2' \
+            generated-current-rqa-test/base.tcl >/dev/null
           awk '/^        place \{/ { copying = 1 } /^        route \{/ { copying = 0 } copying { print }' \
             generated-rqa-test/physical_stage.tcl > generated-rqa-test/place-case.tcl
           grep -F 'opt_design -directive $directive' generated-rqa-test/place-case.tcl >/dev/null

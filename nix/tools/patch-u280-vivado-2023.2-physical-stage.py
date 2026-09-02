@@ -15,9 +15,8 @@ def replace_once(text: str, old: str, new: str, source: Path) -> str:
 
 def patch_base(path: Path) -> None:
     text = path.read_text()
-    replacements = [
+    legacy_reports = [
         ('    set prefix "shell_"', '    set prefix "shell_${phase}"'),
-        ('    if {$phase in {opt place}} {', '    if {0 && $phase in {opt place}} {'),
         ('"$report_dir/_utilization.rpt"', '"$report_dir/${prefix}_utilization${report_suffix}.rpt"'),
         ('"$report_dir/_timing_summary.rpt"', '"$report_dir/${prefix}_timing_summary${report_suffix}.rpt"'),
         ('"$report_dir/_qor_assessment.rpt"', '"$report_dir/${prefix}_qor_assessment${report_suffix}.rpt"'),
@@ -27,23 +26,43 @@ def patch_base(path: Path) -> None:
         ('"$report_dir/_logic_levels.rpt"', '"$report_dir/${prefix}_logic_levels${report_suffix}.rpt"'),
         ('"$report_dir/_high_fanout.rpt"', '"$report_dir/${prefix}_high_fanout${report_suffix}.rpt"'),
         ('"$report_dir/_diagnosis.json"', '"$report_dir/${prefix}_diagnosis${report_suffix}.json"'),
-        (
-            '    set unrouted ""',
-            "\n".join(
-                [
-                    '    if {$phase in {opt place} && $rqa_report eq ""} {',
-                    '      set rqa_report "$report_dir/${prefix}_qor_assessment${report_suffix}.rpt"',
-                    '      set rqa_fd [open $rqa_report w]',
-                    '      puts $rqa_fd "QoR Assessment unavailable: disabled for U280 under Vivado 2023.2 after a native tool crash"',
-                    '      close $rqa_fd',
-                    '    }',
-                    '    set unrouted ""',
-                ]
-            ),
-        ),
     ]
-    for old, new in replacements:
-        text = replace_once(text, old, new, path)
+    if legacy_reports[0][0] in text:
+        for old, new in legacy_reports:
+            text = replace_once(text, old, new, path)
+    else:
+        # Current Coyote already emits phase-qualified report names. Keep this
+        # compatibility check strict so an unrelated template change fails closed.
+        for fragment in (
+            'set prefix [format "shell_%s" $phase]',
+            'set timing_path [file join $report_dir [format "%s_timing_summary%s.rpt" $prefix $report_suffix]]',
+            'set output_path [file join $report_dir [format "%s_diagnosis%s.json" $prefix $report_suffix]]',
+        ):
+            if text.count(fragment) != 1:
+                raise SystemExit(f"{path}: current report fragment missing or ambiguous: {fragment}")
+
+    text = replace_once(
+        text,
+        '    if {$phase in {opt place}} {',
+        '    if {0 && $phase in {opt place}} {',
+        path,
+    )
+    text = replace_once(
+        text,
+        '    set unrouted ""',
+        "\n".join(
+            [
+                '    if {$phase in {opt place} && $rqa_report eq ""} {',
+                '      set rqa_report "$report_dir/${prefix}_qor_assessment${report_suffix}.rpt"',
+                '      set rqa_fd [open $rqa_report w]',
+                '      puts $rqa_fd "QoR Assessment unavailable: disabled for U280 under Vivado 2023.2 after a native tool crash"',
+                '      close $rqa_fd',
+                '    }',
+                '    set unrouted ""',
+            ]
+        ),
+        path,
+    )
     path.write_text(text)
 
 
