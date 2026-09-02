@@ -803,7 +803,7 @@ let
         ' "$build/physical_stage.tcl" > "$build/place-case.tcl"
         grep -F 'opt_design -directive $directive' "$build/place-case.tcl" >/dev/null
         grep -F 'place_design -directive $place_directive' "$build/place-case.tcl" >/dev/null
-        grep -F 'if {$cfg(peer_backend) eq "aurora_qsfp1"} {' \
+        grep -F 'if {[info exists cfg(peer_backend)] && $cfg(peer_backend) eq "aurora_qsfp1"} {' \
           "$build/physical_stage.tcl" >/dev/null
         grep -F 'gt1_rxp_in[0] G53' "$build/physical_stage.tcl" >/dev/null
         grep -F 'reset_property PACKAGE_PIN $selected_port' "$build/physical_stage.tcl" >/dev/null
