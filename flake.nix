@@ -1257,7 +1257,7 @@
           awk '/^        place \{/ { copying = 1 } /^        route \{/ { copying = 0 } copying { print }' \
             generated-rqa-test/physical_stage.tcl > generated-rqa-test/place-case.tcl
           grep -F 'opt_design -directive $directive' generated-rqa-test/place-case.tcl >/dev/null
-          grep -F 'if {$cfg(peer_backend) eq "aurora_qsfp1"} {' generated-rqa-test/physical_stage.tcl >/dev/null
+          grep -F 'if {[info exists cfg(peer_backend)] && $cfg(peer_backend) eq "aurora_qsfp1"} {' generated-rqa-test/physical_stage.tcl >/dev/null
           grep -F 'gt1_rxp_in[0] G53' generated-rqa-test/physical_stage.tcl >/dev/null
           grep -F 'reset_property PACKAGE_PIN $selected_port' generated-rqa-test/physical_stage.tcl >/dev/null
           grep -F 'gen_channel_container\[24\]' generated-rqa-test/physical_stage.tcl >/dev/null

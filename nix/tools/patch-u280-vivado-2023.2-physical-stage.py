@@ -73,7 +73,7 @@ def patch_physical_stage(path: Path) -> None:
         aurora_gt_relocation = "\n".join(
             [
                 open_checkpoint.rstrip(),
-                '    if {$cfg(peer_backend) eq "aurora_qsfp1"} {',
+                '    if {[info exists cfg(peer_backend)] && $cfg(peer_backend) eq "aurora_qsfp1"} {',
                 "        foreach {port pin} {",
                 "            gt1_refclk_n M43 gt1_refclk_p M42",
                 "            gt1_rxn_in[0] G54 gt1_rxn_in[1] F52 gt1_rxn_in[2] E54 gt1_rxn_in[3] D52",
