@@ -1,0 +1,25 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.1 (lin64) Build 6140274 Wed May 21 22:58:25 MDT 2025
+| Date              : Fixture
+| Host              : fixture running 64-bit Linux
+| Command           : report_timing_summary -file qshell-timing.rpt
+| Design            : cyt_top
+| Device            : xcv80-lsva4737
+| Speed File        : -2MHP  PRODUCTION 2.04 2024-08-06
+| Design State      : Routed
+| Temperature Grade : E
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Summary Report
+
+------------------------------------------------------------------------------------------------
+| Design Timing Summary
+| ---------------------
+------------------------------------------------------------------------------------------------
+
+    WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints      WHS(ns)      THS(ns)  THS Failing Endpoints  THS Total Endpoints
+    -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------
+      0.007        0.000                      0               573500        0.012        0.000                      0               572944
+
+All user specified timing constraints are met.

@@ -1,0 +1,916 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tum-dse.github.io/coyote-nix/schemas/matched-implementation-evidence-1.json",
+  "title": "Matched standalone-Coyote and QShell implementation evidence",
+  "description": "Strict version-1 output from coyote-report-evidence. The extractor additionally enforces artifact hashes, report parsing, sample pairing, and cross-record equality constraints that JSON Schema cannot express.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "api",
+    "kind",
+    "match",
+    "controls",
+    "records",
+    "overhead",
+    "comparisonId"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "api": {
+      "const": "coyote-nix.matched-implementation-evidence/v1"
+    },
+    "kind": {
+      "const": "matched-standalone-coyote-qshell-evidence"
+    },
+    "match": {
+      "$ref": "#/$defs/definition"
+    },
+    "controls": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "buildStrategyId",
+        "tool",
+        "traceId",
+        "sampleSetId"
+      ],
+      "properties": {
+        "buildStrategyId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "tool": {
+          "$ref": "#/$defs/tool"
+        },
+        "traceId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sampleSetId": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "records": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline",
+        "qshell"
+      ],
+      "properties": {
+        "baseline": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/record"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "baseline"
+                },
+                "deployment": {
+                  "const": "standalone-coyote"
+                }
+              }
+            }
+          ]
+        },
+        "qshell": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/record"
+            },
+            {
+              "properties": {
+                "role": {
+                  "const": "qshell"
+                },
+                "deployment": {
+                  "const": "qshell"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "overhead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "latency",
+        "utilization"
+      ],
+      "properties": {
+        "latency": {
+          "$ref": "#/$defs/latencyOverhead"
+        },
+        "utilization": {
+          "$ref": "#/$defs/utilizationOverhead"
+        }
+      }
+    },
+    "comparisonId": {
+      "$ref": "#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "nonnegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "const": "vivado"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$"
+        }
+      }
+    },
+    "definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "board",
+        "distance",
+        "decoder",
+        "clock",
+        "peer"
+      ],
+      "properties": {
+        "board": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "part"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "part": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "distance": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "decoder": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "family",
+            "variant",
+            "rtlSha256",
+            "graphSha256"
+          ],
+          "properties": {
+            "family": {
+              "type": "string",
+              "minLength": 1
+            },
+            "variant": {
+              "type": "string",
+              "minLength": 1
+            },
+            "rtlSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "graphSha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "clock": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "definitionId",
+            "shellHz",
+            "decoderHz"
+          ],
+          "properties": {
+            "definitionId": {
+              "$ref": "#/$defs/sha256"
+            },
+            "shellHz": {
+              "$ref": "#/$defs/positiveInteger"
+            },
+            "decoderHz": {
+              "$ref": "#/$defs/positiveInteger"
+            }
+          }
+        },
+        "peer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "definitionId",
+            "mode",
+            "included"
+          ],
+          "properties": {
+            "definitionId": {
+              "$ref": "#/$defs/sha256"
+            },
+            "mode": {
+              "type": "string",
+              "minLength": 1
+            },
+            "included": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategyId",
+        "tool",
+        "outcome"
+      ],
+      "properties": {
+        "strategyId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "tool": {
+          "$ref": "#/$defs/tool"
+        },
+        "outcome": {
+          "const": "accepted"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/]"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bytes": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "repository",
+        "revision",
+        "sourceSha256"
+      ],
+      "properties": {
+        "role": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "revision": {
+          "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "sourceSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "timingSide": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wnsFs",
+        "tnsFs",
+        "failingEndpoints",
+        "totalEndpoints"
+      ],
+      "properties": {
+        "wnsFs": {
+          "type": "integer"
+        },
+        "tnsFs": {
+          "type": "integer",
+          "maximum": 0
+        },
+        "failingEndpoints": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "totalEndpoints": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device",
+        "designState",
+        "setup",
+        "hold",
+        "met",
+        "tool"
+      ],
+      "properties": {
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "designState": {
+          "type": "string",
+          "minLength": 1
+        },
+        "setup": {
+          "$ref": "#/$defs/timingSide"
+        },
+        "hold": {
+          "$ref": "#/$defs/timingSide"
+        },
+        "met": {
+          "const": true
+        },
+        "tool": {
+          "$ref": "#/$defs/tool"
+        }
+      }
+    },
+    "nonnegativeStatistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sampleCount",
+        "minimumFs",
+        "maximumFs",
+        "sumFs",
+        "p50Fs",
+        "p99Fs"
+      ],
+      "properties": {
+        "sampleCount": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "minimumFs": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "maximumFs": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "sumFs": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "p50Fs": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "p99Fs": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        }
+      }
+    },
+    "signedStatistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sampleCount",
+        "minimumFs",
+        "maximumFs",
+        "sumFs",
+        "p50Fs",
+        "p99Fs"
+      ],
+      "properties": {
+        "sampleCount": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "minimumFs": {
+          "type": "integer"
+        },
+        "maximumFs": {
+          "type": "integer"
+        },
+        "sumFs": {
+          "type": "integer"
+        },
+        "p50Fs": {
+          "type": "integer"
+        },
+        "p99Fs": {
+          "type": "integer"
+        }
+      }
+    },
+    "latency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "boundaryDefinition",
+        "traceId",
+        "sampleSetId",
+        "sampleCount",
+        "boundaries",
+        "components",
+        "total"
+      ],
+      "properties": {
+        "boundaryDefinition": {
+          "const": "last-input-handshake-to-complete-correction-presentation/v1"
+        },
+        "traceId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sampleSetId": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sampleCount": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "boundaries": {
+          "$ref": "#/$defs/boundaryStatistics"
+        },
+        "components": {
+          "$ref": "#/$defs/componentStatistics"
+        },
+        "total": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        }
+      }
+    },
+    "boundaryStatistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputComplete",
+        "peerComplete",
+        "dispatchComplete",
+        "queueComplete",
+        "decoderComplete",
+        "outputComplete"
+      ],
+      "properties": {
+        "inputComplete": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "peerComplete": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "dispatchComplete": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "queueComplete": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "decoderComplete": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "outputComplete": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        }
+      }
+    },
+    "componentStatistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "peer",
+        "dispatch",
+        "queue",
+        "decoder",
+        "return"
+      ],
+      "properties": {
+        "peer": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "dispatch": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "queue": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "decoder": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "return": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        }
+      }
+    },
+    "utilizationResource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "used",
+        "available",
+        "unit",
+        "devicePartsPerMillion"
+      ],
+      "properties": {
+        "used": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "available": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "unit": {
+          "enum": [
+            "count",
+            "milli-tile"
+          ]
+        },
+        "devicePartsPerMillion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000
+        }
+      }
+    },
+    "utilization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lut",
+        "register",
+        "bramTiles",
+        "uram",
+        "dsp"
+      ],
+      "properties": {
+        "lut": {
+          "$ref": "#/$defs/utilizationResource"
+        },
+        "register": {
+          "$ref": "#/$defs/utilizationResource"
+        },
+        "bramTiles": {
+          "$ref": "#/$defs/utilizationResource"
+        },
+        "uram": {
+          "$ref": "#/$defs/utilizationResource"
+        },
+        "dsp": {
+          "$ref": "#/$defs/utilizationResource"
+        }
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "deployment",
+        "package",
+        "definition",
+        "timing",
+        "latency",
+        "utilization",
+        "provenance",
+        "recordId"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            "baseline",
+            "qshell"
+          ]
+        },
+        "deployment": {
+          "enum": [
+            "standalone-coyote",
+            "qshell"
+          ]
+        },
+        "package": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "root"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "root": {
+              "type": "string",
+              "pattern": "^/"
+            }
+          }
+        },
+        "definition": {
+          "$ref": "#/$defs/definition"
+        },
+        "timing": {
+          "$ref": "#/$defs/timing"
+        },
+        "latency": {
+          "$ref": "#/$defs/latency"
+        },
+        "utilization": {
+          "$ref": "#/$defs/utilization"
+        },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "manifest",
+            "build",
+            "sources",
+            "reports"
+          ],
+          "properties": {
+            "manifest": {
+              "$ref": "#/$defs/artifact"
+            },
+            "build": {
+              "$ref": "#/$defs/build"
+            },
+            "sources": {
+              "type": "array",
+              "minItems": 3,
+              "items": {
+                "$ref": "#/$defs/source"
+              }
+            },
+            "reports": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "timing",
+                "latency",
+                "utilization"
+              ],
+              "properties": {
+                "timing": {
+                  "$ref": "#/$defs/artifact"
+                },
+                "latency": {
+                  "$ref": "#/$defs/artifact"
+                },
+                "utilization": {
+                  "$ref": "#/$defs/artifact"
+                }
+              }
+            }
+          }
+        },
+        "recordId": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "latencyComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline",
+        "qshell",
+        "delta"
+      ],
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "qshell": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "delta": {
+          "$ref": "#/$defs/signedStatistics"
+        }
+      }
+    },
+    "latencyComponentOverhead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "baseline",
+        "qshell",
+        "delta",
+        "qshellContributionPartsPerMillion",
+        "deltaContributionPartsPerMillion"
+      ],
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "qshell": {
+          "$ref": "#/$defs/nonnegativeStatistics"
+        },
+        "delta": {
+          "$ref": "#/$defs/signedStatistics"
+        },
+        "qshellContributionPartsPerMillion": {
+          "type": "integer"
+        },
+        "deltaContributionPartsPerMillion": {
+          "type": "integer"
+        }
+      }
+    },
+    "latencyOverhead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "components"
+      ],
+      "properties": {
+        "total": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "baseline",
+            "qshell",
+            "delta",
+            "relativePartsPerMillion"
+          ],
+          "properties": {
+            "baseline": {
+              "$ref": "#/$defs/nonnegativeStatistics"
+            },
+            "qshell": {
+              "$ref": "#/$defs/nonnegativeStatistics"
+            },
+            "delta": {
+              "$ref": "#/$defs/signedStatistics"
+            },
+            "relativePartsPerMillion": {
+              "type": "integer"
+            }
+          }
+        },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "peer",
+            "dispatch",
+            "queue",
+            "decoder",
+            "return"
+          ],
+          "properties": {
+            "peer": {
+              "$ref": "#/$defs/latencyComponentOverhead"
+            },
+            "dispatch": {
+              "$ref": "#/$defs/latencyComponentOverhead"
+            },
+            "queue": {
+              "$ref": "#/$defs/latencyComponentOverhead"
+            },
+            "decoder": {
+              "$ref": "#/$defs/latencyComponentOverhead"
+            },
+            "return": {
+              "$ref": "#/$defs/latencyComponentOverhead"
+            }
+          }
+        }
+      }
+    },
+    "relativeUtilization": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "partsPerMillion"
+          ],
+          "properties": {
+            "state": {
+              "const": "available"
+            },
+            "partsPerMillion": {
+              "type": "integer"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "reason"
+          ],
+          "properties": {
+            "state": {
+              "const": "unavailable"
+            },
+            "reason": {
+              "const": "zero-baseline"
+            }
+          }
+        }
+      ]
+    },
+    "utilizationDelta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit",
+        "available",
+        "baselineUsed",
+        "qshellUsed",
+        "delta",
+        "deviceDeltaPartsPerMillion",
+        "relative"
+      ],
+      "properties": {
+        "unit": {
+          "enum": [
+            "count",
+            "milli-tile"
+          ]
+        },
+        "available": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "baselineUsed": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "qshellUsed": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "delta": {
+          "type": "integer"
+        },
+        "deviceDeltaPartsPerMillion": {
+          "type": "integer"
+        },
+        "relative": {
+          "$ref": "#/$defs/relativeUtilization"
+        }
+      }
+    },
+    "utilizationOverhead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lut",
+        "register",
+        "bramTiles",
+        "uram",
+        "dsp"
+      ],
+      "properties": {
+        "lut": {
+          "$ref": "#/$defs/utilizationDelta"
+        },
+        "register": {
+          "$ref": "#/$defs/utilizationDelta"
+        },
+        "bramTiles": {
+          "$ref": "#/$defs/utilizationDelta"
+        },
+        "uram": {
+          "$ref": "#/$defs/utilizationDelta"
+        },
+        "dsp": {
+          "$ref": "#/$defs/utilizationDelta"
+        }
+      }
+    }
+  }
+}

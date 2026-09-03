@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "api": "coyote-nix.latency-boundary-samples/v1",
+  "boundaryDefinition": "last-input-handshake-to-complete-correction-presentation/v1",
+  "traceId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "unit": "fs",
+  "samples": [
+    {
+      "sampleId": "v80-0000",
+      "requestSha256": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+      "boundariesFs": {
+        "inputComplete": 1000000000,
+        "peerComplete": 1000000000,
+        "dispatchComplete": 1008000000,
+        "queueComplete": 1012000000,
+        "decoderComplete": 1212000000,
+        "outputComplete": 1222000000
+      }
+    },
+    {
+      "sampleId": "v80-0001",
+      "requestSha256": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2",
+      "boundariesFs": {
+        "inputComplete": 2000000000,
+        "peerComplete": 2000000000,
+        "dispatchComplete": 2008000000,
+        "queueComplete": 2012000000,
+        "decoderComplete": 2232000000,
+        "outputComplete": 2243000000
+      }
+    },
+    {
+      "sampleId": "v80-0002",
+      "requestSha256": "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3",
+      "boundariesFs": {
+        "inputComplete": 3000000000,
+        "peerComplete": 3000000000,
+        "dispatchComplete": 3008000000,
+        "queueComplete": 3012000000,
+        "decoderComplete": 3252000000,
+        "outputComplete": 3264000000
+      }
+    },
+    {
+      "sampleId": "v80-0003",
+      "requestSha256": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4",
+      "boundariesFs": {
+        "inputComplete": 4000000000,
+        "peerComplete": 4000000000,
+        "dispatchComplete": 4008000000,
+        "queueComplete": 4012000000,
+        "decoderComplete": 4272000000,
+        "outputComplete": 4285000000
+      }
+    }
+  ]
+}

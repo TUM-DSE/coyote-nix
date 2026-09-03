@@ -27,6 +27,7 @@ Provided here:
 - generic U280/V80 Coyote board-flow builders
 - reusable U280/V80 two-stage PR shell-export and app-only builders
 - immutable, independently rootable link/opt/place/route/validate/image stages with manifest-checked handoffs and normalized runtime/resource/QoR telemetry
+- strict matched standalone-Coyote/QShell timing, latency-boundary, utilization, and provenance evidence extraction
 - fast shell-only post-synthesis timing analysis with reusable checkpoints and a policy-only gate
 - rootable linked Vivado QoR/post-place timing-oracle reports with an optional rejecting implementation gate
 - generic Coyote kernel driver derivation and matrix builders
@@ -193,6 +194,16 @@ Explicit arguments still override board-derived defaults. The expected board fie
   xilinxVersion = "...";
 }
 ```
+
+## Matched implementation evidence
+
+The `coyote-report-evidence` package and app compare immutable standalone-Coyote and QShell report bundles. They emit overhead only for exactly matched board, distance, decoder RTL/graph, clock, peer, Vivado, strategy, and latency-sample definitions:
+
+```sh
+nix run .#coyote-report-evidence -- compare request.json -o evidence.json
+```
+
+The package includes the strict output JSON schema. See [`docs/report-evidence.md`](docs/report-evidence.md) for input manifests, latency boundaries, matching gates, units, and output semantics.
 
 ## Deployment helpers
 

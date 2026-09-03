@@ -30,6 +30,34 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
+        reportEvidenceSchema = ./schemas/matched-implementation-evidence-v1.schema.json;
+        reportEvidencePython = pkgs.python3.withPackages (pythonPackages: [
+          pythonPackages.jsonschema
+        ]);
+        reportEvidencePackage = pkgs.stdenvNoCC.mkDerivation {
+          pname = "coyote-report-evidence";
+          version = "0.1.0";
+          dontUnpack = true;
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          installPhase = ''
+            runHook preInstall
+            install -Dm444 ${reportEvidenceSchema} \
+              "$out/share/coyote-nix/schemas/matched-implementation-evidence-v1.schema.json"
+            install -Dm444 ${./docs/report-evidence.md} \
+              "$out/share/doc/coyote-report-evidence/report-evidence.md"
+            install -Dm444 ${./nix/tools/coyote-report-evidence.py} \
+              "$out/libexec/coyote-report-evidence.py"
+            makeWrapper ${pkgs.python3}/bin/python3 "$out/bin/coyote-report-evidence" \
+              --add-flags "$out/libexec/coyote-report-evidence.py"
+            runHook postInstall
+          '';
+          meta = {
+            description = "Normalize matched Coyote and QShell implementation evidence";
+            license = pkgs.lib.licenses.mit;
+            mainProgram = "coyote-report-evidence";
+            platforms = linuxSystems;
+          };
+        };
         evalTools = coyoteNixLib.mkTools {
           inherit pkgs;
           coyoteRoot = ./.;
@@ -605,6 +633,34 @@
         ];
       in
       {
+        packages.coyote-report-evidence = reportEvidencePackage;
+
+        apps.coyote-report-evidence = {
+          type = "app";
+          program = "${reportEvidencePackage}/bin/coyote-report-evidence";
+        };
+
+        checks.matched-report-evidence =
+          pkgs.runCommand "matched-report-evidence-check"
+            {
+              nativeBuildInputs = [
+                reportEvidencePython
+                pkgs.ruff
+              ];
+            }
+            ''
+              ruff check ${./nix/tools/coyote-report-evidence.py} \
+                ${./tests/coyote-report-evidence.py}
+              ruff format --check ${./nix/tools/coyote-report-evidence.py} \
+                ${./tests/coyote-report-evidence.py}
+              cmp ${reportEvidenceSchema} \
+                ${reportEvidencePackage}/share/coyote-nix/schemas/matched-implementation-evidence-v1.schema.json
+              ${reportEvidencePython}/bin/python3 ${./tests/coyote-report-evidence.py} \
+                ${reportEvidencePackage}/bin/coyote-report-evidence \
+                ${reportEvidenceSchema} ${./tests/fixtures/report-evidence}
+              touch "$out"
+            '';
+
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
@@ -1318,6 +1374,7 @@
           packages = with pkgs; [
             shellcheck
             nixfmt-rfc-style
+            ruff
           ];
         };
 

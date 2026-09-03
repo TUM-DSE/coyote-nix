@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "api": "coyote-nix.latency-boundary-samples/v1",
+  "boundaryDefinition": "last-input-handshake-to-complete-correction-presentation/v1",
+  "traceId": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "unit": "fs",
+  "samples": [
+    {
+      "sampleId": "u280-0000",
+      "requestSha256": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1",
+      "boundariesFs": {
+        "inputComplete": 1000000000,
+        "peerComplete": 1008000000,
+        "dispatchComplete": 1008000000,
+        "queueComplete": 1008000000,
+        "decoderComplete": 1108000000,
+        "outputComplete": 1112000000
+      }
+    },
+    {
+      "sampleId": "u280-0001",
+      "requestSha256": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2",
+      "boundariesFs": {
+        "inputComplete": 2000000000,
+        "peerComplete": 2009000000,
+        "dispatchComplete": 2009000000,
+        "queueComplete": 2009000000,
+        "decoderComplete": 2119000000,
+        "outputComplete": 2124000000
+      }
+    },
+    {
+      "sampleId": "u280-0002",
+      "requestSha256": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+      "boundariesFs": {
+        "inputComplete": 3000000000,
+        "peerComplete": 3010000000,
+        "dispatchComplete": 3010000000,
+        "queueComplete": 3010000000,
+        "decoderComplete": 3130000000,
+        "outputComplete": 3136000000
+      }
+    }
+  ]
+}
