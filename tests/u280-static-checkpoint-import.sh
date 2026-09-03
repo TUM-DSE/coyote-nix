@@ -1,27 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 <import-tool>" >&2
+if [[ $# -ne 2 ]]; then
+  echo "usage: $0 <import-tool> <implementation-stage-tool>" >&2
   exit 2
 fi
 
-tool=$1
+import_tool=$1
+implementation_stage_tool=$2
+if [[ ! "$implementation_stage_tool" =~ ^/nix/store/[0-9a-z]{32}-coyote-implementation-stage\.py$ ]]; then
+  echo "implementation-stage tool is not a hashed Nix store path: $implementation_stage_tool" >&2
+  exit 1
+fi
+
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/detached"
+cp "$import_tool" "$work/detached/import-u280-static-checkpoint.py"
+tool="$work/detached/import-u280-static-checkpoint.py"
+test ! -e "$work/detached/coyote-implementation-stage.py"
+
 stage="$work/stage"
 mkdir -p "$stage/checkpoints" "$stage/reports" "$stage/metadata"
 
-python3 - "$tool" "$stage" <<'PY'
+python3 - "$implementation_stage_tool" "$stage" <<'PY'
 import hashlib
 import importlib.util
 import json
 import sys
 from pathlib import Path
 
-tool = Path(sys.argv[1])
+implementation_stage_tool = Path(sys.argv[1])
 stage = Path(sys.argv[2])
-spec = importlib.util.spec_from_file_location("implementation_stage", tool.with_name("coyote-implementation-stage.py"))
+spec = importlib.util.spec_from_file_location("implementation_stage", implementation_stage_tool)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
@@ -101,8 +112,7 @@ PY
 
 manifest_id=$(<"$work/manifest-id")
 checkpoint_sha256=$(<"$work/checkpoint-sha256")
-common=(
-  "$stage"
+contract_args=(
   --manifest-id "$manifest_id"
   --checkpoint-sha256 "$checkpoint_sha256"
   --coyote-source-id "$(printf '2%.0s' {1..64})"
@@ -110,7 +120,20 @@ common=(
   --tool-version 2023.2
 )
 
-python3 "$tool" "${common[@]:0:1}" "$work/imported" "${common[@]:1}"
+if python3 "$tool" "$stage" "$work/rejected-missing-tool" "${contract_args[@]}" >/dev/null 2>&1; then
+  echo "missing implementation-stage tool path was accepted" >&2
+  exit 1
+fi
+malformed_stage_tool="$work/malformed-implementation-stage.py"
+printf 'fixture = True\n' > "$malformed_stage_tool"
+if python3 "$tool" "$stage" "$work/rejected-malformed-tool" \
+  --implementation-stage-tool "$malformed_stage_tool" "${contract_args[@]}" >/dev/null 2>&1; then
+  echo "malformed implementation-stage tool was accepted" >&2
+  exit 1
+fi
+
+python3 "$tool" "$stage" "$work/imported" \
+  --implementation-stage-tool "$implementation_stage_tool" "${contract_args[@]}"
 cmp "$stage/checkpoints/shell_routed.dcp" "$work/imported/checkpoints/static_routed_locked_u280.dcp"
 jq -e '
   .api == "coyote-nix.u280-static-checkpoint/v1"
@@ -125,15 +148,19 @@ jq -e '
 after_tamper="$work/tampered"
 cp -a "$stage" "$after_tamper"
 printf 'tamper\n' >> "$after_tamper/reports/shell_timing_summary.rpt"
-if python3 "$tool" "$after_tamper" "$work/rejected-tamper" "${common[@]:1}" >/dev/null 2>&1; then
+if python3 "$tool" "$after_tamper" "$work/rejected-tamper" \
+  --implementation-stage-tool "$implementation_stage_tool" "${contract_args[@]}" >/dev/null 2>&1; then
   echo "tampered hashed report was accepted" >&2
   exit 1
 fi
-if python3 "$tool" "$stage" "$work/rejected-board" "${common[@]:1}" --board v80 >/dev/null 2>&1; then
+if python3 "$tool" "$stage" "$work/rejected-board" \
+  --implementation-stage-tool "$implementation_stage_tool" "${contract_args[@]}" \
+  --board v80 >/dev/null 2>&1; then
   echo "incompatible board was accepted" >&2
   exit 1
 fi
 if python3 "$tool" "$stage" "$work/rejected-lock" \
+  --implementation-stage-tool "$implementation_stage_tool" \
   --manifest-id "$manifest_id" \
   --checkpoint-sha256 "$checkpoint_sha256" \
   --coyote-source-id "$(printf '2%.0s' {1..64})" \
