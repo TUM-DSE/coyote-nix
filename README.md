@@ -222,7 +222,7 @@ set-hugepages
 insert-driver [driver.ko] image.bit|image.pdi
 ```
 
-It is only for full-device programming. Do not pass a U280 application `.bin` to `deploy-hw`; unsupported image types are rejected during preflight before the driver is unloaded or any hardware action begins.
+It is only for full-device programming. Do not pass a U280 application `.bin` to `deploy-hw`; unsupported image types are rejected during preflight before the driver is unloaded or any hardware action begins. The same preflight reads the selected driver's `vermagic` and requires its kernel-release field to equal `uname -r` before unload, reset, or programming. A mismatched module has no deployment bypass; select or build the matching driver package first.
 
 With a compatible shell already programmed and its Coyote driver active, load one application partial into a vFPGA with:
 

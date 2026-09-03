@@ -640,6 +640,12 @@
           touch $out
         '';
 
+        checks.deploy-hw-vermagic = pkgs.runCommand "deploy-hw-vermagic-check" { } ''
+          bash ${./tests/deploy-hw-vermagic.sh} \
+            ${./nix/tools/coyote-common.sh} ${./nix/tools/deploy-hw.sh}
+          touch $out
+        '';
+
         checks.hot-reset-multifunction = pkgs.runCommand "hot-reset-multifunction-check" { } ''
           bash ${./tests/hot-reset-multifunction.sh} ${./nix/tools/hot-reset.sh}
           touch $out

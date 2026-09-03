@@ -29,6 +29,40 @@ run_with_timeout() {
   fi
 }
 
+check_driver_vermagic() {
+  local ko_path="$1"
+  local module_vermagic module_kernel_release running_kernel_release
+
+  if ! module_vermagic="$(modinfo -F vermagic "$ko_path" 2>/dev/null)"; then
+    echo "ERROR: could not read driver module vermagic: $ko_path" >&2
+    echo "Hint: select or build a valid Coyote driver module before deploying." >&2
+    return 1
+  fi
+
+  read -r module_kernel_release _ <<< "$module_vermagic"
+  if [ -z "$module_kernel_release" ]; then
+    echo "ERROR: driver module has empty vermagic: $ko_path" >&2
+    echo "Hint: select or build a valid Coyote driver module before deploying." >&2
+    return 1
+  fi
+
+  if ! running_kernel_release="$(uname -r 2>/dev/null)" || [ -z "$running_kernel_release" ]; then
+    echo "ERROR: could not determine the running kernel release." >&2
+    return 1
+  fi
+
+  if [ "$module_kernel_release" != "$running_kernel_release" ]; then
+    echo "ERROR: driver module vermagic does not match the running kernel." >&2
+    echo "Driver module: $ko_path" >&2
+    echo "Module kernel release: $module_kernel_release" >&2
+    echo "Running kernel release: $running_kernel_release" >&2
+    echo "Hint: select or build a driver package for kernel $running_kernel_release before deploying." >&2
+    return 1
+  fi
+
+  log_v "Driver vermagic kernel release: $module_kernel_release"
+}
+
 run_step() {
   local label="$1"
   local timeout_secs="$2"
@@ -196,6 +230,10 @@ if [ ! -f "$driver_ko" ]; then
     echo "Default driver package checked: $default_driver_package" >&2
   fi
   echo "Build it first with: $(driver_build_hint_for_target_platform "$target_platform")" >&2
+  exit 1
+fi
+
+if ! check_driver_vermagic "$driver_ko"; then
   exit 1
 fi
 
