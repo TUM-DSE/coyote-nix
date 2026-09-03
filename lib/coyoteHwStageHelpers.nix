@@ -58,6 +58,94 @@ rec {
   implementationStageTool = ../nix/tools/coyote-implementation-stage.py;
   incrementalReferenceTool = ../nix/tools/coyote-incremental-reference.py;
   placementDiagnosisTool = ../nix/tools/coyote-placement-diagnosis.py;
+  strictSignoffReportTool = ../nix/tools/coyote-signoff-reports.tcl;
+  strictSignoffTool = ../nix/tools/coyote-strict-signoff.py;
+
+  strictSignoffReportArtifacts =
+    {
+      phase,
+      reportDirectory,
+      reportPrefix,
+      reportSuffix ? "",
+    }:
+    let
+      reportPath = kind: "${reportDirectory}/${reportPrefix}_${kind}${reportSuffix}.rpt";
+    in
+    [
+      {
+        role = "${phase}-methodology-report";
+        path = reportPath "methodology";
+      }
+      {
+        role = "${phase}-timing-exception-report";
+        path = reportPath "timing_exceptions";
+      }
+      {
+        role = "${phase}-bus-skew-report";
+        path = reportPath "bus_skew";
+      }
+      {
+        role = "${phase}-clock-interaction-report";
+        path = reportPath "clock_interaction";
+      }
+      {
+        role = "${phase}-unconstrained-endpoint-report";
+        path = reportPath "unconstrained_endpoints";
+      }
+      {
+        role = "${phase}-unconstrained-endpoint-evidence";
+        path = "${reportDirectory}/${reportPrefix}_unconstrained_endpoint_evidence${reportSuffix}.json";
+      }
+      {
+        role = "${phase}-drc-report";
+        path = reportPath "drc";
+      }
+      {
+        role = "${phase}-timing-summary-report";
+        path = reportPath "timing_summary";
+      }
+      {
+        role = "${phase}-strict-signoff-evidence";
+        path = "${reportDirectory}/${reportPrefix}_strict_signoff${reportSuffix}.json";
+      }
+    ]
+    ++ lib.optionals (builtins.elem phase [ "route" "validate" ]) [
+      {
+        role = "${phase}-route-status-report";
+        path = reportPath "route_status";
+      }
+    ];
+
+  strictSignoffReportCommand =
+    {
+      phase,
+      unit,
+      checkpointPath,
+      reportDirectory,
+      reportPrefix,
+      reportSuffix ? "",
+      contextFile,
+    }:
+    let
+      routeApplicable = if builtins.elem phase [ "route" "validate" ] then "1" else "0";
+      evidencePath = "${reportDirectory}/${reportPrefix}_strict_signoff${reportSuffix}.json";
+    in
+    ''
+      vivado -mode tcl -source ${strictSignoffReportTool} -notrace -tclargs \
+        ${lib.escapeShellArg phase} "$build_dir/${checkpointPath}" \
+        "$build_dir/${reportDirectory}" ${lib.escapeShellArg reportPrefix} \
+        ${lib.escapeShellArg reportSuffix} ${routeApplicable}
+      ${pkgs.python3}/bin/python ${strictSignoffTool} collect \
+        --root "$build_dir" \
+        --phase ${lib.escapeShellArg phase} \
+        --unit ${lib.escapeShellArg unit} \
+        --context ${contextFile} \
+        --checkpoint "$build_dir/${checkpointPath}" \
+        --report-directory ${lib.escapeShellArg reportDirectory} \
+        --report-prefix ${lib.escapeShellArg reportPrefix} \
+        --report-suffix ${lib.escapeShellArg reportSuffix} \
+        --output "$build_dir/${evidencePath}"
+    '';
 
   mkPlacementDiagnosis =
     {
@@ -135,10 +223,27 @@ rec {
       pname,
       stage,
       expectedContext,
+      signoffClassification ? null,
     }:
     pkgs.runCommand pname { nativeBuildInputs = [ pkgs.jq pkgs.python3 ]; } ''
       ${pkgs.python3}/bin/python ${implementationStageTool} validate \
         ${stage} --phase validate --context ${lib.escapeShellArg expectedContext}
+      strict_result="$TMPDIR/strict-signoff.json"
+      strict_args=(
+        --stage ${stage}
+        --context ${lib.escapeShellArg expectedContext}
+        ${lib.optionalString (signoffClassification != null) "--classification ${lib.escapeShellArg (toString signoffClassification)}"}
+        --output "$strict_result"
+      )
+      set +e
+      ${pkgs.python3}/bin/python ${strictSignoffTool} verify "''${strict_args[@]}"
+      strict_status=$?
+      set -e
+      if [ "$strict_status" -ne 0 ]; then
+        echo "ERROR: strict physical signoff rejected validation evidence: ${stage}" >&2
+        ${pkgs.jq}/bin/jq . "$strict_result" >&2 || true
+        exit "$strict_status"
+      fi
       outcome="$(${pkgs.jq}/bin/jq -r '.outcome' ${stage}/metadata/stage.json)"
       if [ "$outcome" != accepted ]; then
         echo "ERROR: implementation validation outcome is $outcome; evidence: ${stage}" >&2
@@ -153,6 +258,7 @@ rec {
         fi
       done
       cp ${stage}/metadata/stage.json "$out/metadata/validation-stage.json"
+      cp "$strict_result" "$out/metadata/strict-signoff.json"
       printf '%s\n' accepted > "$out/metadata/outcome"
     '';
 

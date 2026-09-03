@@ -1,0 +1,3 @@
+| Command : report_bus_skew -file bus_skew.rpt
+Bus Skew Report
+All explicitly constrained buses meet their skew requirements.

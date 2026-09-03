@@ -1,0 +1,4 @@
+| Command : report_exceptions -file timing_exceptions.rpt
+Timing Exceptions Report
+Valid exceptions: 1
+set_false_path -from fixture/source_reg/C -to fixture/synchronizer_reg[0]/D

@@ -1,0 +1,22 @@
+{
+  "timingExceptionReport": {
+    "classification": "explicit-exact-report",
+    "rationale": "The exact fixture CDC false-path report was reviewed; any report-byte change requires a new classification."
+  },
+  "unconstrainedEndpoints": [
+    {
+      "category": "unconstrained_internal_endpoints",
+      "endpoint": "fixture/disabled_counter_reg[0]/D",
+      "reason": "constant-clock",
+      "clockPins": [
+        {
+          "pin": "fixture/disabled_counter_reg[0]/C",
+          "constantValue": "0",
+          "clocks": []
+        }
+      ],
+      "classification": "intentional-constant-clock",
+      "rationale": "This exact immutable fixture endpoint is disabled by a constant test clock."
+    }
+  ]
+}

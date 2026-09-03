@@ -858,6 +858,8 @@
           assert evalU280Shell.coyoteTwoStage.timingOracle.policy.rejectRqaBelow == 3;
           assert evalU280Shell.coyoteTwoStage.enShellPblock;
           assert evalU280Shell.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
+          assert evalU280Shell.coyoteTwoStage.physical.strictSignoff.required;
+          assert evalU280Shell.coyoteTwoStage.physical.strictSignoff.classification == null;
           assert evalU280Shell.coyoteTwoStage.physical.combineOptPlace;
           assert evalU280Shell.coyoteTwoStage.physical.units ? shell;
           assert evalU280Shell.coyoteTwoStage.physical.units.shell ? link;
@@ -933,6 +935,10 @@
           assert evalV80App.coyoteTwoStage.shellPath == toString evalV80Shell;
           assert builtins.elem "-DEN_SHELL_PBLOCK:STRING=0" evalV80App.coyoteTwoStage.appCmakeFlags;
           assert evalV80App.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
+          assert evalV80App.coyoteTwoStage.physical.strictSignoff.required;
+          assert
+            evalV80App.coyoteTwoStage.physical.strictSignoff.classificationApi
+            == "coyote-nix.strict-signoff-classification/v1";
           assert
             evalV80App.coyoteTwoStage.physical.linkIntegrity.partitionPinManifest
             == "reports/config_0/app_link_partition_pins_c0.json";
@@ -1097,6 +1103,39 @@
                 ${./nix/tools/coyote-implementation-stage.py} \
                 ${./tests/fixtures} \
                 ${./nix/tools/coyote-incremental-reference.py}
+              touch "$out"
+            '';
+
+        checks.strict-signoff-report-generation =
+          pkgs.runCommand "strict-signoff-report-generation-contract"
+            {
+              nativeBuildInputs = [
+                pkgs.jq
+                pkgs.python3
+                pkgs.tcl
+              ];
+            }
+            ''
+              bash ${./tests/strict-signoff-report-generation.sh} \
+                ${./nix/tools/coyote-signoff-reports.tcl} \
+                ${./nix/tools/coyote-strict-signoff.py} \
+                ${./tests/fixtures/strict-signoff}
+              touch "$out"
+            '';
+
+        checks.strict-signoff-gate =
+          pkgs.runCommand "strict-signoff-gate-contract"
+            {
+              nativeBuildInputs = [
+                pkgs.jq
+                pkgs.python3
+              ];
+            }
+            ''
+              bash ${./tests/strict-signoff-gate.sh} \
+                ${./nix/tools/coyote-strict-signoff.py} \
+                ${./nix/tools/coyote-implementation-stage.py} \
+                ${./tests/fixtures/strict-signoff}
               touch "$out"
             '';
 
@@ -1333,9 +1372,9 @@
             grep -F 'app_link_partition_pins_c0.json' "$script" >/dev/null
             grep -F 'app_link_integrity_c0.json' "$script" >/dev/null
           done
-          grep -F 'app_link_partition_pins_c0.json' \
+          grep -F '${builtins.unsafeDiscardStringContext (toString evalU280App.coyoteTwoStage.stages.link)}/reports/config_0/. "$build_dir/reports/config_0/"' \
             ${phaseScript "u280-app-final-link-evidence.sh" evalU280App.buildPhase} >/dev/null
-          grep -F 'app_link_integrity_c0.json' \
+          grep -F '${builtins.unsafeDiscardStringContext (toString evalV80App.coyoteTwoStage.stages.link)}/reports/config_0/. "$build_dir/reports/config_0/"' \
             ${phaseScript "v80-app-final-link-evidence.sh" evalV80App.buildPhase} >/dev/null
           touch $out
         '';

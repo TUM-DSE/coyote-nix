@@ -47,6 +47,8 @@ let
     installCheckpointReports
     mkImplementationStageGate
     mkStage
+    strictSignoffReportArtifacts
+    strictSignoffReportCommand
     writeArtifactManifest
     writeImplementationStageManifest
     ;
@@ -155,6 +157,16 @@ let
       implementationEnforceTiming
     else
       throw "coyote-nix: implementation.enforceTiming must be a Boolean when specified";
+  signoffClassification = implementation.signoffClassification or null;
+  checkedSignoffClassification =
+    if
+      signoffClassification == null
+      || builtins.isPath signoffClassification
+      || lib.isDerivation signoffClassification
+    then
+      signoffClassification
+    else
+      throw "coyote-nix: implementation.signoffClassification must be an immutable path or derivation";
   defaultDirectives = {
     opt = "project";
     place = "project";
@@ -645,12 +657,18 @@ let
     '';
   } else null;
 
+  outerLinkSignoffArtifacts = strictSignoffReportArtifacts {
+    phase = "link";
+    reportDirectory = "reports";
+    reportPrefix = "shell_link";
+  };
   outerLinkSpec = if outerInputs == null then null else mkImplementationSpec {
     name = "shell-link";
     phase = "link";
     unit = "shell";
     predecessorPath = outerInputs;
-    artifacts = [ { role = "linked-checkpoint"; path = "checkpoints/shell_linked.dcp"; } ];
+    artifacts = [ { role = "linked-checkpoint"; path = "checkpoints/shell_linked.dcp"; } ]
+      ++ outerLinkSignoffArtifacts;
   };
   outerLink = if outerInputs == null then null else mkStage {
     pname = "${pname}-shell-link";
@@ -666,12 +684,26 @@ let
         expectedContext = implementationContext.id;
       }}
     '';
-    buildCommands = [ "vivado -mode tcl -source \"$build_dir/link.tcl\" -notrace" ];
-    expectedPaths = [ "checkpoints/shell_linked.dcp" ];
+    buildCommands = [
+      "vivado -mode tcl -source \"$build_dir/link.tcl\" -notrace"
+      (strictSignoffReportCommand {
+        phase = "link";
+        unit = "shell";
+        checkpointPath = "checkpoints/shell_linked.dcp";
+        reportDirectory = "reports";
+        reportPrefix = "shell_link";
+        contextFile = implementationContextFile;
+      })
+    ];
+    expectedPaths = [ "checkpoints/shell_linked.dcp" ]
+      ++ map (artifact: artifact.path) outerLinkSignoffArtifacts;
     nativeBuildInputs = [ pkgs.python3 ];
     extraInstallPhase = ''
-      mkdir -p "$out/checkpoints" "$out/metadata"
+      mkdir -p "$out/checkpoints" "$out/reports" "$out/metadata"
       cp "$build_dir/checkpoints/shell_linked.dcp" "$out/checkpoints/"
+      cp "$build_dir/reports/"*.rpt "$out/reports/"
+      cp "$build_dir/reports/shell_link_unconstrained_endpoint_evidence.json" \
+        "$build_dir/reports/shell_link_strict_signoff.json" "$out/reports/"
       ${writeImplementationStageManifest { spec = outerLinkSpec; }}
     '';
   };
@@ -687,10 +719,15 @@ let
       reportDirectory = if unit == "config_0" then "reports/config_0" else "reports";
       reportSuffix = if unit == "config_0" then "_c0" else "";
       physicalPath = "${reportDirectory}/${reportPrefix}_physical${reportSuffix}.json";
+      strictReportPhase = builtins.elem phase [ "place" "route" "validate" ];
+      physicalSignoffArtifacts = if strictReportPhase then strictSignoffReportArtifacts {
+        inherit phase reportDirectory reportPrefix reportSuffix;
+      } else [
+        { role = "${phase}-timing-summary-report"; path = "${reportDirectory}/${reportPrefix}_timing_summary${reportSuffix}.rpt"; }
+      ];
       phaseArtifacts = [
         { role = "${phase}-utilization-report"; path = "${reportDirectory}/${reportPrefix}_utilization${reportSuffix}.rpt"; }
-        { role = "${phase}-timing-summary-report"; path = "${reportDirectory}/${reportPrefix}_timing_summary${reportSuffix}.rpt"; }
-      ] ++ lib.optionals (builtins.elem phase [ "opt" "place" ]) [
+      ] ++ physicalSignoffArtifacts ++ lib.optionals (builtins.elem phase [ "opt" "place" ]) [
         { role = "${phase}-qor-assessment-report"; path = "${reportDirectory}/${reportPrefix}_qor_assessment${reportSuffix}.rpt"; }
       ] ++ lib.optionals (phase == "place" && boardProfile.board == "v80") [
         { role = "place-diagnosis-observations"; path = "${reportDirectory}/${reportPrefix}_diagnosis${reportSuffix}.json"; }
@@ -698,8 +735,6 @@ let
         { role = "place-complexity-report"; path = "${reportDirectory}/${reportPrefix}_complexity${reportSuffix}.rpt"; }
         { role = "place-logic-level-report"; path = "${reportDirectory}/${reportPrefix}_logic_levels${reportSuffix}.rpt"; }
         { role = "place-high-fanout-report"; path = "${reportDirectory}/${reportPrefix}_high_fanout${reportSuffix}.rpt"; }
-      ] ++ lib.optionals (builtins.elem phase [ "route" "validate" ]) [
-        { role = "${phase}-route-status-report"; path = "${reportDirectory}/${reportPrefix}_route_status${reportSuffix}.rpt"; }
       ] ++ lib.optionals (incrementalMode == "reference" && builtins.elem phase [ "place" "route" ]) [
         { role = "incremental-reuse-report"; path = "${reportDirectory}/${reportPrefix}_incremental_reuse${reportSuffix}.rpt"; }
       ] ++ lib.optionals incrementalEvidence [
@@ -750,7 +785,13 @@ let
             "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"
         ''}
       '';
-      buildCommands = [ "make physical_stage" ];
+      buildCommands = [ "make physical_stage" ] ++ lib.optionals strictReportPhase [
+        (strictSignoffReportCommand {
+          inherit phase unit reportDirectory reportPrefix reportSuffix;
+          checkpointPath = outputPath;
+          contextFile = implementationContextFile;
+        })
+      ];
       expectedPaths = [ outputPath "checkpoints/${name}_${phase}_complete" physicalPath ]
         ++ map (artifact: artifact.path) phaseArtifacts
         ++ lib.optionals (phase == "validate") [
@@ -763,6 +804,11 @@ let
         cp "$build_dir/${outputPath}" "$out/${outputPath}"
         cp "$build_dir/${reportDirectory}/"*.rpt "$out/${reportDirectory}/"
         cp "$build_dir/${physicalPath}" "$out/${physicalPath}"
+        ${lib.optionalString strictReportPhase ''
+          cp "$build_dir/${reportDirectory}/${reportPrefix}_unconstrained_endpoint_evidence${reportSuffix}.json" \
+            "$build_dir/${reportDirectory}/${reportPrefix}_strict_signoff${reportSuffix}.json" \
+            "$out/${reportDirectory}/"
+        ''}
         ${lib.optionalString (phase == "place" && boardProfile.board == "v80") ''
           cp "$build_dir/${reportDirectory}/${reportPrefix}_diagnosis${reportSuffix}.json" "$out/${reportDirectory}/"
         ''}
@@ -816,6 +862,7 @@ let
     pname = "${pname}-shell-validation-gate";
     stage = outerValidate;
     expectedContext = implementationContext.id;
+    signoffClassification = checkedSignoffClassification;
   };
   routed = outerValidationGate;
 
@@ -840,9 +887,16 @@ let
       ''}
     '';
   };
+  dynamicLinkSignoffArtifacts = strictSignoffReportArtifacts {
+    phase = "link";
+    reportDirectory = "reports/config_0";
+    reportPrefix = "shell_link";
+    reportSuffix = "_c0";
+  };
   dynamicLinkSpec = mkImplementationSpec {
     name = "config-0-link"; phase = "link"; unit = "config_0"; predecessorPath = dynamicInputs;
-    artifacts = [ { role = "linked-checkpoint"; path = "checkpoints/config_0/shell_linked_c0.dcp"; } ];
+    artifacts = [ { role = "linked-checkpoint"; path = "checkpoints/config_0/shell_linked_c0.dcp"; } ]
+      ++ dynamicLinkSignoffArtifacts;
   };
   dynamicLink = mkStage {
     pname = "${pname}-config-0-link";
@@ -855,12 +909,28 @@ let
         expectedPhase = "inputs"; expectedContext = implementationContext.id;
       }}
     '';
-    buildCommands = [ "make dynamic_link" ];
-    expectedPaths = [ "checkpoints/dynamic_link_complete" "checkpoints/config_0/shell_linked_c0.dcp" ];
+    buildCommands = [
+      "make dynamic_link"
+      (strictSignoffReportCommand {
+        phase = "link";
+        unit = "config_0";
+        checkpointPath = "checkpoints/config_0/shell_linked_c0.dcp";
+        reportDirectory = "reports/config_0";
+        reportPrefix = "shell_link";
+        reportSuffix = "_c0";
+        contextFile = implementationContextFile;
+      })
+    ];
+    expectedPaths = [ "checkpoints/dynamic_link_complete" "checkpoints/config_0/shell_linked_c0.dcp" ]
+      ++ map (artifact: artifact.path) dynamicLinkSignoffArtifacts;
     nativeBuildInputs = [ pkgs.python3 ];
     extraInstallPhase = ''
-      mkdir -p "$out/checkpoints/config_0" "$out/metadata"
+      mkdir -p "$out/checkpoints/config_0" "$out/reports/config_0" "$out/metadata"
       cp "$build_dir/checkpoints/config_0/shell_linked_c0.dcp" "$out/checkpoints/config_0/"
+      cp "$build_dir/reports/config_0/"*.rpt "$out/reports/config_0/"
+      cp "$build_dir/reports/config_0/shell_link_unconstrained_endpoint_evidence_c0.json" \
+        "$build_dir/reports/config_0/shell_link_strict_signoff_c0.json" \
+        "$out/reports/config_0/"
       ${writeImplementationStageManifest { spec = dynamicLinkSpec; }}
     '';
   };
@@ -958,8 +1028,15 @@ let
     pname = "${pname}-incremental-validation-gate";
     stage = incrementalValidate;
     expectedContext = implementationContext.id;
+    signoffClassification = checkedSignoffClassification;
   };
 
+  dynamicValidationSignoffArtifacts = strictSignoffReportArtifacts {
+    phase = "validate";
+    reportDirectory = "reports/config_0";
+    reportPrefix = "shell";
+    reportSuffix = "_c0";
+  };
   dynamicValidateSpec = mkImplementationSpec {
     name = "config-0-validate"; phase = "validate"; unit = "config_0"; predecessorPath = dynamicRoute;
     strategy.enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming;
@@ -968,9 +1045,8 @@ let
     telemetryPhysicalPath = "reports/config_0/shell_physical_c0.json";
     artifacts = [
       { role = "validated-checkpoint"; path = "checkpoints/config_0/shell_routed_c0.dcp"; }
-      { role = "utilization-report"; path = "reports/config_0/shell_utilization_c0.rpt"; }
-      { role = "route-status-report"; path = "reports/config_0/shell_route_status_c0.rpt"; }
-      { role = "timing-summary-report"; path = "reports/config_0/shell_timing_summary_c0.rpt"; }
+      { role = "validate-utilization-report"; path = "reports/config_0/shell_utilization_c0.rpt"; }
+    ] ++ dynamicValidationSignoffArtifacts ++ [
       { role = "bitstream-drc-report"; path = "reports/config_0/shell_drc_bitstream_checks_c0.rpt"; }
       { role = "validation-result"; path = "reports/config_0/validation.json"; }
     ];
@@ -995,12 +1071,23 @@ let
     preBuildSetup = importImplementationStageArtifacts {
       previousStage = dynamicRoute; roles = [ "routed-checkpoint" ]; expectedPhase = "route"; expectedContext = implementationContext.id;
     };
-    buildCommands = [ "make physical_stage" ];
+    buildCommands = [
+      "make physical_stage"
+      (strictSignoffReportCommand {
+        phase = "validate";
+        unit = "config_0";
+        checkpointPath = "checkpoints/config_0/shell_routed_c0.dcp";
+        reportDirectory = "reports/config_0";
+        reportPrefix = "shell";
+        reportSuffix = "_c0";
+        contextFile = implementationContextFile;
+      })
+    ];
     expectedPaths = [
       "checkpoints/config_0/shell_routed_c0.dcp"
       "reports/config_0/shell_physical_c0.json"
       "reports/config_0/validation.json"
-    ];
+    ] ++ map (artifact: artifact.path) dynamicValidationSignoffArtifacts;
     nativeBuildInputs = [ pkgs.python3 ];
     extraInstallPhase = ''
       mkdir -p "$out/checkpoints/config_0" "$out/reports/config_0" "$out/metadata"
@@ -1014,6 +1101,7 @@ let
     pname = "${pname}-dynamic-validation-gate";
     stage = dynamicValidationRaw;
     expectedContext = implementationContext.id;
+    signoffClassification = checkedSignoffClassification;
   };
   dynamicFinalizeSpec = mkImplementationSpec {
     name = "config-0-finalize"; phase = "finalize"; unit = "config_0"; predecessorPath = dynamicValidationRaw;
@@ -1102,6 +1190,13 @@ let
     };
     physical = {
       api = "coyote-nix.implementation-stage/v2";
+      strictSignoff = {
+        api = "coyote-nix.strict-signoff-result/v1";
+        classificationApi = "coyote-nix.strict-signoff-classification/v1";
+        classification =
+          if checkedSignoffClassification == null then null else toString checkedSignoffClassification;
+        required = true;
+      };
       context = implementationContext;
       resources.cores = checkedImplementationCores;
       directives = implementationDirectives;

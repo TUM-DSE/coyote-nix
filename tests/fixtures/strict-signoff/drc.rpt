@@ -1,0 +1,10 @@
+| Command : report_drc -name fixture_signoff -file drc.rpt
+Report DRC
+
+1. REPORT SUMMARY
+-----------------
+             Checks found: 0
++------+----------+-------------+--------+
+| Rule | Severity | Description | Checks |
++------+----------+-------------+--------+
++------+----------+-------------+--------+

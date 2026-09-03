@@ -1,0 +1,10 @@
+| Command : report_drc -ruledeck bitstream_checks -name fixture_bitstream -file bitstream_drc.rpt
+Report DRC
+
+1. REPORT SUMMARY
+-----------------
+             Checks found: 0
++------+----------+-------------+--------+
+| Rule | Severity | Description | Checks |
++------+----------+-------------+--------+
++------+----------+-------------+--------+

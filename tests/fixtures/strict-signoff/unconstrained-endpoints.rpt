@@ -1,0 +1,19 @@
+| Command : check_timing -verbose -file unconstrained_endpoints.rpt
+
+check_timing report
+
+Table of Contents
+-----------------
+1. checking no_clock (0)
+2. checking unconstrained_internal_endpoints (1)
+
+1. checking no_clock (0)
+------------------------
+ There are 0 register/latch pins with no clock.
+
+2. checking unconstrained_internal_endpoints (1)
+------------------------------------------------
+ There are 0 pins that are not constrained for maximum delay.
+
+ There are 1 pins that are not constrained for maximum delay due to constant clock. (MEDIUM)
+fixture/disabled_counter_reg[0]/D

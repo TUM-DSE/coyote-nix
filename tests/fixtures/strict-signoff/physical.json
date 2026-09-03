@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "kind": "coyote-implementation-observations",
+  "phase": "validate",
+  "vivadoVersion": "2025.1",
+  "vivadoFullVersion": "Vivado v2025.1 fixture",
+  "analysisKind": "routed",
+  "timing": {
+    "setupWnsNs": 0.125,
+    "setupTnsNs": 0.0,
+    "holdWnsNs": 0.05,
+    "holdTnsNs": 0.0
+  },
+  "qor": {
+    "rqaScore": null
+  },
+  "routing": {
+    "unroutedNets": 0,
+    "partiallyRoutedNets": 0,
+    "conflictedNets": 0,
+    "hasRoutingErrors": 0
+  },
+  "drc": {
+    "errors": 0,
+    "criticalWarnings": 0,
+    "warnings": 0
+  },
+  "reports": {
+    "utilization": "shell_utilization_c0.rpt",
+    "timingSummary": "shell_timing_summary_c0.rpt",
+    "qorAssessment": "",
+    "routeStatus": "shell_route_status_c0.rpt"
+  }
+}
