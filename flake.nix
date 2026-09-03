@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/develop";
+      url = "github:taugoust/Coyote/driver-release-cleanup";
       flake = false;
     };
   };
@@ -640,11 +640,16 @@
           touch $out
         '';
 
-        checks.deploy-hw-vermagic = pkgs.runCommand "deploy-hw-vermagic-check" { } ''
-          bash ${./tests/deploy-hw-vermagic.sh} \
-            ${./nix/tools/coyote-common.sh} ${./nix/tools/deploy-hw.sh}
-          touch $out
-        '';
+        checks.deploy-hw-driver-preflight =
+          assert
+            import ./lib/resolveCoyoteSourceRevision.nix {
+              coyoteRoot = coyote;
+            } == coyote.rev;
+          pkgs.runCommand "deploy-hw-driver-preflight-check" { } ''
+            bash ${./tests/deploy-hw-driver-preflight.sh} \
+              ${./nix/tools/coyote-common.sh} ${./nix/tools/deploy-hw.sh}
+            touch $out
+          '';
 
         checks.hot-reset-multifunction = pkgs.runCommand "hot-reset-multifunction-check" { } ''
           bash ${./tests/hot-reset-multifunction.sh} ${./nix/tools/hot-reset.sh}

@@ -168,7 +168,7 @@ By default this produces packages named:
 coyote-driver-<targetPlatform>-<hostName>
 ```
 
-The site flake still owns host inventory and kernel policy; this helper only encodes the generic package-matrix mechanics.
+The site flake still owns host inventory and kernel policy; this helper only encodes the generic package-matrix mechanics. Each package built from a revision-pinned Coyote flake input records that full Git object ID in `metadata/coyote-source-revision`. Callers that pass a source path directly may supply `coyoteRevision`; a package without a full revision remains buildable for local development but is intentionally not deployable through `deploy-hw`.
 
 ## Dev shell board context
 
@@ -222,7 +222,7 @@ set-hugepages
 insert-driver [driver.ko] image.bit|image.pdi
 ```
 
-It is only for full-device programming. Do not pass a U280 application `.bin` to `deploy-hw`; unsupported image types are rejected during preflight before the driver is unloaded or any hardware action begins. The same preflight reads the selected driver's `vermagic` and requires its kernel-release field to equal `uname -r` before unload, reset, or programming. A mismatched module has no deployment bypass; select or build the matching driver package first.
+It is only for full-device programming. Do not pass a U280 application `.bin` to `deploy-hw`; unsupported image types are rejected during preflight before the driver is unloaded or any hardware action begins. The same preflight reads the selected driver's `vermagic` and requires its kernel-release field to equal `uname -r`. It also requires the driver package's `metadata/coyote-source-revision` to match the revision-pinned Coyote source embedded in the packaged deployment tools. Missing, malformed, unpinned, or mismatched provenance is rejected before unload, reset, or programming and has no deployment bypass; select or build the matching driver package first.
 
 With a compatible shell already programmed and its Coyote driver active, load one application partial into a vFPGA with:
 

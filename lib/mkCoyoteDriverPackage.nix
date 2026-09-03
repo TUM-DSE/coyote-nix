@@ -1,6 +1,7 @@
 {
   pkgs,
   coyoteRoot,
+  coyoteRevision ? null,
   pname,
   targetPlatform,
   driverKernel,
@@ -10,6 +11,11 @@
   extraAttrs ? { },
 }:
 
+let
+  sourceRevision = import ./resolveCoyoteSourceRevision.nix {
+    inherit coyoteRoot coyoteRevision;
+  };
+in
 pkgs.stdenv.mkDerivation (
   {
     inherit pname version;
@@ -31,8 +37,17 @@ pkgs.stdenv.mkDerivation (
       runHook preInstall
       install -Dm0644 build/coyote_driver.ko "$out/lib/modules/${driverKernel.modDirVersion}/extra/coyote_driver.ko"
       ln -s "lib/modules/${driverKernel.modDirVersion}/extra/coyote_driver.ko" "$out/coyote_driver.ko"
+      ${pkgs.lib.optionalString (sourceRevision != null) ''
+        mkdir -p "$out/metadata"
+        printf '%s\n' ${pkgs.lib.escapeShellArg sourceRevision} > "$out/metadata/coyote-source-revision"
+      ''}
       runHook postInstall
     '';
+
+    passthru.coyoteDriver = {
+      inherit sourceRevision targetPlatform;
+      kernelRelease = driverKernel.modDirVersion;
+    };
 
     meta = {
       description = "Coyote kernel driver for ${targetPlatform} built against the ${hostName} host kernel";

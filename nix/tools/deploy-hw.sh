@@ -63,6 +63,44 @@ check_driver_vermagic() {
   log_v "Driver vermagic kernel release: $module_kernel_release"
 }
 
+check_driver_source_revision() {
+  local driver_package="$1"
+  local expected_revision="${COYOTE_NIX_EXPECTED_COYOTE_REVISION:-}"
+  local revision_file="$driver_package/metadata/coyote-source-revision"
+  local driver_revision revision_lines
+
+  if [ -z "$expected_revision" ]; then
+    echo "ERROR: deploy-hw was built without a pinned Coyote source revision." >&2
+    echo "Hint: instantiate coyote-nix tools with a revision-pinned Coyote flake input." >&2
+    return 1
+  fi
+
+  if [ ! -f "$revision_file" ]; then
+    echo "ERROR: driver package has no Coyote source-revision metadata: $driver_package" >&2
+    echo "Hint: rebuild the driver with coyote-nix mkCoyoteDriverPackage from the pinned Coyote source." >&2
+    return 1
+  fi
+
+  revision_lines="$(wc -l < "$revision_file")"
+  driver_revision="$(tr -d '\n' < "$revision_file")"
+  if [ "$revision_lines" -ne 1 ] \
+    || ! printf '%s\n' "$driver_revision" | grep -Eq '^([0-9a-fA-F]{40}|[0-9a-fA-F]{64})$'; then
+    echo "ERROR: driver package has invalid Coyote source-revision metadata: $revision_file" >&2
+    return 1
+  fi
+
+  if [ "$driver_revision" != "$expected_revision" ]; then
+    echo "ERROR: driver package Coyote source revision does not match deploy-hw." >&2
+    echo "Driver package: $driver_package" >&2
+    echo "Driver Coyote revision: $driver_revision" >&2
+    echo "Expected Coyote revision: $expected_revision" >&2
+    echo "Hint: select or build the driver package from the same pinned Coyote source as the deployment tools." >&2
+    return 1
+  fi
+
+  log_v "Driver Coyote source revision: $driver_revision"
+}
+
 run_step() {
   local label="$1"
   local timeout_secs="$2"
@@ -234,6 +272,9 @@ if [ ! -f "$driver_ko" ]; then
 fi
 
 if ! check_driver_vermagic "$driver_ko"; then
+  exit 1
+fi
+if ! check_driver_source_revision "$(dirname "$driver_ko")"; then
   exit 1
 fi
 

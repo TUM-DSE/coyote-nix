@@ -1,6 +1,7 @@
 {
   pkgs,
   coyoteRoot,
+  coyoteRevision ? null,
   xilinxShareRoot,
   platforms ? pkgs.lib.platforms.linux,
   extraRuntimeInputs ? [ ],
@@ -15,6 +16,10 @@ let
   );
 
   coyoteRootValue = toString coyoteRoot;
+  sourceRevision = import ./resolveCoyoteSourceRevision.nix {
+    inherit coyoteRoot coyoteRevision;
+  };
+  sourceRevisionValue = if sourceRevision == null then "" else sourceRevision;
 
   mkTool =
     {
@@ -60,6 +65,7 @@ let
         if [ -z "''${COYOTE_NIX_NCURSES6_LIB:-}" ]; then
           export COYOTE_NIX_NCURSES6_LIB="${pkgs.ncurses6}/lib/libtinfo.so.6"
         fi
+        export COYOTE_NIX_EXPECTED_COYOTE_REVISION=${pkgs.lib.escapeShellArg sourceRevisionValue}
         ${body}
       '';
       meta = {

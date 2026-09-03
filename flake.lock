@@ -3,16 +3,16 @@
     "coyote": {
       "flake": false,
       "locked": {
-        "lastModified": 1788372399,
-        "narHash": "sha256-fgOTTAzydJWBXi3Vvir/xHCfd3ZX+bZKVaR4KjHNt5Y=",
+        "lastModified": 1788431659,
+        "narHash": "sha256-lhWfjb2JQgB83gQYuc/jT2nMyRJvQP81YGBuSYpCcNY=",
         "owner": "taugoust",
         "repo": "Coyote",
-        "rev": "d7ca2663be6d5625e8da44839c492011f48e709d",
+        "rev": "27d798b9bc9e338cf8cd9ebeb39f1dc234860a11",
         "type": "github"
       },
       "original": {
         "owner": "taugoust",
-        "ref": "develop",
+        "ref": "driver-release-cleanup",
         "repo": "Coyote",
         "type": "github"
       }
