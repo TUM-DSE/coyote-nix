@@ -120,6 +120,20 @@ This produces public packages named by default:
 
 Intermediate synth/routed derivations are internal dependencies of those outputs.
 
+A U280 build may reuse the protected static portion of an accepted, immutable routed-shell validation stage. The import is deliberately fail closed: a loose `staticCheckpointDirectory` is rejected. Supply the exact stage identity, checkpoint hash, originating Coyote source identity, and fixed-route count instead:
+
+```nix
+boards.u280.staticCheckpoint = {
+  stage = validatedShellStage; # immutable validation-stage derivation, not a loose pathname
+  manifestId = "<metadata/stage.json manifestId>";
+  checkpointSha256 = "<validated-checkpoint artifact sha256>";
+  coyoteSourceId = builtins.hashString "sha256" (toString coyoteRoot);
+  fixedRouteNets = 151901; # exact value from the hashed route-status report
+};
+```
+
+The importer validates the complete implementation-stage manifest and all declared report hashes, requires an accepted timing/route/DRC-clean U280 shell built by the same Coyote source and Xilinx version, and checks the exact nonzero fixed-route count before normalizing the checkpoint. The resulting contract preserves the canonical `inst_shell` partition pins while treating placement and fixed routing outside that replacement cell as protected static state; application linking must reject drift rather than unlock it.
+
 For a U280 flow that implements one seed application together with the shell but only needs a full deployment image, set `finalEnablePr = false` on the board. Synthesis and routing retain their configured PR hierarchy; only the final bitstream invocation uses the routed aggregate checkpoint directly instead of expecting separately finalized `config_*` and recombined-shell checkpoints. Omitting the option preserves the generated Coyote bitgen mode.
 
 ## Two-stage PR shell and application packages

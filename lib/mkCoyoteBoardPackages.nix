@@ -124,110 +124,202 @@ let
     {
       pname,
       board,
-      checkpointDirectory,
+      contract,
     }:
-    pkgs.runCommand pname { inherit version; } ''
-      checkpoint=${checkpointDirectory}/static_routed_locked_${board.platform}.dcp
-      if [ ! -f "$checkpoint" ]; then
-        echo "missing imported static checkpoint: $checkpoint" >&2
-        exit 1
-      fi
-      mkdir -p "$out/checkpoints"
-      cp "$checkpoint" "$out/checkpoints/"
-    '';
+    pkgs.runCommand pname
+      {
+        inherit version;
+        nativeBuildInputs = [ pkgs.python3 ];
+        passthru.coyoteStaticCheckpoint = {
+          api = "coyote-nix.u280-static-checkpoint/v1";
+          failClosed = true;
+          board = board.board;
+          architecture = board.fpgaArchitecture;
+          part = board.fpgaPart;
+          toolVersion = board.xilinxVersion;
+          sourceStage = toString contract.stage;
+          inherit (contract)
+            checkpointSha256
+            coyoteSourceId
+            fixedRouteNets
+            manifestId
+            ;
+          reportHashesFromManifest = true;
+          staticLock = {
+            level = "routing";
+            protectedScope = "outside:inst_shell";
+          };
+          applicationLink = {
+            reconfigurableCell = "inst_shell";
+            preservePartitionPins = true;
+            rejectProtectedStaticDrift = true;
+          };
+        };
+      }
+      ''
+        python3 ${../nix/tools/import-u280-static-checkpoint.py} \
+          ${lib.escapeShellArg (toString contract.stage)} "$out" \
+          --manifest-id ${lib.escapeShellArg contract.manifestId} \
+          --checkpoint-sha256 ${lib.escapeShellArg contract.checkpointSha256} \
+          --coyote-source-id ${lib.escapeShellArg contract.coyoteSourceId} \
+          --fixed-route-nets ${toString contract.fixedRouteNets} \
+          --board ${lib.escapeShellArg board.board} \
+          --architecture ${lib.escapeShellArg board.fpgaArchitecture} \
+          --part ${lib.escapeShellArg board.fpgaPart} \
+          --tool-version ${lib.escapeShellArg board.xilinxVersion} \
+          --reconfigurable-cell inst_shell
+      '';
 
   mkU280Packages =
     board:
     let
       xilinxVersion = board.xilinxVersion;
-      importedStaticCheckpointDirectory = board.staticCheckpointDirectory or null;
+      legacyStaticCheckpointDirectory = board.staticCheckpointDirectory or null;
+      requestedStaticCheckpoint = board.staticCheckpoint or null;
+      importedStaticCheckpoint =
+        if legacyStaticCheckpointDirectory != null then
+          throw "coyote-nix: staticCheckpointDirectory is not a fail-closed interface; use staticCheckpoint with a validated-stage contract"
+        else if requestedStaticCheckpoint == null then
+          null
+        else if !builtins.isAttrs requestedStaticCheckpoint then
+          throw "coyote-nix: U280 staticCheckpoint must be an attribute set"
+        else if
+          builtins.attrNames requestedStaticCheckpoint != [
+            "checkpointSha256"
+            "coyoteSourceId"
+            "fixedRouteNets"
+            "manifestId"
+            "stage"
+          ]
+        then
+          throw "coyote-nix: U280 staticCheckpoint requires exactly stage, manifestId, checkpointSha256, coyoteSourceId, and fixedRouteNets"
+        else if
+          !(
+            builtins.isPath requestedStaticCheckpoint.stage || lib.isDerivation requestedStaticCheckpoint.stage
+          )
+        then
+          throw "coyote-nix: U280 staticCheckpoint.stage must be an immutable Nix path or derivation"
+        else if
+          !builtins.isString requestedStaticCheckpoint.manifestId
+          || builtins.match "[0-9a-f]{64}" requestedStaticCheckpoint.manifestId == null
+        then
+          throw "coyote-nix: U280 staticCheckpoint.manifestId must be a lowercase SHA-256 digest"
+        else if
+          !builtins.isString requestedStaticCheckpoint.checkpointSha256
+          || builtins.match "[0-9a-f]{64}" requestedStaticCheckpoint.checkpointSha256 == null
+        then
+          throw "coyote-nix: U280 staticCheckpoint.checkpointSha256 must be a lowercase SHA-256 digest"
+        else if
+          !builtins.isString requestedStaticCheckpoint.coyoteSourceId
+          || builtins.match "[0-9a-f]{64}" requestedStaticCheckpoint.coyoteSourceId == null
+        then
+          throw "coyote-nix: U280 staticCheckpoint.coyoteSourceId must be a lowercase SHA-256 digest"
+        else if
+          requestedStaticCheckpoint.coyoteSourceId != builtins.hashString "sha256" (toString coyoteRoot)
+        then
+          throw "coyote-nix: U280 staticCheckpoint Coyote source does not match this build"
+        else if
+          !builtins.isInt requestedStaticCheckpoint.fixedRouteNets
+          || requestedStaticCheckpoint.fixedRouteNets < 1
+        then
+          throw "coyote-nix: U280 staticCheckpoint.fixedRouteNets must be a positive integer"
+        else
+          requestedStaticCheckpoint;
       intermediateRouteCheckpoints = lib.optionals (!(board.skipIntermediateRouteCheckpoints or false)) [
         "checkpoints/shell_opted.dcp"
         "checkpoints/shell_placed.dcp"
         "checkpoints/shell_phys_opted.dcp"
       ];
-      staticSynth = if importedStaticCheckpointDirectory != null then null else mkStage {
-        pname = board.staticSynthPname or "${pnamePrefix}-${board.platform}-static-synth";
-        inherit board xilinxVersion;
-        cmakeFlags = [
-          "-DBUILD_APP:STRING=0"
-          "-DBUILD_STATIC:STRING=1"
-          "-DBUILD_SHELL:STRING=0"
-        ]
-        ++ (board.staticCmakeFlags or [ ]);
-        buildCommands = [
-          "make project"
-          "make synth"
-        ];
-        expectedPaths = [
-          "checkpoints/static/static_synthed.dcp"
-          "checkpoints/shell/shell_synthed.dcp"
-          "checkpoints/config_0/user_synthed_c0_0.dcp"
-        ];
-        extraInstallPhase = installCheckpointReports {
-          checkpointDirs = [
-            "static"
-            "shell"
-            "config_0"
-          ];
-          reportDirs = [
-            "static"
-            "shell"
-            "config_0"
-          ];
-        };
-        description = "Coyote ${board.platform} static synthesis stage";
-      };
+      staticSynth =
+        if importedStaticCheckpoint != null then
+          null
+        else
+          mkStage {
+            pname = board.staticSynthPname or "${pnamePrefix}-${board.platform}-static-synth";
+            inherit board xilinxVersion;
+            cmakeFlags = [
+              "-DBUILD_APP:STRING=0"
+              "-DBUILD_STATIC:STRING=1"
+              "-DBUILD_SHELL:STRING=0"
+            ]
+            ++ (board.staticCmakeFlags or [ ]);
+            buildCommands = [
+              "make project"
+              "make synth"
+            ];
+            expectedPaths = [
+              "checkpoints/static/static_synthed.dcp"
+              "checkpoints/shell/shell_synthed.dcp"
+              "checkpoints/config_0/user_synthed_c0_0.dcp"
+            ];
+            extraInstallPhase = installCheckpointReports {
+              checkpointDirs = [
+                "static"
+                "shell"
+                "config_0"
+              ];
+              reportDirs = [
+                "static"
+                "shell"
+                "config_0"
+              ];
+            };
+            description = "Coyote ${board.platform} static synthesis stage";
+          };
 
-      staticRouted = if staticSynth == null then null else mkStage {
-        pname = board.staticRoutedPname or "${pnamePrefix}-${board.platform}-static-routed";
-        inherit board xilinxVersion;
-        cmakeFlags = [
-          "-DBUILD_APP:STRING=0"
-          "-DBUILD_STATIC:STRING=1"
-          "-DBUILD_SHELL:STRING=0"
-        ]
-        ++ (board.staticCmakeFlags or [ ]);
-        preBuildSetup = copyPreviousStageSetup staticSynth {
-          checkpointDirs = [
-            "static"
-            "shell"
-            "config_0"
-          ];
-          reportDirs = [
-            "static"
-            "shell"
-            "config_0"
-          ];
-        };
-        buildCommands = [
-          "make project"
-          "make shell"
-        ];
-        expectedPaths = [
-          "checkpoints/static/static_synthed.dcp"
-          "checkpoints/shell/shell_synthed.dcp"
-          "checkpoints/config_0/user_synthed_c0_0.dcp"
-          "checkpoints/shell_linked.dcp"
-        ]
-        ++ intermediateRouteCheckpoints
-        ++ [
-          "checkpoints/shell_routed.dcp"
-          "checkpoints/static_routed_locked.dcp"
-        ];
-        extraInstallPhase = installCheckpointReports {
-          copyAllCheckpoints = true;
-          copyAllReports = true;
-        };
-        description = "Coyote ${board.platform} static routed checkpoint stage";
-      };
+      staticRouted =
+        if staticSynth == null then
+          null
+        else
+          mkStage {
+            pname = board.staticRoutedPname or "${pnamePrefix}-${board.platform}-static-routed";
+            inherit board xilinxVersion;
+            cmakeFlags = [
+              "-DBUILD_APP:STRING=0"
+              "-DBUILD_STATIC:STRING=1"
+              "-DBUILD_SHELL:STRING=0"
+            ]
+            ++ (board.staticCmakeFlags or [ ]);
+            preBuildSetup = copyPreviousStageSetup staticSynth {
+              checkpointDirs = [
+                "static"
+                "shell"
+                "config_0"
+              ];
+              reportDirs = [
+                "static"
+                "shell"
+                "config_0"
+              ];
+            };
+            buildCommands = [
+              "make project"
+              "make shell"
+            ];
+            expectedPaths = [
+              "checkpoints/static/static_synthed.dcp"
+              "checkpoints/shell/shell_synthed.dcp"
+              "checkpoints/config_0/user_synthed_c0_0.dcp"
+              "checkpoints/shell_linked.dcp"
+            ]
+            ++ intermediateRouteCheckpoints
+            ++ [
+              "checkpoints/shell_routed.dcp"
+              "checkpoints/static_routed_locked.dcp"
+            ];
+            extraInstallPhase = installCheckpointReports {
+              copyAllCheckpoints = true;
+              copyAllReports = true;
+            };
+            description = "Coyote ${board.platform} static routed checkpoint stage";
+          };
 
       static =
-        if importedStaticCheckpointDirectory != null then
+        if importedStaticCheckpoint != null then
           mkStaticImport {
             pname = board.staticPname or "${pnamePrefix}-${board.platform}-static";
             inherit board;
-            checkpointDirectory = importedStaticCheckpointDirectory;
+            contract = importedStaticCheckpoint;
           }
         else
           mkStaticExport {
