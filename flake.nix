@@ -251,6 +251,39 @@
             synthesisPackage = evalBoardPackages."example-v80-synth";
           };
         };
+        evalImportedU280Static = coyoteNixLib.mkCoyoteBoardPackages {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = ./.;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pnamePrefix = "example-imported";
+          projectName = "example-project";
+          boards.u280 = {
+            xilinxVersion = "2023.2";
+            staticCheckpoint = {
+              stage = ./.;
+              manifestId = builtins.concatStringsSep "" (builtins.genList (_: "1") 64);
+              checkpointSha256 = builtins.concatStringsSep "" (builtins.genList (_: "2") 64);
+              coyoteSourceId = builtins.hashString "sha256" (toString ./.);
+              fixedRouteNets = 7;
+            };
+          };
+        };
+        invalidLegacyU280StaticEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteBoardPackages {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = ./.;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pnamePrefix = "invalid-legacy";
+            boards.u280 = {
+              xilinxVersion = "2023.2";
+              staticCheckpointDirectory = "/nonexistent/unchecked-static";
+            };
+          })."invalid-legacy-u280-static".drvPath
+        );
         evalU280Shell = coyoteNixLib.mkCoyoteShellPackage {
           inherit pkgs;
           tools = evalTools;
@@ -767,9 +800,50 @@
               touch $out
             '';
 
+        checks.u280-static-checkpoint-import =
+          pkgs.runCommand "u280-static-checkpoint-import-check"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.jq
+                pkgs.python3
+              ];
+            }
+            ''
+              cd ${./.}
+              bash tests/u280-static-checkpoint-import.sh \
+                nix/tools/import-u280-static-checkpoint.py
+              touch "$out"
+            '';
+
         checks.board-packages-eval =
           assert
             evalReusedV80Synthesis."example-v80-candidate-v80-synth" == evalBoardPackages."example-v80-synth";
+          assert !invalidLegacyU280StaticEval.success;
+          assert
+            evalImportedU280Static."example-imported-u280-static".coyoteStaticCheckpoint == {
+              api = "coyote-nix.u280-static-checkpoint/v1";
+              failClosed = true;
+              board = "u280";
+              architecture = "ultrascale_plus";
+              part = "xcu280-fsvh2892-2L-e";
+              toolVersion = "2023.2";
+              sourceStage = toString ./.;
+              manifestId = builtins.concatStringsSep "" (builtins.genList (_: "1") 64);
+              checkpointSha256 = builtins.concatStringsSep "" (builtins.genList (_: "2") 64);
+              coyoteSourceId = builtins.hashString "sha256" (toString ./.);
+              fixedRouteNets = 7;
+              reportHashesFromManifest = true;
+              staticLock = {
+                level = "routing";
+                protectedScope = "outside:inst_shell";
+              };
+              applicationLink = {
+                reconfigurableCell = "inst_shell";
+                preservePartitionPins = true;
+                rejectProtectedStaticDrift = true;
+              };
+            };
           assert
             builtins.attrNames evalBoardPackages == [
               "example-u280"
@@ -789,6 +863,11 @@
             cat > u280-final-build-phase <<'EOF'
             ${builtins.unsafeDiscardStringContext evalBoardPackages."example-u280".buildPhase}
             EOF
+            cat > u280-static-import-build-phase <<'EOF'
+            ${builtins.unsafeDiscardStringContext
+              evalImportedU280Static."example-imported-u280-static".buildCommand
+            }
+            EOF
             if grep -F 'IMPLEMENTATION_ROUTE_DIRECTIVE' synth-build-phase; then
               echo 'route-only CMake flags leaked into V80 synthesis' >&2
               exit 1
@@ -799,6 +878,9 @@
             grep -F 'expected_en_pr="0"' u280-final-build-phase >/dev/null
             grep -F 'generated base.tcl has no canonical cfg(en_pr) assignment' \
               u280-final-build-phase >/dev/null
+            grep -F 'import-u280-static-checkpoint.py' u280-static-import-build-phase >/dev/null
+            grep -F -- '--fixed-route-nets' u280-static-import-build-phase >/dev/null
+            grep -F -- '--reconfigurable-cell inst_shell' u280-static-import-build-phase >/dev/null
             touch $out
           '';
 
