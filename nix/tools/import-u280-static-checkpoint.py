@@ -25,13 +25,20 @@ def fail(message: str) -> None:
     raise ValueError(message)
 
 
-def load_stage_module():
-    path = Path(__file__).with_name("coyote-implementation-stage.py")
+def load_stage_module(path: Path):
+    if not path.is_file():
+        fail(f"implementation-stage validator is not a file: {path}")
     spec = importlib.util.spec_from_file_location("coyote_implementation_stage", path)
     if spec is None or spec.loader is None:
         fail(f"cannot load implementation-stage validator: {path}")
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except (ImportError, OSError, SyntaxError) as error:
+        fail(f"cannot load implementation-stage validator {path}: {error}")
+    for function in ("validate_manifest", "sha256_file"):
+        if not callable(getattr(module, function, None)):
+            fail(f"implementation-stage validator lacks required function: {function}")
     return module
 
 
@@ -77,7 +84,7 @@ def validate(args: argparse.Namespace) -> dict:
     if args.reconfigurable_cell != "inst_shell":
         fail("U280 static reuse supports only the canonical inst_shell replacement cell")
 
-    implementation_stage = load_stage_module()
+    implementation_stage = load_stage_module(args.implementation_stage_tool)
     manifest = implementation_stage.validate_manifest(args.stage, expected_phase="validate")
     context = manifest["context"]
     expected_context = {
@@ -207,6 +214,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("stage", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--implementation-stage-tool", required=True, type=Path)
     parser.add_argument("--manifest-id", required=True)
     parser.add_argument("--checkpoint-sha256", required=True)
     parser.add_argument("--coyote-source-id", required=True)

@@ -158,6 +158,7 @@ let
       }
       ''
         python3 ${../nix/tools/import-u280-static-checkpoint.py} \
+          --implementation-stage-tool ${../nix/tools/coyote-implementation-stage.py} \
           ${lib.escapeShellArg (toString contract.stage)} "$out" \
           --manifest-id ${lib.escapeShellArg contract.manifestId} \
           --checkpoint-sha256 ${lib.escapeShellArg contract.checkpointSha256} \

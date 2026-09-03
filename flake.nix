@@ -812,7 +812,8 @@
             ''
               cd ${./.}
               bash tests/u280-static-checkpoint-import.sh \
-                nix/tools/import-u280-static-checkpoint.py
+                nix/tools/import-u280-static-checkpoint.py \
+                ${./nix/tools/coyote-implementation-stage.py}
               touch "$out"
             '';
 
@@ -879,6 +880,13 @@
             grep -F 'generated base.tcl has no canonical cfg(en_pr) assignment' \
               u280-final-build-phase >/dev/null
             grep -F 'import-u280-static-checkpoint.py' u280-static-import-build-phase >/dev/null
+            grep -E -- '--implementation-stage-tool /nix/store/[0-9a-z]{32}-coyote-implementation-stage\.py' \
+              u280-static-import-build-phase >/dev/null
+            if grep -F -- '--implementation-stage-tool /nix/store/coyote-implementation-stage.py' \
+              u280-static-import-build-phase; then
+              echo 'static importer referenced a bare implementation-stage store path' >&2
+              exit 1
+            fi
             grep -F -- '--fixed-route-nets' u280-static-import-build-phase >/dev/null
             grep -F -- '--reconfigurable-cell inst_shell' u280-static-import-build-phase >/dev/null
             touch $out
