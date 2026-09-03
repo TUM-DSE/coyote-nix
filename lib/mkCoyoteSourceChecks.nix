@@ -16,6 +16,26 @@ let
     done
   '';
 
+  appLinkIntegrityContract =
+    pkgs.runCommand "coyote-app-link-integrity-contract"
+      {
+        nativeBuildInputs = [
+          pkgs.coreutils
+          pkgs.jq
+          pkgs.tcl
+        ];
+      }
+      ''
+        set -euo pipefail
+        tclsh ${coyoteRoot}/tests/app_link_integrity/template_contract.tcl \
+          ${coyoteRoot}/scripts/dyn/app_link_integrity.tcl \
+          ${coyoteRoot}/scripts/dyn/flow_app_link.tcl.in \
+          ${coyoteRoot}/cmake/FindCoyoteHW.cmake \
+          ${coyoteRoot}/tests/app_link_integrity/fixtures/u280.tcl \
+          ${coyoteRoot}/tests/app_link_integrity/fixtures/v80.tcl
+        touch "$out"
+      '';
+
   routeValidationContract =
     pkgs.runCommand "coyote-routed-flow-validation-contract"
       {
@@ -845,6 +865,7 @@ let
 in
 {
   inherit
+    appLinkIntegrityContract
     coprocessorHostApi
     coprocessorRenderContract
     coprocessorSimulation

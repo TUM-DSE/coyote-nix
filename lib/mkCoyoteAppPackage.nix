@@ -81,22 +81,34 @@ let
   ];
 
   appExpectedBitstreams = boardProfile.twoStage.appExpectedBitstreams;
-  isImplementationPolicyFlag = flag:
-    builtins.match "^-DSHELL_PATH(:[^=]+)?=.*$" flag != null;
-  appImplementationBaseFlags = builtins.filter (flag: !isImplementationPolicyFlag flag) appCmakeFlags ++ [
-    "-DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON"
-  ];
+  isImplementationPolicyFlag = flag: builtins.match "^-DSHELL_PATH(:[^=]+)?=.*$" flag != null;
+  appImplementationBaseFlags =
+    builtins.filter (flag: !isImplementationPolicyFlag flag) appCmakeFlags
+    ++ [
+      "-DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON"
+    ];
   implementationEnforceTiming = implementation.enforceTiming or null;
   checkedImplementationEnforceTiming =
     if implementationEnforceTiming == null || builtins.isBool implementationEnforceTiming then
       implementationEnforceTiming
     else
       throw "coyote-nix: implementation.enforceTiming must be a Boolean when specified";
-  effectiveFlagValue = name: flags:
-    let matches = builtins.filter (entry: entry != null) (map (flag:
-      builtins.match "^-D${name}(:[^=]+)?=(.*)$" flag) flags);
-    in if matches == [ ] then null else builtins.elemAt (lib.last matches) 1;
-  flagIsTrue = value: builtins.elem value [ "1" "ON" "TRUE" "YES" ];
+  effectiveFlagValue =
+    name: flags:
+    let
+      matches = builtins.filter (entry: entry != null) (
+        map (flag: builtins.match "^-D${name}(:[^=]+)?=(.*)$" flag) flags
+      );
+    in
+    if matches == [ ] then null else builtins.elemAt (lib.last matches) 1;
+  flagIsTrue =
+    value:
+    builtins.elem value [
+      "1"
+      "ON"
+      "TRUE"
+      "YES"
+    ];
   optimizedCompatibility = flagIsTrue (effectiveFlagValue "BUILD_OPT" cmakeFlags);
   defaultDirectives = {
     opt = "project";
@@ -107,9 +119,20 @@ let
     finalRoute = "project";
   };
   implementationDirectives = defaultDirectives // (implementation.directives or { });
-  implementationTopology = implementation.topology or { configurations = 1; regions = 1; };
+  implementationTopology =
+    implementation.topology or {
+      configurations = 1;
+      regions = 1;
+    };
   checkedImplementationTopology =
-    if implementationTopology == { configurations = 1; regions = 1; } then implementationTopology else
+    if
+      implementationTopology == {
+        configurations = 1;
+        regions = 1;
+      }
+    then
+      implementationTopology
+    else
       throw "coyote-nix: immutable physical staging currently supports exactly one configuration and one region";
   implementationCores = implementation.resources.cores or 8;
   checkedImplementationCores =
@@ -119,47 +142,80 @@ let
       throw "coyote-nix: implementation.resources.cores must be a positive integer";
   incrementalReference = implementation.incrementalReference or null;
   checkedIncrementalReference =
-    if incrementalReference == null then null
+    if incrementalReference == null then
+      null
     else if boardProfile.board != "u280" then
       throw "coyote-nix: incremental implementation references support only U280"
     else if !lib.isDerivation incrementalReference then
       throw "coyote-nix: implementation.incrementalReference must be an immutable Nix derivation"
-    else incrementalReference;
+    else
+      incrementalReference;
   placementPortfolio = implementation.placementPortfolio or null;
-  candidateDefinitions = if placementPortfolio == null then [ ] else placementPortfolio.candidates or [ ];
+  candidateDefinitions =
+    if placementPortfolio == null then [ ] else placementPortfolio.candidates or [ ];
   candidateIds = map (candidate: candidate.id or "") candidateDefinitions;
   uniqueCandidateIds = lib.unique candidateIds;
-  validCandidateId = value: builtins.isString value && builtins.match "[a-z][a-z0-9-]{0,31}" value != null;
-  validCandidateResources = resources:
+  validCandidateId =
+    value: builtins.isString value && builtins.match "[a-z][a-z0-9-]{0,31}" value != null;
+  validCandidateResources =
+    resources:
     builtins.isAttrs resources
-    && builtins.attrNames resources == [ "cores" "licenses" "ramMiB" "scratchMiB" ]
-    && builtins.isInt resources.cores && resources.cores > 0
-    && builtins.isInt resources.ramMiB && resources.ramMiB > 0
-    && builtins.isInt resources.scratchMiB && resources.scratchMiB > 0
-    && builtins.isList resources.licenses && resources.licenses != [ ]
+    &&
+      builtins.attrNames resources == [
+        "cores"
+        "licenses"
+        "ramMiB"
+        "scratchMiB"
+      ]
+    && builtins.isInt resources.cores
+    && resources.cores > 0
+    && builtins.isInt resources.ramMiB
+    && resources.ramMiB > 0
+    && builtins.isInt resources.scratchMiB
+    && resources.scratchMiB > 0
+    && builtins.isList resources.licenses
+    && resources.licenses != [ ]
     && builtins.all (license: builtins.isString license && license != "") resources.licenses;
-  validCandidate = candidate:
+  validCandidate =
+    candidate:
     builtins.isAttrs candidate
-    && builtins.attrNames candidate == [ "id" "physOptDirective" "placeDirective" "resources" ]
+    &&
+      builtins.attrNames candidate == [
+        "id"
+        "physOptDirective"
+        "placeDirective"
+        "resources"
+      ]
     && validCandidateId candidate.id
-    && builtins.isString candidate.placeDirective && candidate.placeDirective != ""
-    && builtins.isString candidate.physOptDirective && candidate.physOptDirective != ""
+    && builtins.isString candidate.placeDirective
+    && candidate.placeDirective != ""
+    && builtins.isString candidate.physOptDirective
+    && candidate.physOptDirective != ""
     && validCandidateResources candidate.resources;
-  routeCandidateIds = if placementPortfolio == null then [ ] else placementPortfolio.routeCandidates or [ ];
+  routeCandidateIds =
+    if placementPortfolio == null then [ ] else placementPortfolio.routeCandidates or [ ];
   checkedPlacementPortfolio =
-    if placementPortfolio == null then null
+    if placementPortfolio == null then
+      null
     else if boardProfile.board != "v80" then
       throw "coyote-nix: placement portfolios currently support only V80"
     else if builtins.length candidateDefinitions < 2 || builtins.length candidateDefinitions > 3 then
       throw "coyote-nix: a placement portfolio requires two or three candidates"
-    else if builtins.length uniqueCandidateIds != builtins.length candidateIds || !builtins.all validCandidate candidateDefinitions then
+    else if
+      builtins.length uniqueCandidateIds != builtins.length candidateIds
+      || !builtins.all validCandidate candidateDefinitions
+    then
       throw "coyote-nix: placement candidates require unique canonical IDs, directives, and explicit resources"
-    else if builtins.length routeCandidateIds > 2 || builtins.length (lib.unique routeCandidateIds) != builtins.length routeCandidateIds
-      || !builtins.all (candidateId: builtins.elem candidateId candidateIds) routeCandidateIds then
+    else if
+      builtins.length routeCandidateIds > 2
+      || builtins.length (lib.unique routeCandidateIds) != builtins.length routeCandidateIds
+      || !builtins.all (candidateId: builtins.elem candidateId candidateIds) routeCandidateIds
+    then
       throw "coyote-nix: routeCandidates must select at most two distinct declared candidates"
     else if !(placementPortfolio ? recommendationPolicy) then
       throw "coyote-nix: placementPortfolio.recommendationPolicy is required"
-    else placementPortfolio;
+    else
+      placementPortfolio;
   implementationContextWithoutId = {
     board = boardProfile.board;
     architecture = boardProfile.fpgaArchitecture;
@@ -168,11 +224,14 @@ let
     topology = checkedImplementationTopology;
     sourceId = builtins.hashString "sha256" (toString hwSource);
     coyoteSourceId = builtins.hashString "sha256" (toString coyoteRoot);
-    constraintsId = builtins.hashString "sha256" (builtins.toJSON {
-      source = toString hwSource;
-      flags = appImplementationBaseFlags;
-    });
-    toolId = implementation.xilinxInstallationId or "vivado-${xilinxVersion}@${toString xilinxShareRoot}";
+    constraintsId = builtins.hashString "sha256" (
+      builtins.toJSON {
+        source = toString hwSource;
+        flags = appImplementationBaseFlags;
+      }
+    );
+    toolId =
+      implementation.xilinxInstallationId or "vivado-${xilinxVersion}@${toString xilinxShareRoot}";
     toolVersion = xilinxVersion;
   };
   implementationContext = implementationContextWithoutId // {
@@ -192,35 +251,73 @@ let
       outcome ? "complete",
       outcomePath ? null,
       telemetryPhysicalPath ? null,
-      stageResources ? { cores = checkedImplementationCores; },
+      stageResources ? {
+        cores = checkedImplementationCores;
+      },
     }:
     let
-      declaredArtifacts = if artifacts != null then artifacts else [ { role = artifactRole; path = artifactPath; } ];
-      telemetryArtifacts = lib.optionals (phase != "inputs") ([
-        { role = "execution-evidence"; path = "metadata/execution.json"; }
-        { role = "raw-resource-measurement"; path = "metadata/gnu-time.txt"; }
-        { role = "command-stdout"; path = "logs/command.stdout.log"; }
-        { role = "command-stderr"; path = "logs/command.stderr.log"; }
-        { role = "normalized-telemetry"; path = "metadata/telemetry.json"; }
-      ] ++ lib.optionals (telemetryPhysicalPath != null) [
-        { role = "physical-observations"; path = telemetryPhysicalPath; }
-      ]);
+      declaredArtifacts =
+        if artifacts != null then
+          artifacts
+        else
+          [
+            {
+              role = artifactRole;
+              path = artifactPath;
+            }
+          ];
+      telemetryArtifacts = lib.optionals (phase != "inputs") (
+        [
+          {
+            role = "execution-evidence";
+            path = "metadata/execution.json";
+          }
+          {
+            role = "raw-resource-measurement";
+            path = "metadata/gnu-time.txt";
+          }
+          {
+            role = "command-stdout";
+            path = "logs/command.stdout.log";
+          }
+          {
+            role = "command-stderr";
+            path = "logs/command.stderr.log";
+          }
+          {
+            role = "normalized-telemetry";
+            path = "metadata/telemetry.json";
+          }
+        ]
+        ++ lib.optionals (telemetryPhysicalPath != null) [
+          {
+            role = "physical-observations";
+            path = telemetryPhysicalPath;
+          }
+        ]
+      );
     in
-    pkgs.writeText "${pname}-${name}-stage-spec.json" (builtins.toJSON {
-      schemaVersion = 2;
-      inherit phase outcome strategy;
-      unit = "config_0";
-      context = implementationContext;
-      resources = stageResources;
-      artifacts = declaredArtifacts ++ telemetryArtifacts;
-      predecessorPath = if predecessorPath == null then null else toString predecessorPath;
-      outcomePath = outcomePath;
-      telemetry = if phase == "inputs" then null else {
-        path = "metadata/telemetry.json";
-        executionPath = "metadata/execution.json";
-        physicalPath = telemetryPhysicalPath;
-      };
-    });
+    pkgs.writeText "${pname}-${name}-stage-spec.json" (
+      builtins.toJSON {
+        schemaVersion = 2;
+        inherit phase outcome strategy;
+        unit = "config_0";
+        context = implementationContext;
+        resources = stageResources;
+        artifacts = declaredArtifacts ++ telemetryArtifacts;
+        predecessorPath = if predecessorPath == null then null else toString predecessorPath;
+        outcomePath = outcomePath;
+        telemetry =
+          if phase == "inputs" then
+            null
+          else
+            {
+              path = "metadata/telemetry.json";
+              executionPath = "metadata/execution.json";
+              physicalPath = telemetryPhysicalPath;
+            };
+      }
+    );
   validateShellPackage = ''
     if [ ! -f ${shellPackage}/export.cmake ]; then
       echo "ERROR: shell package does not contain export.cmake: ${shellPackage}" >&2
@@ -390,51 +487,81 @@ let
     description = "Coyote ${boardProfile.platform} BUILD_APP synthesis stage";
   };
 
-  inputBundleSpec = pkgs.writeText "${pname}-implementation-inputs-spec.json" (builtins.toJSON {
-    schemaVersion = 2;
-    phase = "inputs";
-    unit = "config_0";
-    context = implementationContext;
-    strategy = { };
-    resources.cores = checkedImplementationCores;
-    outcome = "complete";
-    predecessorPath = null;
-    artifacts = [
-      { role = "shell-contract"; path = "export.cmake"; }
-      { role = "locked-shell-checkpoint"; path = "checkpoints/shell_routed_locked.dcp"; }
-      { role = "user-synthesized-checkpoint"; path = "checkpoints/config_0/user_synthed_c0_0.dcp"; }
-      { role = "shell-metadata"; path = "metadata/shell.json"; }
-      { role = "shell-compatibility-id"; path = "metadata/compatibility-id"; }
-    ];
-  });
-
-  implementationInputs = pkgs.runCommand "${pname}-implementation-inputs"
-    {
-      nativeBuildInputs = [ pkgs.python3 ];
-      passthru.coyoteImplementationStage = {
-        api = "coyote-nix.implementation-stage/v2";
-        phase = "inputs";
-        context = implementationContext;
-      };
+  inputBundleSpec = pkgs.writeText "${pname}-implementation-inputs-spec.json" (
+    builtins.toJSON {
+      schemaVersion = 2;
+      phase = "inputs";
+      unit = "config_0";
+      context = implementationContext;
+      strategy = { };
+      resources.cores = checkedImplementationCores;
+      outcome = "complete";
+      predecessorPath = null;
+      artifacts = [
+        {
+          role = "shell-contract";
+          path = "export.cmake";
+        }
+        {
+          role = "locked-shell-checkpoint";
+          path = "checkpoints/shell_routed_locked.dcp";
+        }
+        {
+          role = "user-synthesized-checkpoint";
+          path = "checkpoints/config_0/user_synthed_c0_0.dcp";
+        }
+        {
+          role = "shell-metadata";
+          path = "metadata/shell.json";
+        }
+        {
+          role = "shell-compatibility-id";
+          path = "metadata/compatibility-id";
+        }
+      ];
     }
-    ''
-      mkdir -p "$out/checkpoints/config_0" "$out/metadata"
-      cp ${shellPackage}/export.cmake "$out/export.cmake"
-      cp ${shellPackage}/checkpoints/shell_routed_locked.dcp \
-        "$out/checkpoints/shell_routed_locked.dcp"
-      cp ${synth}/checkpoints/config_0/user_synthed_c0_0.dcp \
-        "$out/checkpoints/config_0/user_synthed_c0_0.dcp"
-      cp ${shellPackage}/metadata/shell.json "$out/metadata/shell.json"
-      cp ${shellPackage}/metadata/compatibility-id "$out/metadata/compatibility-id"
-      ${pkgs.python3}/bin/python ${implementationStageTool} write \
-        ${inputBundleSpec} "$out" "$out"
-    '';
+  );
+
+  implementationInputs =
+    pkgs.runCommand "${pname}-implementation-inputs"
+      {
+        nativeBuildInputs = [ pkgs.python3 ];
+        passthru.coyoteImplementationStage = {
+          api = "coyote-nix.implementation-stage/v2";
+          phase = "inputs";
+          context = implementationContext;
+        };
+      }
+      ''
+        mkdir -p "$out/checkpoints/config_0" "$out/metadata"
+        cp ${shellPackage}/export.cmake "$out/export.cmake"
+        cp ${shellPackage}/checkpoints/shell_routed_locked.dcp \
+          "$out/checkpoints/shell_routed_locked.dcp"
+        cp ${synth}/checkpoints/config_0/user_synthed_c0_0.dcp \
+          "$out/checkpoints/config_0/user_synthed_c0_0.dcp"
+        cp ${shellPackage}/metadata/shell.json "$out/metadata/shell.json"
+        cp ${shellPackage}/metadata/compatibility-id "$out/metadata/compatibility-id"
+        ${pkgs.python3}/bin/python ${implementationStageTool} write \
+          ${inputBundleSpec} "$out" "$out"
+      '';
 
   linkSpec = mkImplementationSpec {
     name = "link";
     phase = "link";
-    artifactRole = "linked-checkpoint";
-    artifactPath = "checkpoints/config_0/shell_linked_c0.dcp";
+    artifacts = [
+      {
+        role = "linked-checkpoint";
+        path = "checkpoints/config_0/shell_linked_c0.dcp";
+      }
+      {
+        role = "application-partition-pin-manifest";
+        path = "reports/config_0/app_link_partition_pins_c0.json";
+      }
+      {
+        role = "application-link-integrity";
+        path = "reports/config_0/app_link_integrity_c0.json";
+      }
+    ];
     predecessorPath = implementationInputs;
   };
 
@@ -454,12 +581,109 @@ let
     expectedPaths = [
       "checkpoints/app_link_complete"
       "checkpoints/config_0/shell_linked_c0.dcp"
+      "reports/config_0/app_link_partition_pins_c0.json"
+      "reports/config_0/app_link_integrity_c0.json"
     ];
     nativeBuildInputs = stageNativeBuildInputs ++ [ pkgs.python3 ];
     extraInstallPhase = ''
-      mkdir -p "$out/checkpoints/config_0" "$out/metadata"
+      partition_manifest="$build_dir/reports/config_0/app_link_partition_pins_c0.json"
+      integrity_summary="$build_dir/reports/config_0/app_link_integrity_c0.json"
+      export_sha256="$(sha256sum ${implementationInputs}/export.cmake | cut -d ' ' -f 1)"
+      checkpoint_sha256="$(sha256sum ${implementationInputs}/checkpoints/shell_routed_locked.dcp | cut -d ' ' -f 1)"
+      jq -e \
+        --arg board '${boardProfile.board}' \
+        --arg architecture '${boardProfile.fpgaArchitecture}' \
+        --arg part '${boardProfile.fpgaPart}' \
+        --arg exportSha256 "$export_sha256" \
+        --arg checkpointSha256 "$checkpoint_sha256" \
+        '
+          .schemaVersion == 1
+          and .api == "coyote.app-link-integrity/v1"
+          and .kind == "coyote-application-link-integrity"
+          and .outcome == "accepted"
+          and .board == $board
+          and .fpgaArchitecture == $architecture
+          and .fpgaPart == $part
+          and .configuration == 0
+          and .shell.exportCmakeSha256 == $exportSha256
+          and .shell.routedLockedCheckpointSha256 == $checkpointSha256
+          and .partitionPins.manifest == "app_link_partition_pins_c0.json"
+          and .partitionPins.identical == true
+          and .partitionPins.beforeSha256 == .partitionPins.afterSha256
+          and (.partitionPins.beforeSha256 | test("^[0-9a-f]{64}$"))
+          and .partitionPins.logicalPinCount > 0
+          and .partitionPins.physicalLocationCount > 0
+          and .partitionPins.pblockSiteCount > 0
+          and .partitionPins.locationsPerMillionPblockSites > 0
+          and .protectedStatic.placement.identical == true
+          and .protectedStatic.placement.before.objectCount > 0
+          and .protectedStatic.placement.before == .protectedStatic.placement.after
+          and (.protectedStatic.placement.before.sha256 | test("^[0-9a-f]{64}$"))
+          and .protectedStatic.routing.identical == true
+          and .protectedStatic.routing.before.objectCount > 0
+          and .protectedStatic.routing.before == .protectedStatic.routing.after
+          and (.protectedStatic.routing.before.sha256 | test("^[0-9a-f]{64}$"))
+          and .reasons == []
+        ' "$integrity_summary" >/dev/null
+      jq -e \
+        --arg board '${boardProfile.board}' \
+        --arg architecture '${boardProfile.fpgaArchitecture}' \
+        --arg part '${boardProfile.fpgaPart}' \
+        '
+          .schemaVersion == 1
+          and .api == "coyote.app-link-partition-pins/v1"
+          and .kind == "coyote-application-partition-pin-manifest"
+          and .board == $board
+          and .fpgaArchitecture == $architecture
+          and .fpgaPart == $part
+          and .configuration == 0
+          and .identical == true
+          and .densityUnit == "physical-partition-pin-locations-per-million-pblock-sites"
+          and .lockedShell.canonicalSha256 == .linkedApplication.canonicalSha256
+          and .lockedShell.canonicalRecordCount == .linkedApplication.canonicalRecordCount
+          and .lockedShell.logicalPinCount == .linkedApplication.logicalPinCount
+          and .lockedShell.physicalLocationCount == .linkedApplication.physicalLocationCount
+          and .lockedShell.uniquePhysicalLocationCount == .linkedApplication.uniquePhysicalLocationCount
+          and .lockedShell.pblockSiteCount == .linkedApplication.pblockSiteCount
+          and .lockedShell.locationsPerMillionPblockSites == .linkedApplication.locationsPerMillionPblockSites
+          and ([.lockedShell, .linkedApplication] | all(
+            .logicalPinCount > 0
+            and .physicalLocationCount > 0
+            and .pblockSiteCount > 0
+            and .locationsPerMillionPblockSites > 0
+            and (.regions | length) > 0
+            and ([.regions[] | select(
+              .path != ""
+              and .pblock != ""
+              and .logicalPinCount == (.pins | length)
+              and .logicalPinCount > 0
+              and .physicalLocationCount > 0
+              and .uniquePhysicalLocationCount > 0
+              and .maximumLocationOccupancy > 0
+              and .pblockSiteCount > 0
+              and .locationsPerMillionPblockSites > 0
+              and ((.gridRanges | length) > 0 or (.derivedRanges | length) > 0)
+              and ([.pins[] | select(
+                .name != ""
+                and (.direction == "IN" or .direction == "OUT" or .direction == "INOUT")
+                and (.locations | length) > 0
+              )] | length) == .logicalPinCount
+            )] | length) == (.regions | length)
+          ))
+        ' "$partition_manifest" >/dev/null
+      jq -e --slurpfile pins "$partition_manifest" '
+        .partitionPins.beforeSha256 == $pins[0].lockedShell.canonicalSha256
+        and .partitionPins.afterSha256 == $pins[0].linkedApplication.canonicalSha256
+        and .partitionPins.logicalPinCount == $pins[0].linkedApplication.logicalPinCount
+        and .partitionPins.physicalLocationCount == $pins[0].linkedApplication.physicalLocationCount
+        and .partitionPins.pblockSiteCount == $pins[0].linkedApplication.pblockSiteCount
+        and .partitionPins.locationsPerMillionPblockSites == $pins[0].linkedApplication.locationsPerMillionPblockSites
+      ' "$integrity_summary" >/dev/null
+
+      mkdir -p "$out/checkpoints/config_0" "$out/reports/config_0" "$out/metadata"
       cp "$build_dir/checkpoints/config_0/shell_linked_c0.dcp" \
         "$out/checkpoints/config_0/shell_linked_c0.dcp"
+      cp "$partition_manifest" "$integrity_summary" "$out/reports/config_0/"
       ${writeImplementationStageManifest { spec = linkSpec; }}
     '';
     description = "Coyote ${boardProfile.platform} BUILD_APP immutable link stage";
@@ -478,7 +702,9 @@ let
       strategy ? { },
       reports ? false,
       stageName ? phase,
-      stageResources ? { cores = checkedImplementationCores; },
+      stageResources ? {
+        cores = checkedImplementationCores;
+      },
       incrementalMode ? "none",
       incrementalEvidence ? false,
       extraPreBuildSetup ? "",
@@ -487,29 +713,101 @@ let
       reportPrefix = if phase == "validate" then "shell" else "shell_${phase}";
       physicalPath = "reports/config_0/${reportPrefix}_physical_c0.json";
       phaseArtifacts = [
-        { role = "${phase}-utilization-report"; path = "reports/config_0/${reportPrefix}_utilization_c0.rpt"; }
-        { role = "${phase}-timing-summary-report"; path = "reports/config_0/${reportPrefix}_timing_summary_c0.rpt"; }
-      ] ++ lib.optionals (builtins.elem phase [ "opt" "place" ]) [
-        { role = "${phase}-qor-assessment-report"; path = "reports/config_0/${reportPrefix}_qor_assessment_c0.rpt"; }
-      ] ++ lib.optionals (phase == "place" && boardProfile.board == "v80") [
-        { role = "place-diagnosis-observations"; path = "reports/config_0/${reportPrefix}_diagnosis_c0.json"; }
-        { role = "place-congestion-report"; path = "reports/config_0/${reportPrefix}_congestion_c0.rpt"; }
-        { role = "place-complexity-report"; path = "reports/config_0/${reportPrefix}_complexity_c0.rpt"; }
-        { role = "place-logic-level-report"; path = "reports/config_0/${reportPrefix}_logic_levels_c0.rpt"; }
-        { role = "place-high-fanout-report"; path = "reports/config_0/${reportPrefix}_high_fanout_c0.rpt"; }
-      ] ++ lib.optionals (builtins.elem phase [ "route" "validate" ]) [
-        { role = "${phase}-route-status-report"; path = "reports/config_0/${reportPrefix}_route_status_c0.rpt"; }
-      ] ++ lib.optionals (incrementalMode == "reference" && builtins.elem phase [ "place" "route" ]) [
-        { role = "incremental-reuse-report"; path = "reports/config_0/${reportPrefix}_incremental_reuse_c0.rpt"; }
-      ] ++ lib.optionals incrementalEvidence [
-        { role = "incremental-reference-evidence"; path = "metadata/incremental-reference.json"; }
+        {
+          role = "${phase}-utilization-report";
+          path = "reports/config_0/${reportPrefix}_utilization_c0.rpt";
+        }
+        {
+          role = "${phase}-timing-summary-report";
+          path = "reports/config_0/${reportPrefix}_timing_summary_c0.rpt";
+        }
+      ]
+      ++
+        lib.optionals
+          (builtins.elem phase [
+            "opt"
+            "place"
+          ])
+          [
+            {
+              role = "${phase}-qor-assessment-report";
+              path = "reports/config_0/${reportPrefix}_qor_assessment_c0.rpt";
+            }
+          ]
+      ++ lib.optionals (phase == "place" && boardProfile.board == "v80") [
+        {
+          role = "place-diagnosis-observations";
+          path = "reports/config_0/${reportPrefix}_diagnosis_c0.json";
+        }
+        {
+          role = "place-congestion-report";
+          path = "reports/config_0/${reportPrefix}_congestion_c0.rpt";
+        }
+        {
+          role = "place-complexity-report";
+          path = "reports/config_0/${reportPrefix}_complexity_c0.rpt";
+        }
+        {
+          role = "place-logic-level-report";
+          path = "reports/config_0/${reportPrefix}_logic_levels_c0.rpt";
+        }
+        {
+          role = "place-high-fanout-report";
+          path = "reports/config_0/${reportPrefix}_high_fanout_c0.rpt";
+        }
+      ]
+      ++
+        lib.optionals
+          (builtins.elem phase [
+            "route"
+            "validate"
+          ])
+          [
+            {
+              role = "${phase}-route-status-report";
+              path = "reports/config_0/${reportPrefix}_route_status_c0.rpt";
+            }
+          ]
+      ++
+        lib.optionals
+          (
+            incrementalMode == "reference"
+            && builtins.elem phase [
+              "place"
+              "route"
+            ]
+          )
+          [
+            {
+              role = "incremental-reuse-report";
+              path = "reports/config_0/${reportPrefix}_incremental_reuse_c0.rpt";
+            }
+          ]
+      ++ lib.optionals incrementalEvidence [
+        {
+          role = "incremental-reference-evidence";
+          path = "metadata/incremental-reference.json";
+        }
       ];
       spec = mkImplementationSpec {
         name = stageName;
         inherit phase stageResources;
-        artifacts = [ { role = outputRole; path = outputPath; } ] ++ phaseArtifacts ++ lib.optionals reports [
-          { role = "bitstream-drc-report"; path = "reports/config_0/shell_drc_bitstream_checks_c0.rpt"; }
-          { role = "validation-result"; path = "reports/config_0/validation.json"; }
+        artifacts = [
+          {
+            role = outputRole;
+            path = outputPath;
+          }
+        ]
+        ++ phaseArtifacts
+        ++ lib.optionals reports [
+          {
+            role = "bitstream-drc-report";
+            path = "reports/config_0/shell_drc_bitstream_checks_c0.rpt";
+          }
+          {
+            role = "validation-result";
+            path = "reports/config_0/validation.json";
+          }
         ];
         predecessorPath = predecessor;
         inherit strategy;
@@ -524,21 +822,25 @@ let
       inherit xilinxVersion;
       cores = stageResources.cores;
       checkTimingLog = false;
-      cmakeFlags = appImplementationBaseFlags ++ [
-        "-DSHELL_PATH=${implementationInputs}"
-        "-DIMPLEMENTATION_PHASE:STRING=${phase}"
-        "-DIMPLEMENTATION_INPUT_DCP:FILEPATH=$build_dir/${inputPath}"
-        "-DIMPLEMENTATION_OUTPUT_DCP:FILEPATH=$build_dir/${outputPath}"
-        "-DIMPLEMENTATION_COMPLETION_PATH:FILEPATH=$build_dir/checkpoints/config_0/${phase}_complete"
-        "-DIMPLEMENTATION_REPORT_DIR:PATH=$build_dir/reports/config_0"
-        "-DIMPLEMENTATION_REPORT_SUFFIX:STRING=_c0"
-        "-DIMPLEMENTATION_LABEL:STRING=config_0_routed_application"
-        "-DIMPLEMENTATION_DRC_NAME:STRING=config_0_bitstream_gate"
-        "-DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH=$build_dir/reports/config_0/validation.json"
-        "-DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH=$build_dir/${physicalPath}"
-      ] ++ lib.optionals (incrementalMode != "none") [
-        "-DIMPLEMENTATION_INCREMENTAL_MODE:STRING=${incrementalMode}"
-      ] ++ extraFlags;
+      cmakeFlags =
+        appImplementationBaseFlags
+        ++ [
+          "-DSHELL_PATH=${implementationInputs}"
+          "-DIMPLEMENTATION_PHASE:STRING=${phase}"
+          "-DIMPLEMENTATION_INPUT_DCP:FILEPATH=$build_dir/${inputPath}"
+          "-DIMPLEMENTATION_OUTPUT_DCP:FILEPATH=$build_dir/${outputPath}"
+          "-DIMPLEMENTATION_COMPLETION_PATH:FILEPATH=$build_dir/checkpoints/config_0/${phase}_complete"
+          "-DIMPLEMENTATION_REPORT_DIR:PATH=$build_dir/reports/config_0"
+          "-DIMPLEMENTATION_REPORT_SUFFIX:STRING=_c0"
+          "-DIMPLEMENTATION_LABEL:STRING=config_0_routed_application"
+          "-DIMPLEMENTATION_DRC_NAME:STRING=config_0_bitstream_gate"
+          "-DIMPLEMENTATION_VALIDATION_SUMMARY:FILEPATH=$build_dir/reports/config_0/validation.json"
+          "-DIMPLEMENTATION_TELEMETRY_PATH:FILEPATH=$build_dir/${physicalPath}"
+        ]
+        ++ lib.optionals (incrementalMode != "none") [
+          "-DIMPLEMENTATION_INCREMENTAL_MODE:STRING=${incrementalMode}"
+        ]
+        ++ extraFlags;
       preBuildSetup = ''
         ${importImplementationStageArtifacts {
           previousStage = predecessor;
@@ -547,19 +849,30 @@ let
           expectedContext = implementationContext.id;
         }}
         ${extraPreBuildSetup}
-        ${lib.optionalString (!collectPhysicalQorAssessment && builtins.elem phase [ "opt" "place" ]) ''
-          chmod u+w "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"
-          ${pkgs.python3}/bin/python3 \
-            ${../nix/tools/patch-u280-vivado-2023.2-physical-stage.py} \
-            "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"
-        ''}
+        ${lib.optionalString
+          (
+            !collectPhysicalQorAssessment
+            && builtins.elem phase [
+              "opt"
+              "place"
+            ]
+          )
+          ''
+            chmod u+w "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"
+            ${pkgs.python3}/bin/python3 \
+              ${../nix/tools/patch-u280-vivado-2023.2-physical-stage.py} \
+              "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"
+          ''
+        }
       '';
       buildCommands = [ "make physical_stage" ];
       expectedPaths = [
         outputPath
         "checkpoints/config_0/${phase}_complete"
         physicalPath
-      ] ++ map (artifact: artifact.path) phaseArtifacts ++ lib.optionals reports [
+      ]
+      ++ map (artifact: artifact.path) phaseArtifacts
+      ++ lib.optionals reports [
         "reports/config_0/shell_drc_bitstream_checks_c0.rpt"
         "reports/config_0/validation.json"
       ];
@@ -583,39 +896,51 @@ let
       description = "Coyote ${boardProfile.platform} BUILD_APP immutable ${phase} stage";
     };
 
-  opt = if combineOptPlace then null else mkPhysicalStage {
-    phase = "opt";
-    predecessor = link;
-    predecessorPhase = "link";
-    predecessorRole = "linked-checkpoint";
-    inputPath = "checkpoints/config_0/shell_linked_c0.dcp";
-    outputPath = "checkpoints/config_0/shell_opted_c0.dcp";
-    outputRole = "optimized-checkpoint";
-    strategy.opt = implementationDirectives.opt;
-    extraFlags = [ "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}" ];
-  };
+  opt =
+    if combineOptPlace then
+      null
+    else
+      mkPhysicalStage {
+        phase = "opt";
+        predecessor = link;
+        predecessorPhase = "link";
+        predecessorRole = "linked-checkpoint";
+        inputPath = "checkpoints/config_0/shell_linked_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+        outputRole = "optimized-checkpoint";
+        strategy.opt = implementationDirectives.opt;
+        extraFlags = [ "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}" ];
+      };
 
   place = mkPhysicalStage {
     phase = "place";
     predecessor = if combineOptPlace then link else opt;
     predecessorPhase = if combineOptPlace then "link" else "opt";
     predecessorRole = if combineOptPlace then "linked-checkpoint" else "optimized-checkpoint";
-    inputPath = if combineOptPlace then "checkpoints/config_0/shell_linked_c0.dcp" else "checkpoints/config_0/shell_opted_c0.dcp";
+    inputPath =
+      if combineOptPlace then
+        "checkpoints/config_0/shell_linked_c0.dcp"
+      else
+        "checkpoints/config_0/shell_opted_c0.dcp";
     outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
     outputRole = "placed-checkpoint";
-    strategy = lib.optionalAttrs combineOptPlace {
-      opt = implementationDirectives.opt;
-      combinedOptPlace = true;
-    } // {
-      place = implementationDirectives.place;
-      physOpt = implementationDirectives.physOpt;
-    };
-    extraFlags = lib.optionals combineOptPlace [
-      "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}"
-    ] ++ [
-      "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}"
-      "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}"
-    ];
+    strategy =
+      lib.optionalAttrs combineOptPlace {
+        opt = implementationDirectives.opt;
+        combinedOptPlace = true;
+      }
+      // {
+        place = implementationDirectives.place;
+        physOpt = implementationDirectives.physOpt;
+      };
+    extraFlags =
+      lib.optionals combineOptPlace [
+        "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}"
+      ]
+      ++ [
+        "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}"
+        "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}"
+      ];
   };
 
   route = mkPhysicalStage {
@@ -647,7 +972,11 @@ let
     outputPath = "checkpoints/config_0/shell_routed_c0.dcp";
     outputRole = "validated-checkpoint";
     reports = true;
-    strategy.enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming;
+    strategy.enforceTiming =
+      if checkedImplementationEnforceTiming == null then
+        "project"
+      else
+        checkedImplementationEnforceTiming;
     extraFlags = lib.optionals (checkedImplementationEnforceTiming != null) [
       "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming then "1" else "0"}"
     ];
@@ -668,101 +997,125 @@ let
       "$reference_sha256"
   '';
 
-  incrementalOpt = if checkedIncrementalReference == null then null else mkPhysicalStage {
-    phase = "opt";
-    stageName = "incremental-opt";
-    predecessor = link;
-    predecessorPhase = "link";
-    predecessorRole = "linked-checkpoint";
-    inputPath = "checkpoints/config_0/shell_linked_c0.dcp";
-    outputPath = "checkpoints/config_0/shell_opted_c0.dcp";
-    outputRole = "optimized-checkpoint";
-    incrementalMode = "reference";
-    incrementalEvidence = true;
-    strategy = {
-      opt = implementationDirectives.opt;
-      incremental = {
-        mode = "explicit-reference";
-        referencePath = toString checkedIncrementalReference;
-        signoffAuthority = false;
+  incrementalOpt =
+    if checkedIncrementalReference == null then
+      null
+    else
+      mkPhysicalStage {
+        phase = "opt";
+        stageName = "incremental-opt";
+        predecessor = link;
+        predecessorPhase = "link";
+        predecessorRole = "linked-checkpoint";
+        inputPath = "checkpoints/config_0/shell_linked_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+        outputRole = "optimized-checkpoint";
+        incrementalMode = "reference";
+        incrementalEvidence = true;
+        strategy = {
+          opt = implementationDirectives.opt;
+          incremental = {
+            mode = "explicit-reference";
+            referencePath = toString checkedIncrementalReference;
+            signoffAuthority = false;
+          };
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}"
+          "-DIMPLEMENTATION_INCREMENTAL_REFERENCE_DCP:FILEPATH=$build_dir/checkpoints/config_0/incremental_reference.dcp"
+        ];
+        extraPreBuildSetup = incrementalReferenceSetup checkedIncrementalReference;
       };
-    };
-    extraFlags = [
-      "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}"
-      "-DIMPLEMENTATION_INCREMENTAL_REFERENCE_DCP:FILEPATH=$build_dir/checkpoints/config_0/incremental_reference.dcp"
-    ];
-    extraPreBuildSetup = incrementalReferenceSetup checkedIncrementalReference;
-  };
 
-  incrementalPlace = if incrementalOpt == null then null else mkPhysicalStage {
-    phase = "place";
-    stageName = "incremental-place";
-    predecessor = incrementalOpt;
-    predecessorPhase = "opt";
-    predecessorRole = "optimized-checkpoint";
-    inputPath = "checkpoints/config_0/shell_opted_c0.dcp";
-    outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
-    outputRole = "placed-checkpoint";
-    incrementalMode = "reference";
-    strategy = {
-      place = implementationDirectives.place;
-      physOpt = implementationDirectives.physOpt;
-      incremental.mode = "explicit-reference";
-    };
-    extraFlags = [
-      "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}"
-      "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}"
-    ];
-  };
+  incrementalPlace =
+    if incrementalOpt == null then
+      null
+    else
+      mkPhysicalStage {
+        phase = "place";
+        stageName = "incremental-place";
+        predecessor = incrementalOpt;
+        predecessorPhase = "opt";
+        predecessorRole = "optimized-checkpoint";
+        inputPath = "checkpoints/config_0/shell_opted_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+        outputRole = "placed-checkpoint";
+        incrementalMode = "reference";
+        strategy = {
+          place = implementationDirectives.place;
+          physOpt = implementationDirectives.physOpt;
+          incremental.mode = "explicit-reference";
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}"
+          "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}"
+        ];
+      };
 
-  incrementalRoute = if incrementalPlace == null then null else mkPhysicalStage {
-    phase = "route";
-    stageName = "incremental-route";
-    predecessor = incrementalPlace;
-    predecessorPhase = "place";
-    predecessorRole = "placed-checkpoint";
-    inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
-    outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
-    outputRole = "routed-checkpoint";
-    incrementalMode = "reference";
-    strategy = {
-      route = implementationDirectives.route;
-      postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
-      finalRoute = implementationDirectives.finalRoute;
-      incremental.mode = "explicit-reference";
-    };
-    extraFlags = [
-      "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}"
-      "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}"
-      "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}"
-    ];
-  };
+  incrementalRoute =
+    if incrementalPlace == null then
+      null
+    else
+      mkPhysicalStage {
+        phase = "route";
+        stageName = "incremental-route";
+        predecessor = incrementalPlace;
+        predecessorPhase = "place";
+        predecessorRole = "placed-checkpoint";
+        inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+        outputRole = "routed-checkpoint";
+        incrementalMode = "reference";
+        strategy = {
+          route = implementationDirectives.route;
+          postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
+          finalRoute = implementationDirectives.finalRoute;
+          incremental.mode = "explicit-reference";
+        };
+        extraFlags = [
+          "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}"
+          "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}"
+          "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}"
+        ];
+      };
 
-  incrementalValidate = if incrementalRoute == null then null else mkPhysicalStage {
-    phase = "validate";
-    stageName = "incremental-validate";
-    predecessor = incrementalRoute;
-    predecessorPhase = "route";
-    predecessorRole = "routed-checkpoint";
-    inputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
-    outputPath = "checkpoints/config_0/shell_routed_c0.dcp";
-    outputRole = "validated-checkpoint";
-    reports = true;
-    incrementalMode = "reference";
-    strategy = {
-      incremental.mode = "explicit-reference";
-      enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming;
-    };
-    extraFlags = lib.optionals (checkedImplementationEnforceTiming != null) [
-      "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming then "1" else "0"}"
-    ];
-  };
+  incrementalValidate =
+    if incrementalRoute == null then
+      null
+    else
+      mkPhysicalStage {
+        phase = "validate";
+        stageName = "incremental-validate";
+        predecessor = incrementalRoute;
+        predecessorPhase = "route";
+        predecessorRole = "routed-checkpoint";
+        inputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+        outputPath = "checkpoints/config_0/shell_routed_c0.dcp";
+        outputRole = "validated-checkpoint";
+        reports = true;
+        incrementalMode = "reference";
+        strategy = {
+          incremental.mode = "explicit-reference";
+          enforceTiming =
+            if checkedImplementationEnforceTiming == null then
+              "project"
+            else
+              checkedImplementationEnforceTiming;
+        };
+        extraFlags = lib.optionals (checkedImplementationEnforceTiming != null) [
+          "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming then "1" else "0"}"
+        ];
+      };
 
-  incrementalGate = if incrementalValidate == null then null else mkImplementationStageGate {
-    pname = "${pname}-incremental-validation-gate";
-    stage = incrementalValidate;
-    expectedContext = implementationContext.id;
-  };
+  incrementalGate =
+    if incrementalValidate == null then
+      null
+    else
+      mkImplementationStageGate {
+        pname = "${pname}-incremental-validation-gate";
+        stage = incrementalValidate;
+        expectedContext = implementationContext.id;
+      };
 
   validationGate = mkImplementationStageGate {
     pname = "${pname}-validation-gate";
@@ -771,7 +1124,8 @@ let
   };
   routed = validationGate;
 
-  mkPortfolioCandidate = candidate:
+  mkPortfolioCandidate =
+    candidate:
     let
       candidatePlace = mkPhysicalStage {
         phase = "place";
@@ -799,55 +1153,72 @@ let
         candidateId = candidate.id;
       };
       selectedForRoute = builtins.elem candidate.id routeCandidateIds;
-      candidateRoute = if !selectedForRoute then null else mkPhysicalStage {
-        phase = "route";
-        stageName = "route-${candidate.id}";
-        predecessor = candidatePlace;
-        predecessorPhase = "place";
-        predecessorRole = "placed-checkpoint";
-        inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
-        outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
-        outputRole = "routed-checkpoint";
-        stageResources = candidate.resources;
-        strategy = {
-          candidateId = candidate.id;
-          selectionMode = "explicit";
-          route = implementationDirectives.route;
-          postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
-          finalRoute = implementationDirectives.finalRoute;
-        };
-        extraFlags = [
-          "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}"
-          "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}"
-          "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}"
-        ];
-      };
-      candidateValidate = if candidateRoute == null then null else mkPhysicalStage {
-        phase = "validate";
-        stageName = "validate-${candidate.id}";
-        predecessor = candidateRoute;
-        predecessorPhase = "route";
-        predecessorRole = "routed-checkpoint";
-        inputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
-        outputPath = "checkpoints/config_0/shell_routed_c0.dcp";
-        outputRole = "validated-checkpoint";
-        reports = true;
-        stageResources = candidate.resources;
-        strategy = {
-          candidateId = candidate.id;
-          selectionMode = "explicit";
-          enforceTiming = if checkedImplementationEnforceTiming == null then "project" else checkedImplementationEnforceTiming;
-        };
-        extraFlags = lib.optionals (checkedImplementationEnforceTiming != null) [
-          "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming then "1" else "0"}"
-        ];
-      };
-      candidateGate = if candidateValidate == null then null else mkImplementationStageGate {
-        pname = "${pname}-validation-gate-${candidate.id}";
-        stage = candidateValidate;
-        expectedContext = implementationContext.id;
-      };
-    in {
+      candidateRoute =
+        if !selectedForRoute then
+          null
+        else
+          mkPhysicalStage {
+            phase = "route";
+            stageName = "route-${candidate.id}";
+            predecessor = candidatePlace;
+            predecessorPhase = "place";
+            predecessorRole = "placed-checkpoint";
+            inputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp";
+            outputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+            outputRole = "routed-checkpoint";
+            stageResources = candidate.resources;
+            strategy = {
+              candidateId = candidate.id;
+              selectionMode = "explicit";
+              route = implementationDirectives.route;
+              postRoutePhysOpt = implementationDirectives.postRoutePhysOpt;
+              finalRoute = implementationDirectives.finalRoute;
+            };
+            extraFlags = [
+              "-DIMPLEMENTATION_ROUTE_DIRECTIVE:STRING=${implementationDirectives.route}"
+              "-DIMPLEMENTATION_POST_ROUTE_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.postRoutePhysOpt}"
+              "-DIMPLEMENTATION_FINAL_ROUTE_DIRECTIVE:STRING=${implementationDirectives.finalRoute}"
+            ];
+          };
+      candidateValidate =
+        if candidateRoute == null then
+          null
+        else
+          mkPhysicalStage {
+            phase = "validate";
+            stageName = "validate-${candidate.id}";
+            predecessor = candidateRoute;
+            predecessorPhase = "route";
+            predecessorRole = "routed-checkpoint";
+            inputPath = "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+            outputPath = "checkpoints/config_0/shell_routed_c0.dcp";
+            outputRole = "validated-checkpoint";
+            reports = true;
+            stageResources = candidate.resources;
+            strategy = {
+              candidateId = candidate.id;
+              selectionMode = "explicit";
+              enforceTiming =
+                if checkedImplementationEnforceTiming == null then
+                  "project"
+                else
+                  checkedImplementationEnforceTiming;
+            };
+            extraFlags = lib.optionals (checkedImplementationEnforceTiming != null) [
+              "-DIMPLEMENTATION_ENFORCE_TIMING:STRING=${if checkedImplementationEnforceTiming then "1" else "0"}"
+            ];
+          };
+      candidateGate =
+        if candidateValidate == null then
+          null
+        else
+          mkImplementationStageGate {
+            pname = "${pname}-validation-gate-${candidate.id}";
+            stage = candidateValidate;
+            expectedContext = implementationContext.id;
+          };
+    in
+    {
       definition = candidate;
       place = candidatePlace;
       diagnosis = candidateDiagnosis;
@@ -855,15 +1226,21 @@ let
       validate = candidateValidate;
       gate = candidateGate;
     };
-  placementCandidates = builtins.listToAttrs (map (candidate: {
-    name = candidate.id;
-    value = mkPortfolioCandidate candidate;
-  }) candidateDefinitions);
-  placementRecommendation = if checkedPlacementPortfolio == null then null else mkPlacementRecommendation {
-    pname = "${pname}-placement-recommendation";
-    diagnoses = map (candidate: placementCandidates.${candidate.id}.diagnosis) candidateDefinitions;
-    policy = checkedPlacementPortfolio.recommendationPolicy;
-  };
+  placementCandidates = builtins.listToAttrs (
+    map (candidate: {
+      name = candidate.id;
+      value = mkPortfolioCandidate candidate;
+    }) candidateDefinitions
+  );
+  placementRecommendation =
+    if checkedPlacementPortfolio == null then
+      null
+    else
+      mkPlacementRecommendation {
+        pname = "${pname}-placement-recommendation";
+        diagnoses = map (candidate: placementCandidates.${candidate.id}.diagnosis) candidateDefinitions;
+        policy = checkedPlacementPortfolio.recommendationPolicy;
+      };
 
   contract = {
     schemaVersion = 1;
@@ -889,40 +1266,67 @@ let
     ];
     physical = {
       api = "coyote-nix.implementation-stage/v2";
+      linkIntegrity = {
+        api = "coyote-nix.app-link-integrity/v1";
+        partitionPinManifest = "reports/config_0/app_link_partition_pins_c0.json";
+        summary = "reports/config_0/app_link_integrity_c0.json";
+        failClosed = true;
+      };
       context = implementationContext;
       resources.cores = checkedImplementationCores;
       directives = implementationDirectives;
       inherit combineOptPlace;
       stages = {
         inputs = implementationInputs;
-        inherit link opt place route validate;
+        inherit
+          link
+          opt
+          place
+          route
+          validate
+          ;
         gate = validationGate;
         image = "self";
       };
-      incremental = if checkedIncrementalReference == null then null else {
-        api = "coyote-nix.incremental-implementation/v1";
-        experimental = true;
-        signoffAuthority = false;
-        reference = checkedIncrementalReference;
-        stages = {
-          opt = incrementalOpt;
-          place = incrementalPlace;
-          route = incrementalRoute;
-          validate = incrementalValidate;
-          gate = incrementalGate;
-        };
-      };
-      placementPortfolio = if checkedPlacementPortfolio == null then null else {
-        api = "coyote-nix.placement-portfolio/v1";
-        maximumCandidates = 3;
-        maximumRouteCandidates = 2;
-        explicitRouteSelection = true;
-        routeCandidates = routeCandidateIds;
-        recommendation = placementRecommendation;
-        candidates = lib.mapAttrs (_: candidate: {
-          inherit (candidate) definition place diagnosis route validate gate;
-        }) placementCandidates;
-      };
+      incremental =
+        if checkedIncrementalReference == null then
+          null
+        else
+          {
+            api = "coyote-nix.incremental-implementation/v1";
+            experimental = true;
+            signoffAuthority = false;
+            reference = checkedIncrementalReference;
+            stages = {
+              opt = incrementalOpt;
+              place = incrementalPlace;
+              route = incrementalRoute;
+              validate = incrementalValidate;
+              gate = incrementalGate;
+            };
+          };
+      placementPortfolio =
+        if checkedPlacementPortfolio == null then
+          null
+        else
+          {
+            api = "coyote-nix.placement-portfolio/v1";
+            maximumCandidates = 3;
+            maximumRouteCandidates = 2;
+            explicitRouteSelection = true;
+            routeCandidates = routeCandidateIds;
+            recommendation = placementRecommendation;
+            candidates = lib.mapAttrs (_: candidate: {
+              inherit (candidate)
+                definition
+                place
+                diagnosis
+                route
+                validate
+                gate
+                ;
+            }) placementCandidates;
+          };
     };
   };
 
@@ -934,12 +1338,25 @@ let
     predecessorPath = validate;
     strategy = { };
     outcome = "accepted";
-    artifacts = (map (artifact: {
-      role = "image-${builtins.replaceStrings [ "/" "." ] [ "-" "-" ] artifact}";
-      path = "bitstreams/${artifact}";
-    }) appExpectedBitstreams) ++ [
-      { role = "primary-tool-invocation"; path = "metadata/primary-tool.json"; }
-    ];
+    artifacts =
+      (map (artifact: {
+        role = "image-${builtins.replaceStrings [ "/" "." ] [ "-" "-" ] artifact}";
+        path = "bitstreams/${artifact}";
+      }) appExpectedBitstreams)
+      ++ [
+        {
+          role = "application-partition-pin-manifest";
+          path = "reports/config_0/app_link_partition_pins_c0.json";
+        }
+        {
+          role = "application-link-integrity";
+          path = "reports/config_0/app_link_integrity_c0.json";
+        }
+        {
+          role = "primary-tool-invocation";
+          path = "metadata/primary-tool.json";
+        }
+      ];
   };
 
   final = mkStage {
@@ -956,6 +1373,9 @@ let
         expectedContext = implementationContext.id;
       }}
       mkdir -p "$build_dir/reports/config_0"
+      cp -a ${link}/reports/config_0/app_link_partition_pins_c0.json \
+        ${link}/reports/config_0/app_link_integrity_c0.json \
+        "$build_dir/reports/config_0/"
       cp -a ${validate}/reports/config_0/. "$build_dir/reports/config_0/"
     '';
     buildCommands = [
@@ -970,14 +1390,30 @@ let
     extraAttrs = {
       passthru.coyoteTwoStage = contract // {
         stages = {
-          inherit synth routed link opt place route validate validationGate implementationInputs placementCandidates placementRecommendation;
-          incremental = if checkedIncrementalReference == null then null else {
-            opt = incrementalOpt;
-            place = incrementalPlace;
-            route = incrementalRoute;
-            validate = incrementalValidate;
-            gate = incrementalGate;
-          };
+          inherit
+            synth
+            routed
+            link
+            opt
+            place
+            route
+            validate
+            validationGate
+            implementationInputs
+            placementCandidates
+            placementRecommendation
+            ;
+          incremental =
+            if checkedIncrementalReference == null then
+              null
+            else
+              {
+                opt = incrementalOpt;
+                place = incrementalPlace;
+                route = incrementalRoute;
+                validate = incrementalValidate;
+                gate = incrementalGate;
+              };
         };
       };
     };

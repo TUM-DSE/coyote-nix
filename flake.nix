@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/develop";
+      url = "github:taugoust/Coyote/app-link-integrity-evidence";
       flake = false;
     };
   };
@@ -585,6 +585,7 @@
           (phaseScript "u280-shell-config-validate-build-phase.sh" evalU280Shell.coyoteTwoStage.physical.units.config_0.validate.buildPhase)
           (phaseScript "u280-shell-config-finalize-build-phase.sh" evalU280Shell.coyoteTwoStage.physical.units.config_0.finalize.buildPhase)
           (phaseScript "u280-app-link-build-phase.sh" evalU280App.coyoteTwoStage.stages.link.buildPhase)
+          (phaseScript "u280-app-link-install-phase.sh" evalU280App.coyoteTwoStage.stages.link.installPhase)
           (phaseScript "u280-app-route-build-phase.sh" evalU280App.coyoteTwoStage.stages.route.buildPhase)
           (phaseScript "u280-app-build-phase.sh" evalU280App.buildPhase)
           (phaseScript "u280-app-install-phase.sh" evalU280App.installPhase)
@@ -599,12 +600,14 @@
           (phaseScript "v80-shell-validate-build-phase.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.validate.buildPhase)
           (phaseScript "v80-shell-finalize-build-phase.sh" evalV80Shell.coyoteTwoStage.physical.units.config_0.finalize.buildPhase)
           (phaseScript "v80-app-link-build-phase.sh" evalV80App.coyoteTwoStage.stages.link.buildPhase)
+          (phaseScript "v80-app-link-install-phase.sh" evalV80App.coyoteTwoStage.stages.link.installPhase)
           (phaseScript "v80-app-route-build-phase.sh" evalV80App.coyoteTwoStage.stages.route.buildPhase)
           (phaseScript "v80-app-build-phase.sh" evalV80App.buildPhase)
           (phaseScript "v80-app-install-phase.sh" evalV80App.installPhase)
         ];
       in
       {
+        checks.coyote-app-link-integrity = defaultCoyoteSourceChecks.appLinkIntegrityContract;
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
@@ -918,6 +921,8 @@
             evalV80Shell.coyoteTwoStage.physical.units.config_0.validate.drvPath
             != evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.validate.drvPath;
           assert evalU280App.coyoteTwoStage.kind == "app";
+          assert evalU280App.coyoteTwoStage.physical.linkIntegrity.api == "coyote-nix.app-link-integrity/v1";
+          assert evalU280App.coyoteTwoStage.physical.linkIntegrity.failClosed;
           assert evalU280App.coyoteTwoStage.physical.combineOptPlace;
           assert evalU280App.coyoteTwoStage.physical.stages.opt == null;
           assert evalU280App.coyoteTwoStage.shellPath == toString evalU280Shell;
@@ -928,6 +933,12 @@
           assert evalV80App.coyoteTwoStage.shellPath == toString evalV80Shell;
           assert builtins.elem "-DEN_SHELL_PBLOCK:STRING=0" evalV80App.coyoteTwoStage.appCmakeFlags;
           assert evalV80App.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
+          assert
+            evalV80App.coyoteTwoStage.physical.linkIntegrity.partitionPinManifest
+            == "reports/config_0/app_link_partition_pins_c0.json";
+          assert
+            evalV80App.coyoteTwoStage.physical.linkIntegrity.summary
+            == "reports/config_0/app_link_integrity_c0.json";
           assert evalV80App.coyoteTwoStage.stages ? implementationInputs;
           assert evalV80App.coyoteTwoStage.stages ? link;
           assert evalV80App.coyoteTwoStage.stages ? opt;
@@ -1311,6 +1322,21 @@
             ${phaseScript "v80-image-primary-tool-contract.sh" evalV80Shell.installPhase} >/dev/null
           grep -F 'metadata/execution.json' \
             ${phaseScript "v80-route-execution-contract.sh" evalV80Shell.coyoteTwoStage.stages.route.installPhase} >/dev/null
+          for script in \
+            ${phaseScript "u280-app-link-evidence-install.sh" evalU280App.coyoteTwoStage.stages.link.installPhase} \
+            ${phaseScript "v80-app-link-evidence-install.sh" evalV80App.coyoteTwoStage.stages.link.installPhase}; do
+            grep -F 'coyote.app-link-integrity/v1' "$script" >/dev/null
+            grep -F 'coyote.app-link-partition-pins/v1' "$script" >/dev/null
+            grep -F 'routedLockedCheckpointSha256' "$script" >/dev/null
+            grep -F 'protectedStatic.placement.before == .protectedStatic.placement.after' "$script" >/dev/null
+            grep -F 'protectedStatic.routing.before == .protectedStatic.routing.after' "$script" >/dev/null
+            grep -F 'app_link_partition_pins_c0.json' "$script" >/dev/null
+            grep -F 'app_link_integrity_c0.json' "$script" >/dev/null
+          done
+          grep -F 'app_link_partition_pins_c0.json' \
+            ${phaseScript "u280-app-final-link-evidence.sh" evalU280App.buildPhase} >/dev/null
+          grep -F 'app_link_integrity_c0.json' \
+            ${phaseScript "v80-app-final-link-evidence.sh" evalV80App.buildPhase} >/dev/null
           touch $out
         '';
 
