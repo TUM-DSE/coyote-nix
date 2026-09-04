@@ -71,6 +71,15 @@ if {[catch {
                 error "Coyote application project has no synthesis top: $project_path"
             }
 
+            set project_ips [get_ips -quiet]
+            if {[llength $project_ips] > 0} {
+                set project_ip_files [get_files -quiet -of_objects $source_fileset -filter {FILE_TYPE == IP}]
+                if {[llength $project_ip_files] != [llength $project_ips]} {
+                    error "Coyote application project IP object/file count mismatch: [llength $project_ips]/[llength $project_ip_files]"
+                }
+                set_property GENERATE_SYNTH_CHECKPOINT false $project_ip_files
+                generate_target synthesis $project_ips
+            }
             update_compile_order -fileset $source_fileset
             synth_design -rtl -name "rtl_elaboration_c${i}_$j" -top $top -part $part
             puts $units_handle "$i\t$j\t$top\t$part\t$source_mode"

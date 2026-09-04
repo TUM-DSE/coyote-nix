@@ -39,9 +39,13 @@ set tool [lindex $argv 0]
 set argv [lrange $argv 1 end]
 set argc [llength $argv]
 set opened_project ""
+set ip_sources_visible 0
+set ip_products_ready 0
 
 proc open_project {path} {
     set ::opened_project $path
+    set ::ip_sources_visible 0
+    set ::ip_products_ready 0
 }
 proc current_project {} {
     return fixture_project
@@ -65,9 +69,43 @@ proc get_property {property object} {
         }
     }
 }
+proc get_ips {args} {
+    if {$args ne {-quiet}} {
+        error "unexpected get_ips arguments: $args"
+    }
+    return {fixture_ip_0 fixture_ip_1}
+}
+proc get_files {args} {
+    if {$args ne {-quiet -of_objects sources_1 -filter {FILE_TYPE == IP}}} {
+        error "unexpected get_files arguments: $args"
+    }
+    return {fixture_ip_0.xci fixture_ip_1.xci}
+}
+proc set_property {property value objects} {
+    if {$property ne "GENERATE_SYNTH_CHECKPOINT" || $value ne "false" ||
+        $objects ne {fixture_ip_0.xci fixture_ip_1.xci}} {
+        error "unexpected IP source-visibility request: $property $value $objects"
+    }
+    set ::ip_sources_visible 1
+}
+proc generate_target {target objects} {
+    if {$target ne "synthesis" || $objects ne {fixture_ip_0 fixture_ip_1}} {
+        error "unexpected generate_target request: $target $objects"
+    }
+    if {!$::ip_sources_visible} {
+        error "synthesis IP output products generated before top-level source visibility"
+    }
+    if {[info exists ::env(TEST_IP_GENERATION_FAILURE)]} {
+        error "deliberate IP output-product failure"
+    }
+    set ::ip_products_ready 1
+}
 proc update_compile_order {args} {
     if {$args ne {-fileset sources_1}} {
         error "unexpected update_compile_order arguments: $args"
+    }
+    if {!$::ip_sources_visible || !$::ip_products_ready} {
+        error "compile order updated before synthesis IP sources were visible and generated"
     }
 }
 proc synth_design {args} {
@@ -76,8 +114,8 @@ proc synth_design {args} {
             error "synth_design lacks $required: $args"
         }
     }
-    if {[info exists ::env(TEST_SYNTH_FAILURE)]} {
-        error "deliberate elaboration failure"
+    if {[info exists ::env(TEST_MISSING_USER_RTL)]} {
+        error "module 'req_parser' not found"
     }
 }
 proc close_design {} {}
@@ -127,14 +165,23 @@ fi
 test ! -e "$work/wrong-mode/complete"
 test ! -e "$work/wrong-mode/units.tsv"
 
-mkdir -p "$work/synth-failure"
-if run_tool "$work/synth-failure" "$work/base.tcl" 1 0 \
-  TEST_SYNTH_FAILURE=1 >/dev/null 2>&1; then
-  echo "ERROR: elaboration accepted a failed top-level synth_design -rtl" >&2
+mkdir -p "$work/ip-generation-failure"
+if run_tool "$work/ip-generation-failure" "$work/base.tcl" 1 0 \
+  TEST_IP_GENERATION_FAILURE=1 >/dev/null 2>&1; then
+  echo "ERROR: elaboration accepted failed synthesis IP output-product generation" >&2
   exit 1
 fi
-test ! -e "$work/synth-failure/complete"
-test ! -e "$work/synth-failure/units.tsv"
+test ! -e "$work/ip-generation-failure/complete"
+test ! -e "$work/ip-generation-failure/units.tsv"
+
+mkdir -p "$work/missing-user-rtl"
+if run_tool "$work/missing-user-rtl" "$work/base.tcl" 1 0 \
+  TEST_MISSING_USER_RTL=1 >/dev/null 2>&1; then
+  echo "ERROR: elaboration accepted omitted user RTL (req_parser)" >&2
+  exit 1
+fi
+test ! -e "$work/missing-user-rtl/complete"
+test ! -e "$work/missing-user-rtl/units.tsv"
 
 if grep -E '(^|[[:space:]])(launch_runs|write_checkpoint|opt_design|place_design|route_design)([[:space:]]|$)' \
   "$tool" >/dev/null; then
