@@ -1721,6 +1721,34 @@
               touch "$out"
             '';
 
+        checks.timing-policy-propagation =
+          pkgs.runCommand "timing-policy-propagation-contract"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.cmake
+                pkgs.coreutils
+                pkgs.findutils
+                pkgs.gawk
+                pkgs.gnugrep
+                pkgs.gnused
+                pkgs.jq
+                pkgs.tcl
+                pkgs.time
+              ];
+            }
+            ''
+              export FDEV_NAME=fixture
+              export COYOTE_NIX_HW_CORES=3
+              export COYOTE_NIX_TIME=${pkgs.time}/bin/time
+              export COYOTE_NIX_CHECK_TIMING_LOG=0
+              export COYOTE_NIX_XILINX_SHARE_ROOT="$TMPDIR/xilinx"
+              export COYOTE_NIX_XILINX_VERSION=fixture
+              bash ${./tests/timing-policy-propagation.sh} \
+                ${./nix/tools/run-coyote-hw-stage-build.sh}
+              touch "$out"
+            '';
+
         checks.two-stage-artifact-manifest-unit =
           pkgs.runCommand "two-stage-artifact-manifest-unit"
             {

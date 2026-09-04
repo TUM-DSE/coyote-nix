@@ -18,6 +18,36 @@ expected_paths="$5"
 shift 5
 cmake_extra_flags=("$@")
 
+normalize_cmake_boolean() {
+  local value=${1^^}
+
+  case "$value" in
+    "" | 0 | OFF | NO | FALSE | N | IGNORE | NOTFOUND | *-NOTFOUND)
+      printf '0\n'
+      ;;
+    *)
+      printf '1\n'
+      ;;
+  esac
+}
+
+resolve_timing_check_policy() {
+  local flag raw_value="" found=0
+
+  unset COYOTE_NIX_EN_TIMING_CHECK
+  for flag in "${cmake_extra_flags[@]}"; do
+    if [[ "$flag" =~ ^-DEN_TIMING_CHECK(:[^=]+)?=(.*)$ ]]; then
+      raw_value=${BASH_REMATCH[2]}
+      found=1
+    fi
+  done
+
+  if [ "$found" = 1 ]; then
+    COYOTE_NIX_EN_TIMING_CHECK=$(normalize_cmake_boolean "$raw_value")
+    export COYOTE_NIX_EN_TIMING_CHECK
+  fi
+}
+
 setup_build_environment() {
   export HOME="$build_dir/.home"
   mkdir -p "$HOME"
@@ -121,9 +151,47 @@ EOF
 }
 
 patch_base_tcl() {
-  if [ -f base.tcl ]; then
-    # shellcheck disable=SC2016
-    sed -i 's|^set device_ip_dir   "\$ip_dir/dev"$|set device_ip_dir   "\$build_dir/ip/dev"|' base.tcl
+  local cache_count cache_value generated_count
+
+  if [ ! -f base.tcl ]; then
+    if [ -n "${COYOTE_NIX_EN_TIMING_CHECK+x}" ]; then
+      echo "ERROR: explicit EN_TIMING_CHECK policy has no generated base.tcl" >&2
+      exit 1
+    fi
+    return 0
+  fi
+
+  # shellcheck disable=SC2016
+  sed -i 's|^set device_ip_dir   "\$ip_dir/dev"$|set device_ip_dir   "\$build_dir/ip/dev"|' base.tcl
+
+  if [ -z "${COYOTE_NIX_EN_TIMING_CHECK+x}" ]; then
+    return 0
+  fi
+
+  cache_count=$(grep -Ec '^EN_TIMING_CHECK:[^=]+=' CMakeCache.txt || true)
+  if [ "$cache_count" -ne 1 ]; then
+    echo "ERROR: explicit EN_TIMING_CHECK policy is not represented exactly once in CMakeCache.txt" >&2
+    exit 1
+  fi
+  cache_value=$(sed -nE 's/^EN_TIMING_CHECK:[^=]+=(.*)$/\1/p' CMakeCache.txt)
+  if [ "$(normalize_cmake_boolean "$cache_value")" != "$COYOTE_NIX_EN_TIMING_CHECK" ]; then
+    echo "ERROR: configured EN_TIMING_CHECK policy differs from the requested package policy" >&2
+    exit 1
+  fi
+
+  generated_count=$(grep -Ec '^[[:space:]]*set[[:space:]]+cfg\(en_timing_check\)[[:space:]]+' base.tcl || true)
+  if [ "$generated_count" -ne 1 ]; then
+    echo "ERROR: generated base.tcl must assign cfg(en_timing_check) exactly once" >&2
+    exit 1
+  fi
+  sed -E -i \
+    "s|^([[:space:]]*set[[:space:]]+cfg\\(en_timing_check\\)[[:space:]]+)[^[:space:]#]+|\\1$COYOTE_NIX_EN_TIMING_CHECK|" \
+    base.tcl
+  if ! grep -Eq \
+    "^[[:space:]]*set[[:space:]]+cfg\\(en_timing_check\\)[[:space:]]+$COYOTE_NIX_EN_TIMING_CHECK([[:space:]]|$)" \
+    base.tcl; then
+    echo "ERROR: failed to propagate EN_TIMING_CHECK into generated base.tcl" >&2
+    exit 1
   fi
 }
 
@@ -212,6 +280,7 @@ check_expected_artifacts() {
   done < "$expected_paths"
 }
 
+resolve_timing_check_policy
 setup_build_environment
 configure_build
 patch_sim_dpi_link

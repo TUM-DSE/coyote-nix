@@ -117,6 +117,8 @@ implementation = {
 
 Omitted directives reproduce the effective legacy `BUILD_OPT` board defaults. Repeated legacy CMake policy flags are interpreted with CMake's last-assignment-wins behavior. Cores, phase directives, timing policy, source/constraint/static identity, Coyote source, board/part, Xilinx version/installation identity, and the exact predecessor manifest all participate in stage identity.
 
+An explicit `-DEN_TIMING_CHECK` stage flag is authoritative over a consumer's in-project default. The stage runner validates the configured cache value and propagates the normalized Boolean into Coyote's generated Tcl before any build command executes; when the flag is absent, the project's generated policy remains untouched. `OFF` keeps negative timing visible in the ordinary reports while allowing a fully routed, bitstream-DRC-clean checkpoint to be retained. It does not change clock constraints, suppress reports, or waive routing or DRC failures. Immutable validation additionally uses `implementation.enforceTiming`; callers that support both flows should set the two policies consistently.
+
 The physical contract is available under `coyoteTwoStage.physical` and the rootable derivations under `coyoteTwoStage.stages`:
 
 ```text
