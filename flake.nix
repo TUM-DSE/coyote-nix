@@ -617,6 +617,9 @@
           (phaseScript "u280-shell-config-route-build-phase.sh" evalU280Shell.coyoteTwoStage.physical.units.config_0.route.buildPhase)
           (phaseScript "u280-shell-config-validate-build-phase.sh" evalU280Shell.coyoteTwoStage.physical.units.config_0.validate.buildPhase)
           (phaseScript "u280-shell-config-finalize-build-phase.sh" evalU280Shell.coyoteTwoStage.physical.units.config_0.finalize.buildPhase)
+          (phaseScript "u280-app-elaboration-build-phase.sh" evalU280App.coyoteTwoStage.stages.elaboration.buildPhase)
+          (phaseScript "u280-app-elaboration-install-phase.sh" evalU280App.coyoteTwoStage.stages.elaboration.installPhase)
+          (phaseScript "u280-app-synth-build-phase.sh" evalU280App.coyoteTwoStage.stages.synth.buildPhase)
           (phaseScript "u280-app-link-build-phase.sh" evalU280App.coyoteTwoStage.stages.link.buildPhase)
           (phaseScript "u280-app-link-install-phase.sh" evalU280App.coyoteTwoStage.stages.link.installPhase)
           (phaseScript "u280-app-route-build-phase.sh" evalU280App.coyoteTwoStage.stages.route.buildPhase)
@@ -680,6 +683,21 @@
           bash ${./tests/hot-reset-multifunction.sh} ${./nix/tools/hot-reset.sh}
           touch $out
         '';
+
+        checks.u280-app-elaboration-contract =
+          pkgs.runCommand "u280-app-elaboration-contract"
+            {
+              nativeBuildInputs = [
+                pkgs.bash
+                pkgs.gawk
+                pkgs.tcl
+              ];
+            }
+            ''
+              cd ${./.}
+              bash tests/app-elaboration.sh nix/tools/coyote-app-elaboration.tcl
+              touch "$out"
+            '';
 
         checks.shellcheck = pkgs.runCommand "shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
           cd ${./.}
@@ -851,10 +869,19 @@
               };
             };
           assert
+            evalBoardPackages."example-u280-elaboration".coyoteAppElaboration.api
+            == "coyote-nix.app-elaboration/v1";
+          assert !evalBoardPackages."example-u280-elaboration".coyoteAppElaboration.buildApp;
+          assert evalBoardPackages."example-u280-elaboration".coyoteAppElaboration.buildShell;
+          assert evalBoardPackages."example-u280-elaboration".coyoteAppElaboration.rtlOnly;
+          assert
             builtins.attrNames evalBoardPackages == [
               "example-u280"
+              "example-u280-elaboration"
+              "example-u280-routed"
               "example-u280-sim"
               "example-u280-static"
+              "example-u280-synth"
               "example-v80"
               "example-v80-routed"
               "example-v80-synth"
@@ -865,6 +892,12 @@
             EOF
             cat > routed-build-phase <<'EOF'
             ${builtins.unsafeDiscardStringContext evalBoardPackages."example-v80-routed".buildPhase}
+            EOF
+            cat > u280-elaboration-build-phase <<'EOF'
+            ${builtins.unsafeDiscardStringContext evalBoardPackages."example-u280-elaboration".buildPhase}
+            EOF
+            cat > u280-synth-build-phase <<'EOF'
+            ${builtins.unsafeDiscardStringContext evalBoardPackages."example-u280-synth".buildPhase}
             EOF
             cat > u280-final-build-phase <<'EOF'
             ${builtins.unsafeDiscardStringContext evalBoardPackages."example-u280".buildPhase}
@@ -881,6 +914,14 @@
             grep -F 'checkpoints/static/static_synthed.dcp' synth-build-phase >/dev/null
             grep -F 'IMPLEMENTATION_ROUTE_DIRECTIVE:STRING=AggressiveExplore' \
               routed-build-phase >/dev/null
+            grep -F 'make project' u280-elaboration-build-phase >/dev/null
+            grep -F 'coyote-app-elaboration.tcl' u280-elaboration-build-phase >/dev/null
+            if grep -E '^[[:space:]]*make (synth|shell|app|bitgen)[[:space:]]*$' \
+              u280-elaboration-build-phase >/dev/null; then
+              echo 'production U280 elaboration unexpectedly invokes synthesis or implementation' >&2
+              exit 1
+            fi
+            grep -F 'example-u280-elaboration-0.1.0' u280-synth-build-phase >/dev/null
             grep -F 'expected_en_pr="0"' u280-final-build-phase >/dev/null
             grep -F 'generated base.tcl has no canonical cfg(en_pr) assignment' \
               u280-final-build-phase >/dev/null
@@ -1013,6 +1054,19 @@
             evalV80Shell.coyoteTwoStage.physical.units.config_0.validate.drvPath
             != evalV80ShellRouteRetuned.coyoteTwoStage.physical.units.config_0.validate.drvPath;
           assert evalU280App.coyoteTwoStage.kind == "app";
+          assert
+            evalU280App.coyoteTwoStage.stageNames == [
+              "elaboration"
+              "synth"
+              "app-route"
+              "bitgen"
+            ];
+          assert evalU280App.coyoteTwoStage.elaboration.enabled;
+          assert evalU280App.coyoteTwoStage.elaboration.canonicalBuildDependency;
+          assert
+            evalU280App.coyoteTwoStage.stages.elaboration.coyoteAppElaboration.api
+            == "coyote-nix.app-elaboration/v1";
+          assert evalU280App.coyoteTwoStage.stages.elaboration.coyoteAppElaboration.rtlOnly;
           assert evalU280App.coyoteTwoStage.physical.linkIntegrity.api == "coyote-nix.app-link-integrity/v1";
           assert evalU280App.coyoteTwoStage.physical.linkIntegrity.failClosed;
           assert evalU280App.coyoteTwoStage.physical.combineOptPlace;
@@ -1021,6 +1075,15 @@
           assert builtins.elem "-DBUILD_APP:STRING=1" evalU280App.coyoteTwoStage.appCmakeFlags;
           assert builtins.elem "-DSHELL_PATH=${evalU280Shell}" evalU280App.coyoteTwoStage.appCmakeFlags;
           assert evalV80App.coyoteTwoStage.kind == "app";
+          assert
+            evalV80App.coyoteTwoStage.stageNames == [
+              "synth"
+              "app-route"
+              "bitgen"
+            ];
+          assert !evalV80App.coyoteTwoStage.elaboration.enabled;
+          assert !evalV80App.coyoteTwoStage.elaboration.canonicalBuildDependency;
+          assert evalV80App.coyoteTwoStage.stages.elaboration == null;
           assert !evalV80App.coyoteTwoStage.physical.combineOptPlace;
           assert evalV80App.coyoteTwoStage.shellPath == toString evalV80Shell;
           assert builtins.elem "-DEN_SHELL_PBLOCK:STRING=0" evalV80App.coyoteTwoStage.appCmakeFlags;
@@ -1441,6 +1504,15 @@
             ${phaseScript "v80-oracle-placement-artifact-contract.sh" evalV80Shell.coyoteTwoStage.stages.timingOracle.installPhase} >/dev/null
           grep -F 'bitstreams/complete' \
             ${phaseScript "v80-shell-bitgen-completion-contract.sh" evalV80Shell.buildPhase} >/dev/null
+          u280_elaboration_script=${phaseScript "u280-app-elaboration-command.sh" evalU280App.coyoteTwoStage.stages.elaboration.buildPhase}
+          grep -F 'make project' "$u280_elaboration_script" >/dev/null
+          grep -F 'coyote-app-elaboration.tcl' "$u280_elaboration_script" >/dev/null
+          if grep -E '^[[:space:]]*make (synth|app|bitgen)[[:space:]]*$' "$u280_elaboration_script" >/dev/null; then
+            echo 'U280 RTL elaboration unexpectedly invokes synthesis or implementation' >&2
+            exit 1
+          fi
+          grep -F 'example-u280-app-elaboration-0.1.0' \
+            ${phaseScript "u280-app-elaboration-gate-dependency.sh" evalU280App.coyoteTwoStage.stages.synth.buildPhase} >/dev/null
           grep -F 'bitstreams/complete' \
             ${phaseScript "u280-app-bitgen-completion-contract.sh" evalU280App.buildPhase} >/dev/null
           grep -F 'IMPLEMENTATION_TELEMETRY_PATH' \

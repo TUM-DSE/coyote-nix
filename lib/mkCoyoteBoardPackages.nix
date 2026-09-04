@@ -32,6 +32,7 @@ let
     finalBitgenCommand
     installCheckpointReports
     installFinalReportsAndArtifacts
+    mkAppElaborationStage
     mkStage
     ;
 
@@ -329,15 +330,42 @@ let
             routedStage = staticRouted;
           };
 
+      synthesisCmakeFlags = [
+        "-DBUILD_APP:STRING=0"
+        "-DBUILD_STATIC:STRING=0"
+        "-DBUILD_SHELL:STRING=1"
+      ]
+      ++ (board.appCmakeFlags or [ ]);
+
+      elaboration = mkAppElaborationStage {
+        pname = board.elaborationPname or "${pnamePrefix}-${board.platform}-elaboration";
+        inherit board xilinxVersion;
+        cmakeFlags = synthesisCmakeFlags;
+        buildApp = false;
+        buildShell = true;
+      };
+
       synth = mkStage {
         pname = board.synthPname or "${pnamePrefix}-${board.platform}-synth";
         inherit board xilinxVersion;
-        cmakeFlags = [
-          "-DBUILD_APP:STRING=0"
-          "-DBUILD_STATIC:STRING=0"
-          "-DBUILD_SHELL:STRING=1"
-        ]
-        ++ (board.appCmakeFlags or [ ]);
+        cmakeFlags = synthesisCmakeFlags;
+        preBuildSetup = ''
+          test -f ${elaboration}/reports/app-elaboration/complete
+          test "$(cat ${elaboration}/reports/app-elaboration/complete)" = \
+            'coyote-nix.app-elaboration/v1'
+          jq -e \
+            --arg board '${board.board}' \
+            --arg part '${board.fpgaPart}' \
+            '.api == "coyote-nix.app-elaboration/v1"
+             and .board == $board
+             and .fpgaPart == $part
+             and .flow.buildApp == false
+             and .flow.buildShell == true
+             and .flow.rtlOnly == true
+             and .flow.synthesis == false
+             and .flow.implementation == false' \
+            ${elaboration}/metadata/elaboration.json >/dev/null
+        '';
         buildCommands = [
           "make project"
           "make synth"
@@ -439,6 +467,9 @@ let
       };
     in
     {
+      "${board.elaborationPname or "${pnamePrefix}-${board.platform}-elaboration"}" = elaboration;
+      "${board.synthPname or "${pnamePrefix}-${board.platform}-synth"}" = synth;
+      "${board.routedPname or "${pnamePrefix}-${board.platform}-routed"}" = routed;
       "${board.staticPname or "${pnamePrefix}-${board.platform}-static"}" = static;
       "${board.finalPname or "${pnamePrefix}-${board.platform}"}" = final;
     }

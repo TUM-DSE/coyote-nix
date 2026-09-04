@@ -41,6 +41,7 @@ let
   xilinxVersion = checkedShellContract.xilinxVersion;
   combineOptPlace = boardName == "u280" && xilinxVersion == "2023.2";
   collectPhysicalQorAssessment = !combineOptPlace;
+  appElaborationEnabled = boardName == "u280";
 
   stageHelpers = import ./coyoteHwStageHelpers.nix {
     inherit
@@ -61,6 +62,7 @@ let
     incrementalReferenceTool
     importImplementationStageArtifacts
     installCheckpointReports
+    mkAppElaborationStage
     mkImplementationStageGate
     mkPlacementDiagnosis
     mkPlacementRecommendation
@@ -387,7 +389,7 @@ let
         buildApp = true;
         enPr = true;
         enShellPblock = boardProfile.twoStage.enShellPblock;
-        stages = [
+        stages = lib.optionals appElaborationEnabled [ "elaboration" ] ++ [
           "synth"
           "app-route"
           "bitgen"
@@ -478,12 +480,44 @@ let
 
   stageNativeBuildInputs = [ pkgs.jq ];
 
+  elaboration =
+    if !appElaborationEnabled then
+      null
+    else
+      mkAppElaborationStage {
+        pname = "${pname}-elaboration";
+        board = boardProfile;
+        inherit xilinxVersion;
+        cmakeFlags = appCmakeFlags;
+        preBuildSetup = validateShellPackage;
+        buildApp = true;
+        buildShell = false;
+      };
+
   synth = mkStage {
     pname = "${pname}-synth";
     board = boardProfile;
     inherit xilinxVersion;
     cmakeFlags = appCmakeFlags;
-    preBuildSetup = validateShellPackage;
+    preBuildSetup =
+      validateShellPackage
+      + lib.optionalString appElaborationEnabled ''
+        test -f ${elaboration}/reports/app-elaboration/complete
+        test "$(cat ${elaboration}/reports/app-elaboration/complete)" = \
+          'coyote-nix.app-elaboration/v1'
+        jq -e \
+          --arg board '${boardProfile.board}' \
+          --arg part '${boardProfile.fpgaPart}' \
+          '.api == "coyote-nix.app-elaboration/v1"
+           and .board == $board
+           and .fpgaPart == $part
+           and .flow.buildApp == true
+           and .flow.buildShell == false
+           and .flow.rtlOnly == true
+           and .flow.synthesis == false
+           and .flow.implementation == false' \
+          ${elaboration}/metadata/elaboration.json >/dev/null
+      '';
     buildCommands = [
       "make project"
       "make synth"
@@ -579,7 +613,8 @@ let
         role = "application-link-integrity";
         path = "reports/config_0/app_link_integrity_c0.json";
       }
-    ] ++ linkSignoffArtifacts;
+    ]
+    ++ linkSignoffArtifacts;
     predecessorPath = implementationInputs;
   };
 
@@ -612,7 +647,8 @@ let
       "checkpoints/config_0/shell_linked_c0.dcp"
       "reports/config_0/app_link_partition_pins_c0.json"
       "reports/config_0/app_link_integrity_c0.json"
-    ] ++ map (artifact: artifact.path) linkSignoffArtifacts;
+    ]
+    ++ map (artifact: artifact.path) linkSignoffArtifacts;
     nativeBuildInputs = stageNativeBuildInputs ++ [ pkgs.python3 ];
     extraInstallPhase = ''
       partition_manifest="$build_dir/reports/config_0/app_link_partition_pins_c0.json"
@@ -902,7 +938,10 @@ let
           ''
         }
       '';
-      buildCommands = [ "make physical_stage" ] ++ lib.optionals strictReportPhase [
+      buildCommands = [
+        "make physical_stage"
+      ]
+      ++ lib.optionals strictReportPhase [
         (strictSignoffReportCommand {
           inherit phase reportPrefix;
           unit = "config_0";
@@ -1313,11 +1352,17 @@ let
     metadataPath = "metadata/app.json";
     shellMetadataPath = "metadata/shell.json";
     inherit appCmakeFlags shellPackage;
-    stageNames = [
+    stageNames = lib.optionals appElaborationEnabled [ "elaboration" ] ++ [
       "synth"
       "app-route"
       "bitgen"
     ];
+    elaboration = {
+      api = "coyote-nix.app-elaboration/v1";
+      enabled = appElaborationEnabled;
+      canonicalBuildDependency = appElaborationEnabled;
+      stage = elaboration;
+    };
     physical = {
       api = "coyote-nix.implementation-stage/v2";
       linkIntegrity = {
@@ -1450,6 +1495,7 @@ let
       passthru.coyoteTwoStage = contract // {
         stages = {
           inherit
+            elaboration
             synth
             routed
             link

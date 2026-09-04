@@ -55,6 +55,95 @@ rec {
       coyotePlatform = board.coyotePlatform;
     };
 
+  appElaborationTool = ../nix/tools/coyote-app-elaboration.tcl;
+
+  mkAppElaborationStage =
+    {
+      pname,
+      board,
+      xilinxVersion,
+      cmakeFlags,
+      buildApp,
+      buildShell,
+      preBuildSetup ? "",
+      canonicalBuildDependency ? true,
+    }:
+    let
+      expectedBuildApp = if buildApp then "1" else "0";
+      expectedBuildShell = if buildShell then "1" else "0";
+      metadata = pkgs.writeText "${pname}.json" (
+        builtins.toJSON {
+          schemaVersion = 1;
+          api = "coyote-nix.app-elaboration/v1";
+          kind = "coyote-app-rtl-elaboration";
+          board = board.board;
+          platform = board.platform;
+          fpgaArchitecture = board.fpgaArchitecture;
+          fpgaPart = board.fpgaPart;
+          inherit xilinxVersion;
+          flow = {
+            inherit buildApp buildShell;
+            rtlOnly = true;
+            synthesis = false;
+            implementation = false;
+          };
+          sourceManagementMode = "All";
+          coyoteSource = toString coyoteRoot;
+          hardwareSource = toString hwSource;
+          units = "reports/app-elaboration/units.tsv";
+          completion = "reports/app-elaboration/complete";
+        }
+      );
+    in
+    mkStage {
+      inherit
+        pname
+        board
+        xilinxVersion
+        cmakeFlags
+        preBuildSetup
+        ;
+      buildCommands = [
+        "make project"
+        ''
+          vivado -mode tcl -source ${appElaborationTool} -notrace -tclargs \
+            "$build_dir/base.tcl" "$build_dir/reports/app-elaboration" \
+            '${board.board}' '${board.fpgaPart}' '${expectedBuildApp}' '${expectedBuildShell}'
+        ''
+      ];
+      expectedPaths = [
+        "reports/app-elaboration/units.tsv"
+        "reports/app-elaboration/complete"
+      ];
+      nativeBuildInputs = [ pkgs.jq ];
+      checkTimingLog = false;
+      extraInstallPhase = ''
+        mkdir -p "$out/reports/app-elaboration"
+        cp "$build_dir/reports/app-elaboration/units.tsv" \
+          "$out/reports/app-elaboration/units.tsv"
+        cp "$build_dir/reports/app-elaboration/complete" \
+          "$out/reports/app-elaboration/complete"
+        cp ${metadata} "$out/metadata/elaboration.json"
+      '';
+      extraAttrs = {
+        passthru.coyoteAppElaboration = {
+          api = "coyote-nix.app-elaboration/v1";
+          board = board.board;
+          part = board.fpgaPart;
+          inherit
+            xilinxVersion
+            buildApp
+            buildShell
+            canonicalBuildDependency
+            ;
+          rtlOnly = true;
+          metadata = "metadata/elaboration.json";
+          completion = "reports/app-elaboration/complete";
+        };
+      };
+      description = "Coyote ${board.platform} application RTL elaboration gate";
+    };
+
   implementationStageTool = ../nix/tools/coyote-implementation-stage.py;
   incrementalReferenceTool = ../nix/tools/coyote-incremental-reference.py;
   placementDiagnosisTool = ../nix/tools/coyote-placement-diagnosis.py;
@@ -109,12 +198,18 @@ rec {
         path = "${reportDirectory}/${reportPrefix}_strict_signoff${reportSuffix}.json";
       }
     ]
-    ++ lib.optionals (builtins.elem phase [ "route" "validate" ]) [
-      {
-        role = "${phase}-route-status-report";
-        path = reportPath "route_status";
-      }
-    ];
+    ++
+      lib.optionals
+        (builtins.elem phase [
+          "route"
+          "validate"
+        ])
+        [
+          {
+            role = "${phase}-route-status-report";
+            path = reportPath "route_status";
+          }
+        ];
 
   strictSignoffReportCommand =
     {
@@ -127,7 +222,16 @@ rec {
       contextFile,
     }:
     let
-      routeApplicable = if builtins.elem phase [ "route" "validate" ] then "1" else "0";
+      routeApplicable =
+        if
+          builtins.elem phase [
+            "route"
+            "validate"
+          ]
+        then
+          "1"
+        else
+          "0";
       evidencePath = "${reportDirectory}/${reportPrefix}_strict_signoff${reportSuffix}.json";
     in
     ''
@@ -172,7 +276,9 @@ rec {
     let
       count = builtins.length diagnoses;
       checkedDiagnoses =
-        if count >= 2 && count <= 3 then diagnoses else
+        if count >= 2 && count <= 3 then
+          diagnoses
+        else
           throw "coyote-nix: placement recommendation requires two or three diagnoses";
       policyFile = pkgs.writeText "${pname}-policy.json" (builtins.toJSON policy);
     in
@@ -180,7 +286,9 @@ rec {
       mkdir -p "$out/metadata" "$out/candidates"
       ${pkgs.python3}/bin/python ${placementDiagnosisTool} recommend \
         ${policyFile} "$out/metadata/recommendation.json" \
-        ${lib.concatMapStringsSep " " (diagnosis: lib.escapeShellArg "${diagnosis}/metadata/diagnosis.json") checkedDiagnoses}
+        ${lib.concatMapStringsSep " " (
+          diagnosis: lib.escapeShellArg "${diagnosis}/metadata/diagnosis.json"
+        ) checkedDiagnoses}
       ${lib.concatImapStringsSep "\n" (index: diagnosis: ''
         ln -s ${diagnosis} "$out/candidates/${toString index}"
       '') checkedDiagnoses}
@@ -206,7 +314,9 @@ rec {
       expectedContext ? null,
     }:
     ''
-      ${pkgs.python3}/bin/python ${implementationStageTool} validate ${previousStage}${lib.optionalString (expectedPhase != null) " --phase ${lib.escapeShellArg expectedPhase}"}${lib.optionalString (expectedContext != null) " --context ${lib.escapeShellArg expectedContext}"}
+      ${pkgs.python3}/bin/python ${implementationStageTool} validate ${previousStage}${
+        lib.optionalString (expectedPhase != null) " --phase ${lib.escapeShellArg expectedPhase}"
+      }${lib.optionalString (expectedContext != null) " --context ${lib.escapeShellArg expectedContext}"}
       ${pkgs.python3}/bin/python ${implementationStageTool} import \
         ${previousStage} ${destination} \
         ${lib.concatMapStringsSep " " lib.escapeShellArg roles}
@@ -225,42 +335,51 @@ rec {
       expectedContext,
       signoffClassification ? null,
     }:
-    pkgs.runCommand pname { nativeBuildInputs = [ pkgs.jq pkgs.python3 ]; } ''
-      ${pkgs.python3}/bin/python ${implementationStageTool} validate \
-        ${stage} --phase validate --context ${lib.escapeShellArg expectedContext}
-      strict_result="$TMPDIR/strict-signoff.json"
-      strict_args=(
-        --stage ${stage}
-        --context ${lib.escapeShellArg expectedContext}
-        ${lib.optionalString (signoffClassification != null) "--classification ${lib.escapeShellArg (toString signoffClassification)}"}
-        --output "$strict_result"
-      )
-      set +e
-      ${pkgs.python3}/bin/python ${strictSignoffTool} verify "''${strict_args[@]}"
-      strict_status=$?
-      set -e
-      if [ "$strict_status" -ne 0 ]; then
-        echo "ERROR: strict physical signoff rejected validation evidence: ${stage}" >&2
-        ${pkgs.jq}/bin/jq . "$strict_result" >&2 || true
-        exit "$strict_status"
-      fi
-      outcome="$(${pkgs.jq}/bin/jq -r '.outcome' ${stage}/metadata/stage.json)"
-      if [ "$outcome" != accepted ]; then
-        echo "ERROR: implementation validation outcome is $outcome; evidence: ${stage}" >&2
-        ${pkgs.jq}/bin/jq -r '.artifacts[] | select(.role == "validation-result") | .path' \
-          ${stage}/metadata/stage.json >&2 || true
-        exit 1
-      fi
-      mkdir -p "$out/metadata"
-      for directory in checkpoints reports logs; do
-        if [ -e ${stage}/"$directory" ]; then
-          ln -s ${stage}/"$directory" "$out/$directory"
+    pkgs.runCommand pname
+      {
+        nativeBuildInputs = [
+          pkgs.jq
+          pkgs.python3
+        ];
+      }
+      ''
+        ${pkgs.python3}/bin/python ${implementationStageTool} validate \
+          ${stage} --phase validate --context ${lib.escapeShellArg expectedContext}
+        strict_result="$TMPDIR/strict-signoff.json"
+        strict_args=(
+          --stage ${stage}
+          --context ${lib.escapeShellArg expectedContext}
+          ${lib.optionalString (
+            signoffClassification != null
+          ) "--classification ${lib.escapeShellArg (toString signoffClassification)}"}
+          --output "$strict_result"
+        )
+        set +e
+        ${pkgs.python3}/bin/python ${strictSignoffTool} verify "''${strict_args[@]}"
+        strict_status=$?
+        set -e
+        if [ "$strict_status" -ne 0 ]; then
+          echo "ERROR: strict physical signoff rejected validation evidence: ${stage}" >&2
+          ${pkgs.jq}/bin/jq . "$strict_result" >&2 || true
+          exit "$strict_status"
         fi
-      done
-      cp ${stage}/metadata/stage.json "$out/metadata/validation-stage.json"
-      cp "$strict_result" "$out/metadata/strict-signoff.json"
-      printf '%s\n' accepted > "$out/metadata/outcome"
-    '';
+        outcome="$(${pkgs.jq}/bin/jq -r '.outcome' ${stage}/metadata/stage.json)"
+        if [ "$outcome" != accepted ]; then
+          echo "ERROR: implementation validation outcome is $outcome; evidence: ${stage}" >&2
+          ${pkgs.jq}/bin/jq -r '.artifacts[] | select(.role == "validation-result") | .path' \
+            ${stage}/metadata/stage.json >&2 || true
+          exit 1
+        fi
+        mkdir -p "$out/metadata"
+        for directory in checkpoints reports logs; do
+          if [ -e ${stage}/"$directory" ]; then
+            ln -s ${stage}/"$directory" "$out/$directory"
+          fi
+        done
+        cp ${stage}/metadata/stage.json "$out/metadata/validation-stage.json"
+        cp "$strict_result" "$out/metadata/strict-signoff.json"
+        printf '%s\n' accepted > "$out/metadata/outcome"
+      '';
 
   copyPreviousStageSetup =
     previousStage:

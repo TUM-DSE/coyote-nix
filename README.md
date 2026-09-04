@@ -112,13 +112,18 @@ coyote-nix.lib.mkCoyoteBoardPackages {
 
 This produces public packages named by default:
 
+- `<pnamePrefix>-u280-elaboration`
+- `<pnamePrefix>-u280-synth`
+- `<pnamePrefix>-u280-routed`
 - `<pnamePrefix>-u280-static`
 - `<pnamePrefix>-u280`
 - `<pnamePrefix>-u280-sim` when `simXilinxVersion` is supplied
+- `<pnamePrefix>-v80-synth`
+- `<pnamePrefix>-v80-routed`
 - `<pnamePrefix>-v80`
 - `<pnamePrefix>-v80-sim` when `simXilinxVersion` is supplied
 
-Intermediate synth/routed derivations are internal dependencies of those outputs.
+The U280 elaboration package runs production project generation and top-level RTL elaboration for every user unit without synthesis or implementation. U280 synthesis depends on this fail-closed source-closure gate. Later stage packages remain independently rootable.
 
 A U280 build may reuse the protected static portion of an accepted, immutable routed-shell validation stage. The import is deliberately fail closed: a loose `staticCheckpointDirectory` is rejected. Supply the exact stage identity, checkpoint hash, originating Coyote source identity, and fixed-route count instead:
 
@@ -162,7 +167,7 @@ The shell package contains `export.cmake`, `checkpoints/shell_routed_locked.dcp`
 
 See [`docs/two-stage-packages.md`](docs/two-stage-packages.md) for the complete API, output layouts, board differences, compatibility contract, and consumer guidance.
 
-The established `mkCoyoteBoardPackages` API and package names are unchanged; standalone non-two-stage consumers do not need to migrate.
+The established `mkCoyoteBoardPackages` arguments and existing package names are unchanged; the U280 elaboration, synthesis, and routed outputs are additive. Standalone non-two-stage consumers do not need to migrate.
 
 ## Driver package matrix
 
