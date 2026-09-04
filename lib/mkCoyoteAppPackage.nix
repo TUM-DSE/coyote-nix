@@ -2,6 +2,7 @@
   pkgs,
   tools,
   coyoteRoot,
+  userProjectCoyoteSource ? null,
   hwSource,
   xilinxShareRoot,
   xilinxShell ? null,
@@ -42,17 +43,42 @@ let
   combineOptPlace = boardName == "u280" && xilinxVersion == "2023.2";
   collectPhysicalQorAssessment = !combineOptPlace;
   appElaborationEnabled = boardName == "u280";
+  checkedBaseCoyoteRoot =
+    if checkedShellContract.coyoteSource == toString coyoteRoot then
+      coyoteRoot
+    else
+      throw "coyote-nix: application coyoteRoot must equal the shell's exact Coyote source; use a verified U280 userProjectCoyoteSource delta for a user-project-only repair";
+  requestedUserProjectDelta =
+    if userProjectCoyoteSource == null then
+      null
+    else
+      import ./validateCoyoteSourceDelta.nix {
+        inherit pkgs;
+        baseSource = checkedBaseCoyoteRoot;
+        sourceDelta = userProjectCoyoteSource;
+      };
+  checkedUserProjectDelta =
+    if requestedUserProjectDelta == null then
+      null
+    else if boardName != "u280" then
+      throw "coyote-nix: a split user-project Coyote source is supported only for U280 applications"
+    else
+      requestedUserProjectDelta;
+  effectiveUserProjectCoyoteRoot =
+    if checkedUserProjectDelta == null then checkedBaseCoyoteRoot else checkedUserProjectDelta.source;
 
   stageHelpers = import ./coyoteHwStageHelpers.nix {
     inherit
       pkgs
       tools
-      coyoteRoot
       hwSource
       xilinxShareRoot
       xilinxShell
       version
       ;
+    coyoteRoot = effectiveUserProjectCoyoteRoot;
+    baseCoyoteRoot = checkedBaseCoyoteRoot;
+    coyoteSourceDelta = checkedUserProjectDelta;
   };
 
   inherit (stageHelpers)
@@ -66,6 +92,7 @@ let
     mkImplementationStageGate
     mkPlacementDiagnosis
     mkPlacementRecommendation
+    mkProtectedStaticIntegrityGate
     mkStage
     strictSignoffReportArtifacts
     strictSignoffReportCommand
@@ -247,6 +274,10 @@ let
     toolId =
       implementation.xilinxInstallationId or "vivado-${xilinxVersion}@${toString xilinxShareRoot}";
     toolVersion = xilinxVersion;
+  }
+  // lib.optionalAttrs (checkedUserProjectDelta != null) {
+    effectiveCoyoteSourceId = checkedUserProjectDelta.effectiveSourceId;
+    coyoteSourceDeltaId = checkedUserProjectDelta.contractId;
   };
   implementationContext = implementationContextWithoutId // {
     id = builtins.hashString "sha256" (builtins.toJSON implementationContextWithoutId);
@@ -372,6 +403,29 @@ let
     fi
   '';
 
+  sourceDeltaProvenance = lib.optionalAttrs (checkedUserProjectDelta != null) {
+    effectiveUserProjectCoyoteSource = toString effectiveUserProjectCoyoteRoot;
+    coyoteSourceDelta = {
+      api = "coyote-nix.coyote-source-delta/v1";
+      failClosed = true;
+      policy = checkedUserProjectDelta.policy;
+      contractId = checkedUserProjectDelta.contractId;
+      baseSourceId = checkedUserProjectDelta.base.sourceId;
+      baseRevision = checkedUserProjectDelta.base.revision;
+      candidateSourceId = checkedUserProjectDelta.candidate.sourceId;
+      candidateRevision = checkedUserProjectDelta.candidate.revision;
+      effectiveSourceId = checkedUserProjectDelta.effectiveSourceId;
+    };
+  };
+  sourceDeltaContract = lib.optionalAttrs (checkedUserProjectDelta != null) (
+    sourceDeltaProvenance
+    // {
+      coyoteSourceDelta = sourceDeltaProvenance.coyoteSourceDelta // {
+        proof = checkedUserProjectDelta.proof;
+      };
+    }
+  );
+
   appMetadataBase = pkgs.writeText "${pname}-app-metadata-base.json" (
     builtins.toJSON {
       schemaVersion = 1;
@@ -405,7 +459,8 @@ let
         shellCoyoteSource = checkedShellContract.coyoteSource;
         coyoteSourceMatchesShell = toString coyoteRoot == checkedShellContract.coyoteSource;
         caller = provenance;
-      };
+      }
+      // sourceDeltaProvenance;
     }
   );
 
@@ -515,7 +570,14 @@ let
            and .flow.buildShell == false
            and .flow.rtlOnly == true
            and .flow.synthesis == false
-           and .flow.implementation == false' \
+           and .flow.implementation == false
+           ${
+             lib.optionalString (checkedUserProjectDelta != null) ''
+               and .baseCoyoteSourceId == "${checkedUserProjectDelta.base.sourceId}"
+               and .coyoteSourceId == "${checkedUserProjectDelta.effectiveSourceId}"
+               and .coyoteSourceDeltaId == "${checkedUserProjectDelta.contractId}"
+             ''
+           }' \
           ${elaboration}/metadata/elaboration.json >/dev/null
       '';
     buildCommands = [
@@ -591,6 +653,58 @@ let
           ${inputBundleSpec} "$out" "$out"
       '';
 
+  sourceDeltaReferenceContractId = builtins.hashString "sha256" (
+    builtins.unsafeDiscardStringContext (toString shellPackage)
+  );
+  mkAppSourceIntegrity =
+    phase: candidateCheckpoint:
+    if checkedUserProjectDelta == null then
+      null
+    else
+      mkProtectedStaticIntegrityGate {
+        inherit phase;
+        board = boardProfile // {
+          inherit xilinxVersion;
+        };
+        referenceCheckpoint = "${shellPackage}/checkpoints/shell_routed_locked.dcp";
+        inherit candidateCheckpoint;
+        referenceContract = "${shellPackage}/metadata/shell.json";
+        referenceContractId = sourceDeltaReferenceContractId;
+        partitionPaths = [ "inst_shell/inst_dynamic/inst_user_wrapper_0" ];
+        reportDirectory = "reports/config_0/source-delta-${phase}";
+      };
+  linkSourceIntegrity = mkAppSourceIntegrity "link" "checkpoints/config_0/shell_linked_c0.dcp";
+  placeSourceIntegrity = mkAppSourceIntegrity "place" "checkpoints/config_0/shell_phys_opted_c0.dcp";
+  routeSourceIntegrity = mkAppSourceIntegrity "route" "checkpoints/config_0/shell_routed_unvalidated_c0.dcp";
+  appSourceIntegrityGates = lib.optionals (checkedUserProjectDelta != null) [
+    linkSourceIntegrity
+    placeSourceIntegrity
+    routeSourceIntegrity
+  ];
+  legacyLinkIntegrityArtifacts = [
+    {
+      role = "application-partition-pin-manifest";
+      path = "reports/config_0/app_link_partition_pins_c0.json";
+    }
+    {
+      role = "application-link-integrity";
+      path = "reports/config_0/app_link_integrity_c0.json";
+    }
+  ];
+  effectiveLinkIntegrityArtifacts =
+    if checkedUserProjectDelta == null then
+      legacyLinkIntegrityArtifacts
+    else
+      linkSourceIntegrity.artifacts;
+  effectiveLinkIntegrityExpectedPaths =
+    if checkedUserProjectDelta == null then
+      [
+        "reports/config_0/app_link_partition_pins_c0.json"
+        "reports/config_0/app_link_integrity_c0.json"
+      ]
+    else
+      linkSourceIntegrity.expectedPaths;
+
   linkSignoffArtifacts = strictSignoffReportArtifacts {
     phase = "link";
     reportDirectory = "reports/config_0";
@@ -605,15 +719,8 @@ let
         role = "linked-checkpoint";
         path = "checkpoints/config_0/shell_linked_c0.dcp";
       }
-      {
-        role = "application-partition-pin-manifest";
-        path = "reports/config_0/app_link_partition_pins_c0.json";
-      }
-      {
-        role = "application-link-integrity";
-        path = "reports/config_0/app_link_integrity_c0.json";
-      }
     ]
+    ++ effectiveLinkIntegrityArtifacts
     ++ linkSignoffArtifacts;
     predecessorPath = implementationInputs;
   };
@@ -632,6 +739,9 @@ let
     };
     buildCommands = [
       "make app_link"
+    ]
+    ++ lib.optionals (checkedUserProjectDelta != null) [ linkSourceIntegrity.command ]
+    ++ [
       (strictSignoffReportCommand {
         phase = "link";
         unit = "config_0";
@@ -645,110 +755,121 @@ let
     expectedPaths = [
       "checkpoints/app_link_complete"
       "checkpoints/config_0/shell_linked_c0.dcp"
-      "reports/config_0/app_link_partition_pins_c0.json"
-      "reports/config_0/app_link_integrity_c0.json"
     ]
+    ++ effectiveLinkIntegrityExpectedPaths
     ++ map (artifact: artifact.path) linkSignoffArtifacts;
     nativeBuildInputs = stageNativeBuildInputs ++ [ pkgs.python3 ];
     extraInstallPhase = ''
-      partition_manifest="$build_dir/reports/config_0/app_link_partition_pins_c0.json"
-      integrity_summary="$build_dir/reports/config_0/app_link_integrity_c0.json"
-      export_sha256="$(sha256sum ${implementationInputs}/export.cmake | cut -d ' ' -f 1)"
-      checkpoint_sha256="$(sha256sum ${implementationInputs}/checkpoints/shell_routed_locked.dcp | cut -d ' ' -f 1)"
-      jq -e \
-        --arg board '${boardProfile.board}' \
-        --arg architecture '${boardProfile.fpgaArchitecture}' \
-        --arg part '${boardProfile.fpgaPart}' \
-        --arg exportSha256 "$export_sha256" \
-        --arg checkpointSha256 "$checkpoint_sha256" \
-        '
-          .schemaVersion == 1
-          and .api == "coyote.app-link-integrity/v1"
-          and .kind == "coyote-application-link-integrity"
-          and .outcome == "accepted"
-          and .board == $board
-          and .fpgaArchitecture == $architecture
-          and .fpgaPart == $part
-          and .configuration == 0
-          and .shell.exportCmakeSha256 == $exportSha256
-          and .shell.routedLockedCheckpointSha256 == $checkpointSha256
-          and .partitionPins.manifest == "app_link_partition_pins_c0.json"
-          and .partitionPins.identical == true
-          and .partitionPins.beforeSha256 == .partitionPins.afterSha256
-          and (.partitionPins.beforeSha256 | test("^[0-9a-f]{64}$"))
-          and .partitionPins.logicalPinCount > 0
-          and .partitionPins.physicalLocationCount > 0
-          and .partitionPins.pblockSiteCount > 0
-          and .partitionPins.locationsPerMillionPblockSites > 0
-          and .protectedStatic.placement.identical == true
-          and .protectedStatic.placement.before.objectCount > 0
-          and .protectedStatic.placement.before == .protectedStatic.placement.after
-          and (.protectedStatic.placement.before.sha256 | test("^[0-9a-f]{64}$"))
-          and .protectedStatic.routing.identical == true
-          and .protectedStatic.routing.before.objectCount > 0
-          and .protectedStatic.routing.before == .protectedStatic.routing.after
-          and (.protectedStatic.routing.before.sha256 | test("^[0-9a-f]{64}$"))
-          and .reasons == []
-        ' "$integrity_summary" >/dev/null
-      jq -e \
-        --arg board '${boardProfile.board}' \
-        --arg architecture '${boardProfile.fpgaArchitecture}' \
-        --arg part '${boardProfile.fpgaPart}' \
-        '
-          .schemaVersion == 1
-          and .api == "coyote.app-link-partition-pins/v1"
-          and .kind == "coyote-application-partition-pin-manifest"
-          and .board == $board
-          and .fpgaArchitecture == $architecture
-          and .fpgaPart == $part
-          and .configuration == 0
-          and .identical == true
-          and .densityUnit == "physical-partition-pin-locations-per-million-pblock-sites"
-          and .lockedShell.canonicalSha256 == .linkedApplication.canonicalSha256
-          and .lockedShell.canonicalRecordCount == .linkedApplication.canonicalRecordCount
-          and .lockedShell.logicalPinCount == .linkedApplication.logicalPinCount
-          and .lockedShell.physicalLocationCount == .linkedApplication.physicalLocationCount
-          and .lockedShell.uniquePhysicalLocationCount == .linkedApplication.uniquePhysicalLocationCount
-          and .lockedShell.pblockSiteCount == .linkedApplication.pblockSiteCount
-          and .lockedShell.locationsPerMillionPblockSites == .linkedApplication.locationsPerMillionPblockSites
-          and ([.lockedShell, .linkedApplication] | all(
-            .logicalPinCount > 0
-            and .physicalLocationCount > 0
-            and .pblockSiteCount > 0
-            and .locationsPerMillionPblockSites > 0
-            and (.regions | length) > 0
-            and ([.regions[] | select(
-              .path != ""
-              and .pblock != ""
-              and .logicalPinCount == (.pins | length)
-              and .logicalPinCount > 0
+      ${lib.optionalString (checkedUserProjectDelta == null) ''
+          partition_manifest="$build_dir/reports/config_0/app_link_partition_pins_c0.json"
+        integrity_summary="$build_dir/reports/config_0/app_link_integrity_c0.json"
+        export_sha256="$(sha256sum ${implementationInputs}/export.cmake | cut -d ' ' -f 1)"
+        checkpoint_sha256="$(sha256sum ${implementationInputs}/checkpoints/shell_routed_locked.dcp | cut -d ' ' -f 1)"
+        jq -e \
+          --arg board '${boardProfile.board}' \
+          --arg architecture '${boardProfile.fpgaArchitecture}' \
+          --arg part '${boardProfile.fpgaPart}' \
+          --arg exportSha256 "$export_sha256" \
+          --arg checkpointSha256 "$checkpoint_sha256" \
+          '
+            .schemaVersion == 1
+            and .api == "coyote.app-link-integrity/v1"
+            and .kind == "coyote-application-link-integrity"
+            and .outcome == "accepted"
+            and .board == $board
+            and .fpgaArchitecture == $architecture
+            and .fpgaPart == $part
+            and .configuration == 0
+            and .shell.exportCmakeSha256 == $exportSha256
+            and .shell.routedLockedCheckpointSha256 == $checkpointSha256
+            and .partitionPins.manifest == "app_link_partition_pins_c0.json"
+            and .partitionPins.identical == true
+            and .partitionPins.beforeSha256 == .partitionPins.afterSha256
+            and (.partitionPins.beforeSha256 | test("^[0-9a-f]{64}$"))
+            and .partitionPins.logicalPinCount > 0
+            and .partitionPins.physicalLocationCount > 0
+            and .partitionPins.pblockSiteCount > 0
+            and .partitionPins.locationsPerMillionPblockSites > 0
+            and .protectedStatic.placement.identical == true
+            and .protectedStatic.placement.before.objectCount > 0
+            and .protectedStatic.placement.before == .protectedStatic.placement.after
+            and (.protectedStatic.placement.before.sha256 | test("^[0-9a-f]{64}$"))
+            and .protectedStatic.routing.identical == true
+            and .protectedStatic.routing.before.objectCount > 0
+            and .protectedStatic.routing.before == .protectedStatic.routing.after
+            and (.protectedStatic.routing.before.sha256 | test("^[0-9a-f]{64}$"))
+            and .reasons == []
+          ' "$integrity_summary" >/dev/null
+        jq -e \
+          --arg board '${boardProfile.board}' \
+          --arg architecture '${boardProfile.fpgaArchitecture}' \
+          --arg part '${boardProfile.fpgaPart}' \
+          '
+            .schemaVersion == 1
+            and .api == "coyote.app-link-partition-pins/v1"
+            and .kind == "coyote-application-partition-pin-manifest"
+            and .board == $board
+            and .fpgaArchitecture == $architecture
+            and .fpgaPart == $part
+            and .configuration == 0
+            and .identical == true
+            and .densityUnit == "physical-partition-pin-locations-per-million-pblock-sites"
+            and .lockedShell.canonicalSha256 == .linkedApplication.canonicalSha256
+            and .lockedShell.canonicalRecordCount == .linkedApplication.canonicalRecordCount
+            and .lockedShell.logicalPinCount == .linkedApplication.logicalPinCount
+            and .lockedShell.physicalLocationCount == .linkedApplication.physicalLocationCount
+            and .lockedShell.uniquePhysicalLocationCount == .linkedApplication.uniquePhysicalLocationCount
+            and .lockedShell.pblockSiteCount == .linkedApplication.pblockSiteCount
+            and .lockedShell.locationsPerMillionPblockSites == .linkedApplication.locationsPerMillionPblockSites
+            and ([.lockedShell, .linkedApplication] | all(
+              .logicalPinCount > 0
               and .physicalLocationCount > 0
-              and .uniquePhysicalLocationCount > 0
-              and .maximumLocationOccupancy > 0
               and .pblockSiteCount > 0
               and .locationsPerMillionPblockSites > 0
-              and ((.gridRanges | length) > 0 or (.derivedRanges | length) > 0)
-              and ([.pins[] | select(
-                .name != ""
-                and (.direction == "IN" or .direction == "OUT" or .direction == "INOUT")
-                and (.locations | length) > 0
-              )] | length) == .logicalPinCount
-            )] | length) == (.regions | length)
-          ))
-        ' "$partition_manifest" >/dev/null
-      jq -e --slurpfile pins "$partition_manifest" '
-        .partitionPins.beforeSha256 == $pins[0].lockedShell.canonicalSha256
-        and .partitionPins.afterSha256 == $pins[0].linkedApplication.canonicalSha256
-        and .partitionPins.logicalPinCount == $pins[0].linkedApplication.logicalPinCount
-        and .partitionPins.physicalLocationCount == $pins[0].linkedApplication.physicalLocationCount
-        and .partitionPins.pblockSiteCount == $pins[0].linkedApplication.pblockSiteCount
-        and .partitionPins.locationsPerMillionPblockSites == $pins[0].linkedApplication.locationsPerMillionPblockSites
-      ' "$integrity_summary" >/dev/null
+              and (.regions | length) > 0
+              and ([.regions[] | select(
+                .path != ""
+                and .pblock != ""
+                and .logicalPinCount == (.pins | length)
+                and .logicalPinCount > 0
+                and .physicalLocationCount > 0
+                and .uniquePhysicalLocationCount > 0
+                and .maximumLocationOccupancy > 0
+                and .pblockSiteCount > 0
+                and .locationsPerMillionPblockSites > 0
+                and ((.gridRanges | length) > 0 or (.derivedRanges | length) > 0)
+                and ([.pins[] | select(
+                  .name != ""
+                  and (.direction == "IN" or .direction == "OUT" or .direction == "INOUT")
+                  and (.locations | length) > 0
+                )] | length) == .logicalPinCount
+              )] | length) == (.regions | length)
+            ))
+          ' "$partition_manifest" >/dev/null
+        jq -e --slurpfile pins "$partition_manifest" '
+          .partitionPins.beforeSha256 == $pins[0].lockedShell.canonicalSha256
+          and .partitionPins.afterSha256 == $pins[0].linkedApplication.canonicalSha256
+          and .partitionPins.logicalPinCount == $pins[0].linkedApplication.logicalPinCount
+          and .partitionPins.physicalLocationCount == $pins[0].linkedApplication.physicalLocationCount
+          and .partitionPins.pblockSiteCount == $pins[0].linkedApplication.pblockSiteCount
+          and .partitionPins.locationsPerMillionPblockSites == $pins[0].linkedApplication.locationsPerMillionPblockSites
+          ' "$integrity_summary" >/dev/null
+      ''}
 
       mkdir -p "$out/checkpoints/config_0" "$out/reports/config_0" "$out/metadata"
       cp "$build_dir/checkpoints/config_0/shell_linked_c0.dcp" \
         "$out/checkpoints/config_0/shell_linked_c0.dcp"
-      cp "$partition_manifest" "$integrity_summary" "$out/reports/config_0/"
+      ${lib.optionalString (checkedUserProjectDelta == null) ''
+        cp "$partition_manifest" "$integrity_summary" "$out/reports/config_0/"
+      ''}
+      ${lib.optionalString (checkedUserProjectDelta != null) ''
+        expected_locked_sha256="$(jq -r '.compatibility.shellRoutedLockedDcpSha256' \
+          ${shellPackage}/metadata/shell.json)"
+        jq -e --arg expected "$expected_locked_sha256" \
+          '.reference.checkpointSha256 == $expected' \
+          "$build_dir/${linkSourceIntegrity.gatePath}" >/dev/null
+        ${linkSourceIntegrity.install}
+      ''}
       cp "$build_dir/reports/config_0/"*.rpt "$out/reports/config_0/"
       cp "$build_dir/reports/config_0/shell_link_unconstrained_endpoint_evidence_c0.json" \
         "$build_dir/reports/config_0/shell_link_strict_signoff_c0.json" \
@@ -781,6 +902,17 @@ let
     let
       reportPrefix = if phase == "validate" then "shell" else "shell_${phase}";
       physicalPath = "reports/config_0/${reportPrefix}_physical_c0.json";
+      sourceIntegrity =
+        if
+          checkedUserProjectDelta != null
+          && builtins.elem phase [
+            "place"
+            "route"
+          ]
+        then
+          mkAppSourceIntegrity phase outputPath
+        else
+          null;
       strictReportPhase = builtins.elem phase [
         "place"
         "route"
@@ -861,7 +993,8 @@ let
           role = "incremental-reference-evidence";
           path = "metadata/incremental-reference.json";
         }
-      ];
+      ]
+      ++ lib.optionals (sourceIntegrity != null) sourceIntegrity.artifacts;
       spec = mkImplementationSpec {
         name = stageName;
         inherit phase stageResources;
@@ -941,6 +1074,7 @@ let
       buildCommands = [
         "make physical_stage"
       ]
+      ++ lib.optionals (sourceIntegrity != null) [ sourceIntegrity.command ]
       ++ lib.optionals strictReportPhase [
         (strictSignoffReportCommand {
           inherit phase reportPrefix;
@@ -981,6 +1115,7 @@ let
         ${lib.optionalString incrementalEvidence ''
           cp "$build_dir/metadata/incremental-reference.json" "$out/metadata/incremental-reference.json"
         ''}
+        ${lib.optionalString (sourceIntegrity != null) sourceIntegrity.install}
         ${writeImplementationStageManifest { inherit spec; }}
       '';
       description = "Coyote ${boardProfile.platform} BUILD_APP immutable ${phase} stage";
@@ -1365,12 +1500,26 @@ let
     };
     physical = {
       api = "coyote-nix.implementation-stage/v2";
-      linkIntegrity = {
-        api = "coyote-nix.app-link-integrity/v1";
-        partitionPinManifest = "reports/config_0/app_link_partition_pins_c0.json";
-        summary = "reports/config_0/app_link_integrity_c0.json";
-        failClosed = true;
-      };
+      linkIntegrity =
+        if checkedUserProjectDelta == null then
+          {
+            api = "coyote-nix.app-link-integrity/v1";
+            partitionPinManifest = "reports/config_0/app_link_partition_pins_c0.json";
+            summary = "reports/config_0/app_link_integrity_c0.json";
+            failClosed = true;
+          }
+        else
+          {
+            api = "coyote-nix.protected-static-integrity/v1";
+            failClosed = true;
+            referenceContractId = sourceDeltaReferenceContractId;
+            partitionPaths = [ "inst_shell/inst_dynamic/inst_user_wrapper_0" ];
+            gates = {
+              link = linkSourceIntegrity.gatePath;
+              place = placeSourceIntegrity.gatePath;
+              route = routeSourceIntegrity.gatePath;
+            };
+          };
       strictSignoff = {
         api = "coyote-nix.strict-signoff-result/v1";
         classificationApi = "coyote-nix.strict-signoff-classification/v1";
@@ -1434,7 +1583,8 @@ let
             }) placementCandidates;
           };
     };
-  };
+  }
+  // sourceDeltaContract;
 
   imageSpec = mkImplementationSpec {
     name = "image";
@@ -1449,15 +1599,13 @@ let
         role = "image-${builtins.replaceStrings [ "/" "." ] [ "-" "-" ] artifact}";
         path = "bitstreams/${artifact}";
       }) appExpectedBitstreams)
+      ++ (
+        if checkedUserProjectDelta == null then
+          legacyLinkIntegrityArtifacts
+        else
+          lib.concatMap (integrity: integrity.artifacts) appSourceIntegrityGates
+      )
       ++ [
-        {
-          role = "application-partition-pin-manifest";
-          path = "reports/config_0/app_link_partition_pins_c0.json";
-        }
-        {
-          role = "application-link-integrity";
-          path = "reports/config_0/app_link_integrity_c0.json";
-        }
         {
           role = "primary-tool-invocation";
           path = "metadata/primary-tool.json";
@@ -1481,6 +1629,41 @@ let
       mkdir -p "$build_dir/reports/config_0"
       cp -a ${link}/reports/config_0/. "$build_dir/reports/config_0/"
       cp -a ${validate}/reports/config_0/. "$build_dir/reports/config_0/"
+      ${lib.optionalString (checkedUserProjectDelta != null) ''
+        expected_locked_sha256="$(jq -r '.compatibility.shellRoutedLockedDcpSha256' \
+          ${shellPackage}/metadata/shell.json)"
+        for descriptor in \
+          'link|${link}|${linkSourceIntegrity.gatePath}' \
+          'place|${place}|${placeSourceIntegrity.gatePath}' \
+          'route|${route}|${routeSourceIntegrity.gatePath}'; do
+          IFS='|' read -r phase stage gate_path <<< "$descriptor"
+          gate="$stage/$gate_path"
+          if [ ! -f "$gate" ]; then
+            echo "ERROR: $phase stage lacks protected-static source-delta evidence" >&2
+            exit 1
+          fi
+          jq -e \
+            --arg phase "$phase" \
+            --arg expectedReference "$expected_locked_sha256" \
+            --arg deltaContractId '${checkedUserProjectDelta.contractId}' \
+            '.schemaVersion == 1
+             and .api == "coyote-nix.protected-static-integrity/v1"
+             and .failClosed == true
+             and .outcome == "accepted"
+             and .phase == $phase
+             and .reference.checkpointSha256 == $expectedReference
+             and .reference.baseCoyoteSourceId == "${checkedUserProjectDelta.base.sourceId}"
+             and .candidate.candidateCoyoteSourceId == "${checkedUserProjectDelta.candidate.sourceId}"
+             and .candidate.effectiveCoyoteSourceId == "${checkedUserProjectDelta.effectiveSourceId}"
+             and .candidate.sourceDeltaContractId == $deltaContractId
+             and .partitionPins.identical == true
+             and .protectedStatic.placement.identical == true
+             and .protectedStatic.routing.identical == true
+             and .reasons == []' "$gate" >/dev/null
+          cp -a "$stage/reports/config_0/source-delta-$phase" \
+            "$build_dir/reports/config_0/"
+        done
+      ''}
     '';
     buildCommands = [
       (finalBitgenCommand appExpectedBitstreams)

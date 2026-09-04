@@ -236,6 +236,10 @@ coyote-nix.lib.mkCoyoteAppPackage {
   # Must be the derivation returned by mkCoyoteShellPackage.
   shellPackage = shell;
 
+  # Optional, U280-only verified user-project-generation delta. Its base must
+  # equal coyoteRoot and the shell's exact Coyote source.
+  userProjectCoyoteSource = verifiedCoyoteDelta;
+
   # Optional assertion. Normally inferred from shellPackage.
   board = "u280";
 
@@ -268,6 +272,10 @@ The U280 app graph is `RTL elaboration -> synth -> immutable input bundle -> lin
 Before publishing the linked checkpoint, the U280 and V80 link stage opens the exact routed/locked shell and records the physical partition pins for every application RP. It repeats the snapshot after linking and requires identical logical pins, physical partition-pin locations, pblock ranges, and pblock-site density. The same gate fingerprints all placement-fixed and route-fixed objects outside the application RPs before and after linking. A missing/empty evidence set, changed boundary, or protected-static placement/route drift fails the link. This makes applications with one shell ABI—including application-size or code-distance variants—share the shell's physical RP boundary rather than silently deriving a new one.
 
 The independently rootable link stage and final app package retain `reports/config_0/app_link_partition_pins_c0.json` and `reports/config_0/app_link_integrity_c0.json`. The former contains canonical ordered pin locations plus exact count/density denominators; the latter binds those observations to SHA-256 hashes of the consumed `export.cmake` and routed/locked shell checkpoint and records separate before/after protected-static placement and route fingerprints. coyote-nix validates both files before installing the link stage.
+
+When `userProjectCoyoteSource` is present, it must be a derivation produced by `mkCoyoteSourceDelta` under the `user-project-generation` policy. U280 elaboration, synthesis, link, place, route, validation, and image stages use its verified effective source; the accepted shell and its Coyote identity remain unchanged. Each stage verifies the complete source proof before configuration. The link, place, and route stages also compare their checkpoint against the accepted shell checkpoint and retain `reports/config_0/source-delta-<phase>/gate.json` plus canonical partition-pin, protected-placement, and protected-routing evidence. All three gates must remain accepted and identity-bound before bitgen. This option is rejected for V80 applications.
+
+For an integrated `mkCoyoteBoardPackages` U280 flow, the same argument is accepted only when the sole enabled board supplies `staticCheckpoint`. Static import remains bound to the base `coyoteRoot`; user-project elaboration and implementation use the verified effective source. Link/place/route evidence is retained under `reports/source-delta-<phase>/`, and the final image stage rejects missing, mismatched, or negative evidence.
 
 ### V80 placement portfolios
 
@@ -373,7 +381,7 @@ The shell compatibility ID is SHA-256 over a versioned domain plus:
 
 The application ID binds the shell compatibility ID to the canonical app artifact-manifest hash. Runtime/deployment tooling can compare `metadata/shell-compatibility-id` with the active shell's `metadata/compatibility-id` before loading a partial.
 
-The helper records a Coyote-source mismatch in provenance but does not reject it, since a later Coyote revision may contain app-flow-only fixes. Consumers should normally use the exact same pinned Coyote source for shell and app builds.
+The ordinary helper requires one exact Coyote source at the shell/application boundary. A later user-project-only revision is accepted only through the verified U280 source-delta API above; arbitrary Coyote-source mismatches are not a supported compatibility mechanism.
 
 ## Cross-flake consumer pattern
 

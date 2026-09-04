@@ -8,6 +8,14 @@
       url = "github:taugoust/Coyote/app-link-integrity-evidence";
       flake = false;
     };
+    coyoteDeltaBase = {
+      url = "github:taugoust/Coyote/d0e293778b2e14c3b69c3e9e6295b10dabafe24e";
+      flake = false;
+    };
+    coyoteDeltaCandidate = {
+      url = "github:taugoust/Coyote/a2ea6a76e93e526fc264d4a8eaa11291fc2f33e8";
+      flake = false;
+    };
   };
 
   outputs =
@@ -15,6 +23,8 @@
       nixpkgs,
       flake-utils,
       coyote,
+      coyoteDeltaBase,
+      coyoteDeltaCandidate,
       ...
     }:
     let
@@ -39,6 +49,30 @@
           inherit pkgs;
           coyoteRoot = coyote;
         };
+        coyoteDeltaPatch = ./tests/fixtures/coyote-d0e293-a2ea6a76.patch;
+        coyoteDeltaArguments = {
+          inherit pkgs;
+          baseSource = coyoteDeltaBase;
+          candidateSource = coyoteDeltaCandidate;
+          patch = coyoteDeltaPatch;
+          baseSourceId = "06d94332001897aa79cf950e18f6fa98315c38d3c10fe41678f1f5e68fc902b0";
+          candidateSourceId = "876c2cfc1b8914a1791143eb5a307658eed59a46a44bcb340a98d42e47034706";
+          patchSha256 = "0d0b4e254b6de98df76eda04543f7c10374957dda9d7812e087dae81e879b43e";
+          changedPaths = [
+            "scripts/cr_prjcts/cr_user.tcl.in"
+            "tests/user_project_source_management/template_contract.tcl"
+          ];
+          policy = "user-project-generation";
+        };
+        verifiedCoyoteUserProjectDelta = coyoteNixLib.mkCoyoteSourceDelta coyoteDeltaArguments;
+        invalidCoyoteDeltaRevisionEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteSourceDelta (
+            coyoteDeltaArguments
+            // {
+              baseRevision = coyoteDeltaCandidate.rev;
+            }
+          )).drvPath
+        );
         runtimeToolTestCoyoteRoot = pkgs.runCommand "coyote-runtime-tool-test-source" { } ''
           mkdir -p "$out/sw/include/coyote" "$out/sw/src"
           cat > "$out/sw/include/coyote/cRcnfg.hpp" <<'EOF'
@@ -448,6 +482,127 @@
           pname = "example-v80-app";
           shellPackage = evalV80Shell;
         };
+        evalDeltaU280Shell = coyoteNixLib.mkCoyoteShellPackage {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = coyoteDeltaBase;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pname = "example-delta-u280-shell";
+          board = "u280";
+          xilinxVersion = "2023.2";
+        };
+        evalDeltaU280App = coyoteNixLib.mkCoyoteAppPackage {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = coyoteDeltaBase;
+          userProjectCoyoteSource = verifiedCoyoteUserProjectDelta;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pname = "example-delta-u280-app";
+          shellPackage = evalDeltaU280Shell;
+        };
+        evalDeltaV80Shell = coyoteNixLib.mkCoyoteShellPackage {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = coyoteDeltaBase;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pname = "example-delta-v80-shell";
+          board = "v80";
+          xilinxVersion = "site-selected-v80-build-version";
+        };
+        invalidDeltaV80AppEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteAppPackage {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = coyoteDeltaBase;
+            userProjectCoyoteSource = verifiedCoyoteUserProjectDelta;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "invalid-delta-v80-app";
+            shellPackage = evalDeltaV80Shell;
+          }).drvPath
+        );
+        invalidMismatchedCoyoteAppEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteAppPackage {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = coyoteDeltaCandidate;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "invalid-mismatched-coyote-app";
+            shellPackage = evalDeltaU280Shell;
+          }).drvPath
+        );
+        unverifiedCoyoteSource = pkgs.runCommand "unverified-coyote-source" { } ''
+          mkdir -p "$out"
+        '';
+        invalidUnverifiedDeltaAppEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteAppPackage {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = coyoteDeltaBase;
+            userProjectCoyoteSource = unverifiedCoyoteSource;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "invalid-unverified-delta-app";
+            shellPackage = evalDeltaU280Shell;
+          }).drvPath
+        );
+        evalDeltaImportedU280Static = coyoteNixLib.mkCoyoteBoardPackages {
+          inherit pkgs;
+          tools = evalTools;
+          coyoteRoot = coyoteDeltaBase;
+          userProjectCoyoteSource = verifiedCoyoteUserProjectDelta;
+          hwSource = ./.;
+          xilinxShareRoot = "/nonexistent/xilinx";
+          pnamePrefix = "example-delta-imported";
+          projectName = "example-project";
+          boards.u280 = {
+            xilinxVersion = "2023.2";
+            staticCheckpoint = {
+              stage = ./.;
+              manifestId = builtins.concatStringsSep "" (builtins.genList (_: "1") 64);
+              checkpointSha256 = builtins.concatStringsSep "" (builtins.genList (_: "2") 64);
+              coyoteSourceId = coyoteDeltaArguments.baseSourceId;
+              fixedRouteNets = 7;
+            };
+          };
+        };
+        invalidDeltaWithoutImportedStaticEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteBoardPackages {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = coyoteDeltaBase;
+            userProjectCoyoteSource = verifiedCoyoteUserProjectDelta;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pnamePrefix = "invalid-delta-no-import";
+            boards.u280.xilinxVersion = "2023.2";
+          })."invalid-delta-no-import-u280".drvPath
+        );
+        invalidDeltaMismatchedBaseEval = builtins.tryEval (
+          (coyoteNixLib.mkCoyoteBoardPackages {
+            inherit pkgs;
+            tools = evalTools;
+            coyoteRoot = ./.;
+            userProjectCoyoteSource = verifiedCoyoteUserProjectDelta;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pnamePrefix = "invalid-delta-base";
+            boards.u280 = {
+              xilinxVersion = "2023.2";
+              staticCheckpoint = {
+                stage = ./.;
+                manifestId = builtins.concatStringsSep "" (builtins.genList (_: "1") 64);
+                checkpointSha256 = builtins.concatStringsSep "" (builtins.genList (_: "2") 64);
+                coyoteSourceId = builtins.hashString "sha256" (toString ./.);
+                fixedRouteNets = 7;
+              };
+            };
+          })."invalid-delta-base-u280".drvPath
+        );
         evalV80AppPortfolio = coyoteNixLib.mkCoyoteAppPackage {
           inherit pkgs;
           tools = evalTools;
@@ -643,6 +798,194 @@
         ];
       in
       {
+        checks.coyote-source-delta =
+          assert coyoteNixLib ? mkCoyoteSourceDelta;
+          assert !invalidCoyoteDeltaRevisionEval.success;
+          assert verifiedCoyoteUserProjectDelta.coyoteSourceDelta.kind == "verified-coyote-source-delta";
+          assert verifiedCoyoteUserProjectDelta.coyoteSourceDelta.failClosed;
+          assert
+            verifiedCoyoteUserProjectDelta.coyoteSourceDelta.base.sourceId == coyoteDeltaArguments.baseSourceId;
+          assert
+            verifiedCoyoteUserProjectDelta.coyoteSourceDelta.candidate.sourceId
+            == coyoteDeltaArguments.candidateSourceId;
+          pkgs.runCommand "coyote-source-delta-check"
+            {
+              nativeBuildInputs = [
+                pkgs.diffutils
+                pkgs.git
+                pkgs.jq
+                pkgs.python3
+              ];
+            }
+            ''
+              delta_tool=${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.verificationTool}
+              delta_proof=${verifiedCoyoteUserProjectDelta}
+              verify_proof() {
+                python3 "$delta_tool" verify \
+                  --base-source ${coyoteDeltaBase} \
+                  --candidate-source ${coyoteDeltaCandidate} \
+                  --patch ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.patch.path} \
+                  --base-source-id ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.base.sourceId} \
+                  --candidate-source-id ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.candidate.sourceId} \
+                  --base-revision ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.base.revision} \
+                  --candidate-revision ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.candidate.revision} \
+                  --patch-sha256 ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.patch.sha256} \
+                  --policy ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.policy} \
+                  --policy-id ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.policyId} \
+                  --delta-contract-id ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.contractId} \
+                  ${
+                    pkgs.lib.concatMapStringsSep " \\\n                  " (
+                      path: "--changed-path ${pkgs.lib.escapeShellArg path}"
+                    ) verifiedCoyoteUserProjectDelta.coyoteSourceDelta.patch.changedPaths
+                  } \
+                  --proof "$1"
+              }
+              expect_rejection() {
+                label="$1"
+                shift
+                if "$@" >"$TMPDIR/$label.stdout" 2>"$TMPDIR/$label.stderr"; then
+                  echo "ERROR: source-delta verifier accepted $label" >&2
+                  exit 1
+                fi
+                grep -F 'ERROR:' "$TMPDIR/$label.stderr" >/dev/null
+              }
+
+              verify_proof "$delta_proof"
+              diff --no-dereference --recursive ${coyoteDeltaCandidate}/ "$delta_proof/source/"
+              jq -e '
+                .failClosed == true
+                and .outcome == "accepted"
+                and .base.revision == "d0e293778b2e14c3b69c3e9e6295b10dabafe24e"
+                and .candidate.revision == "a2ea6a76e93e526fc264d4a8eaa11291fc2f33e8"
+                and [.changedPaths[].path] == [
+                  "scripts/cr_prjcts/cr_user.tcl.in",
+                  "tests/user_project_source_management/template_contract.tcl"
+                ]
+                and (.treeManifest.sha256 | test("^[0-9a-f]{64}$"))
+                and (.contractId | test("^[0-9a-f]{64}$"))
+                and (.policy.id | test("^[0-9a-f]{64}$"))
+              ' "$delta_proof/metadata/delta.json" >/dev/null
+              jq -e '
+                .api == "coyote-nix.coyote-source-delta-completion/v1"
+                and .failClosed == true
+                and .outcome == "accepted"
+                and .deltaContractId == "${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.contractId}"
+              ' "$delta_proof/metadata/complete.json" >/dev/null
+
+              cp -a "$delta_proof" "$TMPDIR/tampered-source"
+              chmod -R u+w "$TMPDIR/tampered-source"
+              printf '\nsource tamper\n' >> \
+                "$TMPDIR/tampered-source/source/scripts/cr_prjcts/cr_user.tcl.in"
+              expect_rejection tampered-source verify_proof "$TMPDIR/tampered-source"
+
+              cp -a "$delta_proof" "$TMPDIR/unexpected-entry"
+              chmod -R u+w "$TMPDIR/unexpected-entry"
+              : > "$TMPDIR/unexpected-entry/uncontracted"
+              expect_rejection unexpected-proof-entry verify_proof "$TMPDIR/unexpected-entry"
+
+              cp ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.patch.path} \
+                "$TMPDIR/tampered.patch"
+              chmod u+w "$TMPDIR/tampered.patch"
+              printf '\n# tamper\n' >> "$TMPDIR/tampered.patch"
+              expect_rejection tampered-patch \
+                python3 "$delta_tool" verify \
+                  --base-source ${coyoteDeltaBase} \
+                  --candidate-source ${coyoteDeltaCandidate} \
+                  --patch "$TMPDIR/tampered.patch" \
+                  --base-source-id ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.base.sourceId} \
+                  --candidate-source-id ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.candidate.sourceId} \
+                  --base-revision ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.base.revision} \
+                  --candidate-revision ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.candidate.revision} \
+                  --patch-sha256 ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.patch.sha256} \
+                  --policy ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.policy} \
+                  --policy-id ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.policyId} \
+                  --delta-contract-id ${verifiedCoyoteUserProjectDelta.coyoteSourceDelta.contractId} \
+                  ${
+                    pkgs.lib.concatMapStringsSep " \\\n                  " (
+                      path: "--changed-path ${pkgs.lib.escapeShellArg path}"
+                    ) verifiedCoyoteUserProjectDelta.coyoteSourceDelta.patch.changedPaths
+                  } \
+                  --proof "$delta_proof"
+
+              touch "$out"
+            '';
+
+        checks.coyote-source-delta-package-api =
+          assert !invalidDeltaV80AppEval.success;
+          assert !invalidMismatchedCoyoteAppEval.success;
+          assert !invalidUnverifiedDeltaAppEval.success;
+          assert !invalidDeltaWithoutImportedStaticEval.success;
+          assert !invalidDeltaMismatchedBaseEval.success;
+          assert evalDeltaU280App.coyoteTwoStage.coyoteSource == toString coyoteDeltaBase;
+          assert
+            evalDeltaU280App.coyoteTwoStage.effectiveUserProjectCoyoteSource
+            == toString verifiedCoyoteUserProjectDelta.coyoteSourceDelta.source;
+          assert
+            evalDeltaU280App.coyoteTwoStage.coyoteSourceDelta.contractId
+            == verifiedCoyoteUserProjectDelta.coyoteSourceDelta.contractId;
+          assert
+            evalDeltaU280App.coyoteTwoStage.physical.linkIntegrity.api
+            == "coyote-nix.protected-static-integrity/v1";
+          assert evalDeltaU280App.coyoteTwoStage.physical.linkIntegrity.failClosed;
+          assert
+            evalDeltaU280App.coyoteTwoStage.stages.elaboration.coyoteBuildSource.baseSource
+            == toString coyoteDeltaBase;
+          assert
+            evalDeltaU280App.coyoteTwoStage.stages.elaboration.coyoteBuildSource.effectiveSource
+            == toString verifiedCoyoteUserProjectDelta.coyoteSourceDelta.source;
+          assert
+            evalDeltaImportedU280Static."example-delta-imported-u280-static".coyoteStaticCheckpoint.coyoteSourceId
+            == coyoteDeltaArguments.baseSourceId;
+          assert
+            evalDeltaImportedU280Static."example-delta-imported-u280-elaboration".coyoteBuildSource.coyoteSourceDeltaId
+            == verifiedCoyoteUserProjectDelta.coyoteSourceDelta.contractId;
+          assert
+            evalDeltaImportedU280Static."example-delta-imported-u280-synth".coyoteBuildSource.effectiveSource
+            == toString verifiedCoyoteUserProjectDelta.coyoteSourceDelta.source;
+          pkgs.runCommand "coyote-source-delta-package-api"
+            {
+              nativeBuildInputs = [ pkgs.gnugrep ];
+            }
+            ''
+              app_elaboration=${phaseScript "delta-app-elaboration.sh" evalDeltaU280App.coyoteTwoStage.stages.elaboration.buildPhase}
+              app_link=${phaseScript "delta-app-link.sh" evalDeltaU280App.coyoteTwoStage.stages.link.buildPhase}
+              app_place=${phaseScript "delta-app-place.sh" evalDeltaU280App.coyoteTwoStage.stages.place.buildPhase}
+              app_route=${phaseScript "delta-app-route.sh" evalDeltaU280App.coyoteTwoStage.stages.route.buildPhase}
+              integrated_elaboration=${
+                phaseScript "delta-integrated-elaboration.sh"
+                  evalDeltaImportedU280Static."example-delta-imported-u280-elaboration".buildPhase
+              }
+              integrated_routed=${
+                phaseScript "delta-integrated-routed.sh"
+                  evalDeltaImportedU280Static."example-delta-imported-u280-routed".buildPhase
+              }
+              integrated_final=${
+                phaseScript "delta-integrated-final.sh"
+                  evalDeltaImportedU280Static."example-delta-imported-u280".buildPhase
+              }
+
+              for script in "$app_elaboration" "$app_link" "$app_place" "$app_route" \
+                "$integrated_elaboration" "$integrated_routed" "$integrated_final"; do
+                grep -F 'coyote-source-delta.py' "$script" >/dev/null
+                grep -F ' verify ' "$script" >/dev/null
+              done
+              for descriptor in \
+                "link:$app_link" \
+                "place:$app_place" \
+                "route:$app_route"; do
+                phase="''${descriptor%%:*}"
+                script="''${descriptor#*:}"
+                grep -F 'coyote-protected-static-integrity.tcl' "$script" >/dev/null
+                grep -F "source-delta-$phase" "$script" >/dev/null
+              done
+              grep -F 'reports/source-delta-link' "$integrated_routed" >/dev/null
+              grep -F 'reports/source-delta-place' "$integrated_routed" >/dev/null
+              grep -F 'reports/source-delta-route' "$integrated_routed" >/dev/null
+              grep -F 'routed stage lacks $phase protected-static integrity evidence' \
+                "$integrated_final" >/dev/null
+              touch "$out"
+            '';
+
         checks.coyote-app-link-integrity = defaultCoyoteSourceChecks.appLinkIntegrityContract;
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
@@ -696,6 +1039,52 @@
             ''
               cd ${./.}
               bash tests/app-elaboration.sh nix/tools/coyote-app-elaboration.tcl
+              touch "$out"
+            '';
+
+        checks.protected-static-integrity =
+          pkgs.runCommand "protected-static-integrity-contract"
+            {
+              nativeBuildInputs = [
+                pkgs.coreutils
+                pkgs.jq
+                pkgs.tcl
+              ];
+            }
+            ''
+              cd "$TMPDIR"
+              tclsh ${./tests/protected-static-integrity.tcl} \
+                ${./nix/tools/coyote-protected-static-integrity.tcl}
+              gate="$TMPDIR/protected-static-integrity-fixture/gate.json"
+              rejected="$TMPDIR/protected-static-integrity-fixture/rejected-gate.json"
+              jq -e '
+                .schemaVersion == 1
+                and .api == "coyote-nix.protected-static-integrity/v1"
+                and .kind == "coyote-protected-static-integrity"
+                and .failClosed == true
+                and .outcome == "accepted"
+                and .phase == "route"
+                and .partitionPaths == ["inst_shell"]
+                and .partitionPins.identical == true
+                and .partitionPins.reference == .partitionPins.candidate
+                and .partitionPins.reference.objectCount == 2
+                and .protectedStatic.placement.identical == true
+                and .protectedStatic.placement.reference.objectCount == 2
+                and .protectedStatic.routing.identical == true
+                and .protectedStatic.routing.reference.objectCount == 2
+                and (.evidence | length) == 6
+                and .reasons == []
+              ' "$gate" >/dev/null
+              jq -e '
+                .failClosed == true
+                and .outcome == "rejected"
+                and .partitionPins.identical == false
+                and (.reasons | length) > 0
+              ' "$rejected" >/dev/null
+              while IFS=$'\t' read -r path expected; do
+                test "$(sha256sum "$TMPDIR/protected-static-integrity-fixture/$path" | cut -d' ' -f1)" = \
+                  "$expected"
+              done < <(jq -r '.evidence[] | [.path, .sha256] | @tsv' "$gate")
               touch "$out"
             '';
 

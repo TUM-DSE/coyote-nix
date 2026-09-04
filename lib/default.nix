@@ -1,6 +1,7 @@
 {
   mkTools = import ./mkTools.nix;
   mkCoyoteHwStagePackage = import ./mkCoyoteHwStagePackage.nix;
+  mkCoyoteSourceDelta = import ./mkCoyoteSourceDelta.nix;
   mkCoyoteBoardPackages = import ./mkCoyoteBoardPackages.nix;
   mkCoyoteShellPackage = import ./mkCoyoteShellPackage.nix;
   mkCoyoteV80StaticCheckpointPackage = import ./mkCoyoteV80StaticCheckpointPackage.nix;

@@ -2,6 +2,8 @@
   pkgs,
   tools,
   coyoteRoot,
+  baseCoyoteRoot ? coyoteRoot,
+  coyoteSourceDelta ? null,
   hwSource,
   xilinxShareRoot,
   xilinxShell ? null,
@@ -21,6 +23,7 @@ rec {
       cmakeFlags ? [ ],
       buildCommands ? [ ],
       expectedPaths ? [ ],
+      preConfigureSetup ? "",
       preBuildSetup ? "",
       extraInstallPhase ? "",
       description ? "Coyote hardware build stage for ${board.platform}",
@@ -46,16 +49,225 @@ rec {
         preBuildSetup
         extraInstallPhase
         description
-        nativeBuildInputs
         cores
         checkTimingLog
-        extraAttrs
         ;
+      preConfigureSetup =
+        lib.optionalString (coyoteSourceDelta != null) coyoteSourceDelta.verificationCommand
+        + preConfigureSetup;
+      nativeBuildInputs =
+        nativeBuildInputs
+        ++ lib.optionals (coyoteSourceDelta != null) [
+          pkgs.git
+          pkgs.python3
+        ];
+      extraAttrs = lib.recursiveUpdate extraAttrs {
+        passthru.coyoteBuildSource = {
+          api = "coyote-nix.coyote-build-source/v1";
+          sourceDeltaVerified = coyoteSourceDelta != null;
+          baseSource = toString baseCoyoteRoot;
+          effectiveSource = toString coyoteRoot;
+          baseCoyoteSourceId = builtins.hashString "sha256" (
+            builtins.unsafeDiscardStringContext (toString baseCoyoteRoot)
+          );
+          coyoteSourceId = builtins.hashString "sha256" (
+            builtins.unsafeDiscardStringContext (toString coyoteRoot)
+          );
+          coyoteSourceDeltaId = if coyoteSourceDelta == null then null else coyoteSourceDelta.contractId;
+        };
+      };
       platform = board.platform;
       coyotePlatform = board.coyotePlatform;
     };
 
   appElaborationTool = ../nix/tools/coyote-app-elaboration.tcl;
+  protectedStaticIntegrityTool = ../nix/tools/coyote-protected-static-integrity.tcl;
+
+  mkProtectedStaticIntegrityGate =
+    {
+      phase,
+      board,
+      referenceCheckpoint,
+      candidateCheckpoint,
+      referenceContract,
+      referenceContractId,
+      partitionPaths,
+      reportDirectory ? "reports/source-delta-${phase}",
+      expectedReferenceCheckpointSha256 ? null,
+    }:
+    let
+      validPhase = builtins.elem phase [
+        "link"
+        "place"
+        "route"
+      ];
+      isSha256 = value: builtins.isString value && builtins.match "[0-9a-f]{64}" value != null;
+      isCanonicalRelativePath =
+        value:
+        builtins.isString value && builtins.match "[A-Za-z0-9._+-]+(/[A-Za-z0-9._+-]+)*" value != null;
+      isContextBoundPath =
+        value:
+        builtins.isPath value
+        || lib.isDerivation value
+        || (builtins.isString value && builtins.attrNames (builtins.getContext value) != [ ]);
+      canonicalPartitionPaths =
+        if builtins.isList partitionPaths then lib.sort builtins.lessThan partitionPaths else [ ];
+      outputDirectory = reportDirectory;
+      gatePath = "${outputDirectory}/gate.json";
+      evidenceFiles = [
+        "reference-partition-pins.tsv"
+        "candidate-partition-pins.tsv"
+        "reference-static-placement.tsv"
+        "candidate-static-placement.tsv"
+        "reference-static-routing.tsv"
+        "candidate-static-routing.tsv"
+      ];
+      expectedPaths = [ gatePath ] ++ map (name: "${outputDirectory}/${name}") evidenceFiles;
+      artifacts = [
+        {
+          role = "${phase}-protected-static-integrity";
+          path = gatePath;
+        }
+      ]
+      ++ map (name: {
+        role = "${phase}-protected-static-${lib.removeSuffix ".tsv" name}";
+        path = "${outputDirectory}/${name}";
+      }) evidenceFiles;
+      checked =
+        if coyoteSourceDelta == null then
+          throw "coyote-nix: protected-static source-delta integrity requires a verified source delta"
+        else if !validPhase then
+          throw "coyote-nix: protected-static integrity supports only link, place, and route"
+        else if !isSha256 referenceContractId then
+          throw "coyote-nix: protected-static integrity referenceContractId must be a lowercase SHA-256 digest"
+        else if
+          expectedReferenceCheckpointSha256 != null && !isSha256 expectedReferenceCheckpointSha256
+        then
+          throw "coyote-nix: protected-static integrity reference checkpoint hash must be a lowercase SHA-256 digest"
+        else if !isContextBoundPath referenceCheckpoint || !isContextBoundPath referenceContract then
+          throw "coyote-nix: protected-static integrity reference inputs must be immutable Nix paths"
+        else if !isCanonicalRelativePath candidateCheckpoint then
+          throw "coyote-nix: protected-static integrity candidateCheckpoint must be a canonical relative path"
+        else if !isCanonicalRelativePath reportDirectory then
+          throw "coyote-nix: protected-static integrity reportDirectory must be a canonical relative path"
+        else if
+          !builtins.isList partitionPaths
+          || partitionPaths == [ ]
+          || partitionPaths != canonicalPartitionPaths
+          || partitionPaths != lib.unique partitionPaths
+          || !builtins.all isCanonicalRelativePath partitionPaths
+        then
+          throw "coyote-nix: protected-static integrity requires canonical, unique, sorted partition paths"
+        else
+          true;
+      verificationCommand = ''
+        jq -e \
+          --arg phase ${lib.escapeShellArg phase} \
+          --arg board ${lib.escapeShellArg board.board} \
+          --arg architecture ${lib.escapeShellArg board.fpgaArchitecture} \
+          --arg part ${lib.escapeShellArg board.fpgaPart} \
+          --arg xilinxVersion ${lib.escapeShellArg board.xilinxVersion} \
+          --arg referenceContractId ${lib.escapeShellArg referenceContractId} \
+          --arg baseSourceId ${lib.escapeShellArg coyoteSourceDelta.base.sourceId} \
+          --arg candidateSourceId ${lib.escapeShellArg coyoteSourceDelta.candidate.sourceId} \
+          --arg effectiveSourceId ${lib.escapeShellArg coyoteSourceDelta.effectiveSourceId} \
+          --arg deltaContractId ${lib.escapeShellArg coyoteSourceDelta.contractId} \
+          --arg expectedReferenceCheckpointSha256 ${
+            lib.escapeShellArg (
+              if expectedReferenceCheckpointSha256 == null then "" else expectedReferenceCheckpointSha256
+            )
+          } \
+          --argjson partitionPaths ${lib.escapeShellArg (builtins.toJSON partitionPaths)} \
+          '
+            .schemaVersion == 1
+            and .api == "coyote-nix.protected-static-integrity/v1"
+            and .kind == "coyote-protected-static-integrity"
+            and .failClosed == true
+            and .outcome == "accepted"
+            and .phase == $phase
+            and .board == $board
+            and .fpgaArchitecture == $architecture
+            and .fpgaPart == $part
+            and .vivadoVersion == $xilinxVersion
+            and .partitionPaths == $partitionPaths
+            and .reference.contractId == $referenceContractId
+            and .reference.baseCoyoteSourceId == $baseSourceId
+            and ($expectedReferenceCheckpointSha256 == ""
+              or .reference.checkpointSha256 == $expectedReferenceCheckpointSha256)
+            and .candidate.candidateCoyoteSourceId == $candidateSourceId
+            and .candidate.effectiveCoyoteSourceId == $effectiveSourceId
+            and .candidate.sourceDeltaContractId == $deltaContractId
+            and (.reference.checkpointSha256 | test("^[0-9a-f]{64}$"))
+            and (.reference.contractSha256 | test("^[0-9a-f]{64}$"))
+            and (.candidate.checkpointSha256 | test("^[0-9a-f]{64}$"))
+            and .partitionPins.identical == true
+            and .partitionPins.reference == .partitionPins.candidate
+            and .partitionPins.reference.objectCount > 0
+            and .partitionPins.reference.physicalLocationCount > 0
+            and .partitionPins.reference.pblockSiteCount > 0
+            and .protectedStatic.placement.identical == true
+            and .protectedStatic.placement.reference == .protectedStatic.placement.candidate
+            and .protectedStatic.placement.reference.objectCount > 0
+            and .protectedStatic.routing.identical == true
+            and .protectedStatic.routing.reference == .protectedStatic.routing.candidate
+            and .protectedStatic.routing.reference.objectCount > 0
+            and (.evidence | length) == 6
+            and ([.evidence[].role] | unique | length) == 6
+            and ([.evidence[].path] | sort) == [
+              "candidate-partition-pins.tsv",
+              "candidate-static-placement.tsv",
+              "candidate-static-routing.tsv",
+              "reference-partition-pins.tsv",
+              "reference-static-placement.tsv",
+              "reference-static-routing.tsv"
+            ]
+            and all(.evidence[];
+              (.sha256 | test("^[0-9a-f]{64}$"))
+              and (.path | test("^[a-z-]+\\.tsv$")))
+            and .reasons == []
+          ' "$build_dir/${gatePath}" >/dev/null
+        while IFS=$'\t' read -r evidence_path expected_sha256; do
+          actual_sha256="$(sha256sum "$build_dir/${outputDirectory}/$evidence_path" | cut -d ' ' -f 1)"
+          if [ "$actual_sha256" != "$expected_sha256" ]; then
+            echo "ERROR: protected-static integrity evidence hash mismatch: $evidence_path" >&2
+            exit 1
+          fi
+        done < <(jq -r '.evidence[] | [.path, .sha256] | @tsv' "$build_dir/${gatePath}")
+      '';
+    in
+    assert checked;
+    {
+      inherit
+        artifacts
+        expectedPaths
+        gatePath
+        outputDirectory
+        verificationCommand
+        ;
+      command = ''
+        vivado -mode tcl -source ${protectedStaticIntegrityTool} -notrace -tclargs \
+          ${lib.escapeShellArg phase} \
+          ${lib.escapeShellArg (toString referenceCheckpoint)} \
+          "$build_dir/${candidateCheckpoint}" \
+          ${lib.escapeShellArg (toString referenceContract)} \
+          "$build_dir/${outputDirectory}" \
+          ${lib.escapeShellArg board.board} \
+          ${lib.escapeShellArg board.fpgaArchitecture} \
+          ${lib.escapeShellArg board.fpgaPart} \
+          ${lib.escapeShellArg board.xilinxVersion} \
+          ${lib.escapeShellArg referenceContractId} \
+          ${lib.escapeShellArg coyoteSourceDelta.base.sourceId} \
+          ${lib.escapeShellArg coyoteSourceDelta.candidate.sourceId} \
+          ${lib.escapeShellArg coyoteSourceDelta.effectiveSourceId} \
+          ${lib.escapeShellArg coyoteSourceDelta.contractId} \
+          ${lib.concatMapStringsSep " \\\n          " lib.escapeShellArg partitionPaths}
+        ${verificationCommand}
+      '';
+      install = ''
+        mkdir -p "$out/${outputDirectory}"
+        cp "$build_dir/${outputDirectory}/"* "$out/${outputDirectory}/"
+      '';
+    };
 
   mkAppElaborationStage =
     {
@@ -89,6 +301,14 @@ rec {
           };
           sourceManagementMode = "All";
           coyoteSource = toString coyoteRoot;
+          coyoteSourceId = builtins.hashString "sha256" (
+            builtins.unsafeDiscardStringContext (toString coyoteRoot)
+          );
+          baseCoyoteSource = toString baseCoyoteRoot;
+          baseCoyoteSourceId = builtins.hashString "sha256" (
+            builtins.unsafeDiscardStringContext (toString baseCoyoteRoot)
+          );
+          coyoteSourceDeltaId = if coyoteSourceDelta == null then null else coyoteSourceDelta.contractId;
           hardwareSource = toString hwSource;
           units = "reports/app-elaboration/units.tsv";
           completion = "reports/app-elaboration/complete";

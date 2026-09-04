@@ -17,6 +17,40 @@
         "type": "github"
       }
     },
+    "coyoteDeltaBase": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788366318,
+        "narHash": "sha256-ExJfvp12lzcdxCp3ZQXvj5vUYhIxrgljQDQv9ViyJCc=",
+        "owner": "taugoust",
+        "repo": "Coyote",
+        "rev": "d0e293778b2e14c3b69c3e9e6295b10dabafe24e",
+        "type": "github"
+      },
+      "original": {
+        "owner": "taugoust",
+        "repo": "Coyote",
+        "rev": "d0e293778b2e14c3b69c3e9e6295b10dabafe24e",
+        "type": "github"
+      }
+    },
+    "coyoteDeltaCandidate": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788507391,
+        "narHash": "sha256-5SzpnHUIPCVIl2rHqtE1XuM4PtjyJMObEE1yZOulD7k=",
+        "owner": "taugoust",
+        "repo": "Coyote",
+        "rev": "a2ea6a76e93e526fc264d4a8eaa11291fc2f33e8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "taugoust",
+        "repo": "Coyote",
+        "rev": "a2ea6a76e93e526fc264d4a8eaa11291fc2f33e8",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -54,6 +88,8 @@
     "root": {
       "inputs": {
         "coyote": "coyote",
+        "coyoteDeltaBase": "coyoteDeltaBase",
+        "coyoteDeltaCandidate": "coyoteDeltaCandidate",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs"
       }

@@ -2,6 +2,7 @@
   pkgs,
   tools,
   coyoteRoot,
+  userProjectCoyoteSource ? null,
   hwSource,
   xilinxShareRoot,
   xilinxShell ? null,
@@ -15,7 +16,29 @@ let
   lib = pkgs.lib;
   boardDefaults = import ./coyoteBoardProfiles.nix;
 
-  stageHelpers = import ./coyoteHwStageHelpers.nix {
+  enabledRequestedBoardNames = builtins.attrNames (
+    lib.filterAttrs (_name: cfg: cfg.enable or true) boards
+  );
+  hasImportedU280 =
+    enabledRequestedBoardNames == [ "u280" ] && (boards.u280.staticCheckpoint or null) != null;
+  requestedUserProjectDelta =
+    if userProjectCoyoteSource == null then
+      null
+    else
+      import ./validateCoyoteSourceDelta.nix {
+        inherit pkgs;
+        baseSource = coyoteRoot;
+        sourceDelta = userProjectCoyoteSource;
+      };
+  checkedUserProjectDelta =
+    if requestedUserProjectDelta != null && !hasImportedU280 then
+      throw "coyote-nix: a split user-project Coyote source is permitted only for a U280 imported-static flow"
+    else
+      requestedUserProjectDelta;
+  effectiveUserProjectCoyoteRoot =
+    if checkedUserProjectDelta == null then coyoteRoot else checkedUserProjectDelta.source;
+
+  staticStageHelpers = import ./coyoteHwStageHelpers.nix {
     inherit
       pkgs
       tools
@@ -26,15 +49,30 @@ let
       version
       ;
   };
+  userProjectStageHelpers = import ./coyoteHwStageHelpers.nix {
+    inherit
+      pkgs
+      tools
+      hwSource
+      xilinxShareRoot
+      xilinxShell
+      version
+      ;
+    coyoteRoot = effectiveUserProjectCoyoteRoot;
+    baseCoyoteRoot = coyoteRoot;
+    coyoteSourceDelta = checkedUserProjectDelta;
+  };
 
-  inherit (stageHelpers)
+  inherit (userProjectStageHelpers)
     copyPreviousStageSetup
     finalBitgenCommand
     installCheckpointReports
     installFinalReportsAndArtifacts
     mkAppElaborationStage
+    mkProtectedStaticIntegrityGate
     mkStage
     ;
+  staticMkStage = staticStageHelpers.mkStage;
 
   mkCoyoteSimPackage =
     {
@@ -45,8 +83,9 @@ let
       preBuildSetup ? "",
       simset ? "sim_1",
       mode ? "behavioral",
+      stageBuilder ? mkStage,
     }:
-    mkStage {
+    stageBuilder {
       inherit
         pname
         board
@@ -236,7 +275,7 @@ let
         if importedStaticCheckpoint != null then
           null
         else
-          mkStage {
+          staticMkStage {
             pname = board.staticSynthPname or "${pnamePrefix}-${board.platform}-static-synth";
             inherit board xilinxVersion;
             cmakeFlags = [
@@ -273,7 +312,7 @@ let
         if staticSynth == null then
           null
         else
-          mkStage {
+          staticMkStage {
             pname = board.staticRoutedPname or "${pnamePrefix}-${board.platform}-static-routed";
             inherit board xilinxVersion;
             cmakeFlags = [
@@ -330,6 +369,30 @@ let
             routedStage = staticRouted;
           };
 
+      mkImportedStaticIntegrity =
+        phase: candidateCheckpoint:
+        if checkedUserProjectDelta == null then
+          null
+        else
+          mkProtectedStaticIntegrityGate {
+            inherit phase board;
+            referenceCheckpoint = "${static}/checkpoints/static_routed_locked_u280.dcp";
+            inherit candidateCheckpoint;
+            referenceContract = "${static}/metadata/static-checkpoint.json";
+            referenceContractId = importedStaticCheckpoint.manifestId;
+            expectedReferenceCheckpointSha256 = importedStaticCheckpoint.checkpointSha256;
+            partitionPaths = [ "inst_shell" ];
+            reportDirectory = "reports/source-delta-${phase}";
+          };
+      linkIntegrity = mkImportedStaticIntegrity "link" "checkpoints/shell_linked.dcp";
+      placeIntegrity = mkImportedStaticIntegrity "place" "checkpoints/shell_phys_opted.dcp";
+      routeIntegrity = mkImportedStaticIntegrity "route" "checkpoints/shell_routed.dcp";
+      importedStaticIntegrityGates = lib.optionals (checkedUserProjectDelta != null) [
+        linkIntegrity
+        placeIntegrity
+        routeIntegrity
+      ];
+
       synthesisCmakeFlags = [
         "-DBUILD_APP:STRING=0"
         "-DBUILD_STATIC:STRING=0"
@@ -363,7 +426,14 @@ let
              and .flow.buildShell == true
              and .flow.rtlOnly == true
              and .flow.synthesis == false
-             and .flow.implementation == false' \
+             and .flow.implementation == false
+             ${
+               lib.optionalString (checkedUserProjectDelta != null) ''
+                 and .baseCoyoteSourceId == "${checkedUserProjectDelta.base.sourceId}"
+                 and .coyoteSourceId == "${checkedUserProjectDelta.effectiveSourceId}"
+                 and .coyoteSourceDeltaId == "${checkedUserProjectDelta.contractId}"
+               ''
+             }' \
             ${elaboration}/metadata/elaboration.json >/dev/null
         '';
         buildCommands = [
@@ -410,7 +480,8 @@ let
         buildCommands = [
           "make project"
           "make shell"
-        ];
+        ]
+        ++ map (integrity: integrity.command) importedStaticIntegrityGates;
         expectedPaths = [
           "checkpoints/shell/shell_synthed.dcp"
           "checkpoints/config_0/user_synthed_c0_0.dcp"
@@ -419,7 +490,8 @@ let
         ++ intermediateRouteCheckpoints
         ++ [
           "checkpoints/shell_routed.dcp"
-        ];
+        ]
+        ++ lib.concatMap (integrity: integrity.expectedPaths) importedStaticIntegrityGates;
         extraInstallPhase = installCheckpointReports {
           copyAllCheckpoints = true;
           copyAllReports = true;
@@ -439,6 +511,33 @@ let
         ++ (board.appCmakeFlags or [ ]);
         preBuildSetup =
           copyPreviousStageSetup routed { }
+          + lib.optionalString (checkedUserProjectDelta != null) ''
+            for phase in link place route; do
+              gate=${routed}/reports/source-delta-$phase/gate.json
+              if [ ! -f "$gate" ]; then
+                echo "ERROR: routed stage lacks $phase protected-static integrity evidence" >&2
+                exit 1
+              fi
+              jq -e \
+                --arg phase "$phase" \
+                --arg deltaContractId '${checkedUserProjectDelta.contractId}' \
+                --arg referenceSha256 '${importedStaticCheckpoint.checkpointSha256}' \
+                '.schemaVersion == 1
+                 and .api == "coyote-nix.protected-static-integrity/v1"
+                 and .failClosed == true
+                 and .outcome == "accepted"
+                 and .phase == $phase
+                 and .reference.baseCoyoteSourceId == "${checkedUserProjectDelta.base.sourceId}"
+                 and .candidate.candidateCoyoteSourceId == "${checkedUserProjectDelta.candidate.sourceId}"
+                 and .candidate.effectiveCoyoteSourceId == "${checkedUserProjectDelta.effectiveSourceId}"
+                 and .candidate.sourceDeltaContractId == $deltaContractId
+                 and .reference.checkpointSha256 == $referenceSha256
+                 and .partitionPins.identical == true
+                 and .protectedStatic.placement.identical == true
+                 and .protectedStatic.routing.identical == true
+                 and .reasons == []' "$gate" >/dev/null
+            done
+          ''
           + lib.optionalString (board ? finalEnablePr) ''
             base_tcl="$build_dir/base.tcl"
             expected_en_pr="${if board.finalEnablePr then "1" else "0"}"
@@ -485,7 +584,7 @@ let
         "config_0"
       ]
       ++ lib.optionals includeStaticCheckpoint [ "static" ];
-      generatedSynth = mkStage {
+      generatedSynth = staticMkStage {
         pname = board.synthPname or "${pnamePrefix}-${board.platform}-synth";
         inherit board xilinxVersion;
         cmakeFlags = board.cmakeFlags or [ ];
@@ -508,7 +607,7 @@ let
       };
       synth = board.synthesisPackage or generatedSynth;
 
-      routed = mkStage {
+      routed = staticMkStage {
         pname = board.routedPname or "${pnamePrefix}-${board.platform}-routed";
         inherit board xilinxVersion;
         cmakeFlags = (board.cmakeFlags or [ ]) ++ (board.routedCmakeFlags or [ ]);
@@ -542,7 +641,7 @@ let
         description = "Coyote ${board.platform} routed checkpoint stage";
       };
 
-      final = mkStage {
+      final = staticMkStage {
         pname = board.finalPname or "${pnamePrefix}-${board.platform}";
         inherit board xilinxVersion;
         cmakeFlags = board.cmakeFlags or [ ];
@@ -561,6 +660,7 @@ let
           inherit board;
           xilinxVersion = board.simXilinxVersion;
           cmakeFlags = board.simCmakeFlags or [ ];
+          stageBuilder = staticMkStage;
         };
       };
     in

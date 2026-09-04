@@ -24,6 +24,7 @@ Provided here:
 - Xilinx tool wrappers (`vivado`, `hw_server`, `vitis_hls`)
 - common Coyote shell tools (`program-cli`, `deploy-hw`, `reconfigure-app`, driver lifecycle helpers, hot reset, hugepages)
 - generic Coyote hardware stage derivation builder
+- verified, policy-scoped Coyote user-project source deltas with fail-closed protected-static gates
 - generic U280/V80 Coyote board-flow builders
 - reusable U280/V80 two-stage PR shell-export and app-only builders
 - immutable, independently rootable link/opt/place/route/validate/image stages with manifest-checked handoffs and normalized runtime/resource/QoR telemetry
@@ -48,6 +49,7 @@ The flake exposes:
 ```nix
 coyote-nix.lib.mkTools
 coyote-nix.lib.mkCoyoteHwStagePackage
+coyote-nix.lib.mkCoyoteSourceDelta
 coyote-nix.lib.mkCoyoteBoardPackages
 coyote-nix.lib.defaultCoyote
 coyote-nix.lib.defaultCoyoteRevision
@@ -168,6 +170,30 @@ The shell package contains `export.cmake`, `checkpoints/shell_routed_locked.dcp`
 See [`docs/two-stage-packages.md`](docs/two-stage-packages.md) for the complete API, output layouts, board differences, compatibility contract, and consumer guidance.
 
 The established `mkCoyoteBoardPackages` arguments and existing package names are unchanged; the U280 elaboration, synthesis, and routed outputs are additive. Standalone non-two-stage consumers do not need to migrate.
+
+## Verified U280 user-project source deltas
+
+A consumer that must retain an accepted U280 static checkpoint's exact Coyote source identity while applying a later user-project-generation fix can construct a verified source delta:
+
+```nix
+userProjectCoyoteSource = coyote-nix.lib.mkCoyoteSourceDelta {
+  inherit pkgs;
+  baseSource = coyoteBase;
+  candidateSource = coyoteCandidate;
+  patch = ./coyote-user-project.patch;
+  baseSourceId = builtins.hashString "sha256" (toString coyoteBase);
+  candidateSourceId = builtins.hashString "sha256" (toString coyoteCandidate);
+  patchSha256 = builtins.hashFile "sha256" ./coyote-user-project.patch;
+  changedPaths = [ "scripts/cr_prjcts/cr_user.tcl.in" ];
+  policy = "user-project-generation";
+};
+```
+
+Both sources and the patch must be immutable Nix paths, source revisions and identities must match, and the declared sorted path set must equal both the complete candidate-tree delta and the patch. The policy permits only user-project-generation sources and their generic contract tests; it rejects deletions, mode changes, symlinks, undeclared files, and non-identical patch postimages. The output reconstructs the candidate from the base plus patch and records canonical manifests and completion metadata. Every consuming hardware stage re-verifies that proof before CMake configuration.
+
+Pass the result as `userProjectCoyoteSource` to `mkCoyoteAppPackage`, or to `mkCoyoteBoardPackages` only for an imported-static U280 flow. V80, mixed-board, non-imported-static, unverified, base-mismatched, and arbitrary alternate-source uses fail during evaluation. Static import and static construction continue to use `coyoteRoot`; only U280 user-project elaboration and downstream application stages use the verified effective source.
+
+A source-delta build additionally compares the accepted reference checkpoint with candidate link, place, and route checkpoints. Each gate requires identical physical partition pins and byte-identical manifests of placement-fixed cells and route-fixed nets outside the reconfigurable partition. Missing or empty evidence, a changed checkpoint/source identity, any protected-static drift, or a rejected gate prevents downstream image generation. This mechanism is a narrow repair path, not general permission to build a shell and application from unrelated Coyote revisions.
 
 ## Driver package matrix
 

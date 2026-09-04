@@ -13,6 +13,7 @@
   cmakeFlags ? [ ],
   buildCommands ? [ ],
   expectedPaths ? [ ],
+  preConfigureSetup ? "",
   preBuildSetup ? "",
   extraInstallPhase ? "",
   description ? "Coyote hardware build stage for ${platform}",
@@ -75,6 +76,14 @@ pkgs.stdenvNoCC.mkDerivation (
           export HOME="$build_dir/.home"
           mkdir -p "$HOME"
           export TERM="''${TERM:-xterm-256color}"
+
+          pre_configure_setup_script="$TMPDIR/pre-configure-setup.sh"
+          cat > "$pre_configure_setup_script" <<'__COYOTE_NIX_PRE_CONFIGURE_SETUP_EOF__'
+      ${preConfigureSetup}
+      __COYOTE_NIX_PRE_CONFIGURE_SETUP_EOF__
+          if [ -s "$pre_configure_setup_script" ]; then
+            bash -euo pipefail "$pre_configure_setup_script"
+          fi
 
           pre_build_setup_script="$TMPDIR/pre-build-setup.sh"
           cat > "$pre_build_setup_script" <<'__COYOTE_NIX_PRE_BUILD_SETUP_EOF__'

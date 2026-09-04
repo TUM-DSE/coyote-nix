@@ -1,0 +1,148 @@
+diff --git a/scripts/cr_prjcts/cr_user.tcl.in b/scripts/cr_prjcts/cr_user.tcl.in
+index 6583f5d3..2eee6ad3 100644
+--- a/scripts/cr_prjcts/cr_user.tcl.in
++++ b/scripts/cr_prjcts/cr_user.tcl.in
+@@ -40,1 +40,24 @@ source "${CMAKE_BINARY_DIR}/base.tcl"
++# Vivado's automatic source management evaluates conditional dependencies while
++# source trees are added. Make the active, generated configuration markers
++# visible to that first analysis without disabling unused-source pruning.
++proc expose_generated_marker_defines {package_path fileset} {
++    if {![file isfile $package_path]} {
++        error "Generated HDL package does not exist: $package_path"
++    }
++
++    set package_handle [open $package_path r]
++    set package_source [read $package_handle]
++    close $package_handle
++
++    set fileset_defines [get_property verilog_define $fileset]
++    foreach line [split $package_source "\n"] {
++        if {[regexp {^[[:space:]]*`define[[:space:]]+([[:alpha:]_][[:alnum:]_]*)[[:space:]]*$} $line _ marker] &&
++            [lsearch -exact $fileset_defines $marker] < 0} {
++            lappend fileset_defines $marker
++        }
++    }
++    set_property verilog_define $fileset_defines $fileset
++    return $fileset_defines
++}
++
+ puts "[color $clr_flow "** Creating user projects ..."]"
+@@ -66,1 +89,2 @@ for {set i 0}  {$i < $cfg(n_config)} {incr i} { for {set i 0}  {$i < $cfg(n_config)} {incr i} {
++        set_property "source_mgmt_mode" "All"                       $proj
+         set_property "default_lib" "xil_defaultlib"                 $proj
+@@ -89,1 +113,5 @@ for {set i 0}  {$i < $cfg(n_config)} {incr i} {
++        # Mirror the generated package's active marker defines onto the fileset
++        # before add_files triggers automatic source analysis.
++        expose_generated_marker_defines "$proj_dir/hdl/lynx_pkg.sv" [current_fileset]
++
+         # Add source files
+diff --git a/tests/user_project_source_management/template_contract.tcl b/tests/user_project_source_management/template_contract.tcl
+new file mode 100644
+index 00000000..a3ddaada
+--- /dev/null
++++ b/tests/user_project_source_management/template_contract.tcl
+@@ -0,0 +1,104 @@
++if {$argc != 1} {
++    puts stderr "usage: template_contract.tcl CR_USER.tcl"
++    exit 2
++}
++
++proc read_source {path} {
++    set handle [open $path r]
++    set source [read $handle]
++    close $handle
++    if {![info complete $source]} {
++        puts stderr "incomplete user-project Tcl: $path"
++        exit 1
++    }
++    return $source
++}
++
++proc extract_proc {source name} {
++    set start [string first "proc $name " $source]
++    if {$start < 0} {
++        error "procedure $name is missing"
++    }
++    set candidate ""
++    foreach line [split [string range $source $start end] "\n"] {
++        append candidate $line "\n"
++        if {[info complete $candidate]} {
++            return $candidate
++        }
++    }
++    error "procedure $name is incomplete"
++}
++
++proc require_order {source labels} {
++    set previous -1
++    foreach {label needle} $labels {
++        set position [string first $needle $source]
++        if {$position < 0} {
++            puts stderr "missing $label construct: $needle"
++            exit 1
++        }
++        if {$position <= $previous} {
++            puts stderr "$label construct is out of order"
++            exit 1
++        }
++        set previous $position
++    }
++}
++
++set path [lindex $argv 0]
++set script [read_source $path]
++
++if {![regexp -line {^[[:space:]]*set_property[[:space:]]+"?source_mgmt_mode"?[[:space:]]+"?All"?[[:space:]]+\$proj[[:space:]]*$} $script]} {
++    puts stderr "user projects must retain automatic source management mode All: $path"
++    exit 1
++}
++foreach forbidden {DisplayOnly None} {
++    if {[regexp -line [format {^[[:space:]]*set_property[[:space:]]+"?source_mgmt_mode"?[[:space:]]+"?%s"?} $forbidden] $script]} {
++        puts stderr "user projects must not use source management mode $forbidden: $path"
++        exit 1
++    }
++}
++
++require_order $script [list \
++    project-mode {set_property "source_mgmt_mode" "All"} \
++    generated-package {call_write_hdl $build_dir 2 $i $j} \
++    marker-exposure {expose_generated_marker_defines "$proj_dir/hdl/lynx_pkg.sv" [current_fileset]} \
++    first-source-tree {add_files "$hw_dir/hdl/pkg"}]
++
++eval [extract_proc $script expose_generated_marker_defines]
++set fixture [file join [pwd] generated-marker-fixture.sv]
++set handle [open $fixture w]
++puts $handle {`define FEATURE_ALPHA
++  `define FEATURE_BETA
++`define FEATURE_ALPHA
++`define VALUED_MACRO 1
++`define FUNCTION_MACRO(value) value
++// `define COMMENTED_MARKER
++package fixture;
++endpackage}
++close $handle
++
++set mock_defines {CALLER_MARKER CONFIGURED_VALUE=1}
++set observed_defines {}
++proc get_property {property fileset} {
++    if {$property ne "verilog_define" || $fileset ne "sources_1"} {
++        error "unexpected get_property invocation: $property $fileset"
++    }
++    return $::mock_defines
++}
++proc set_property {property value fileset} {
++    if {$property ne "verilog_define" || $fileset ne "sources_1"} {
++        error "unexpected set_property invocation: $property $fileset"
++    }
++    set ::observed_defines $value
++}
++
++set result [expose_generated_marker_defines $fixture sources_1]
++set expected {CALLER_MARKER CONFIGURED_VALUE=1 FEATURE_ALPHA FEATURE_BETA}
++file delete -force $fixture
++if {$result ne $expected || $observed_defines ne $expected} {
++    puts stderr "generated marker propagation returned '$result' and set '$observed_defines'; expected '$expected'"
++    exit 1
++}
++
++puts "USER_PROJECT_SOURCE_MANAGEMENT_TEMPLATE_PASS path=$path"
