@@ -20,9 +20,18 @@
   nativeBuildInputs ? [ ],
   cores ? 8,
   checkTimingLog ? true,
+  requiresVitisHls ? true,
   extraAttrs ? { },
 }:
 
+let
+  checkedRequiresVitisHls =
+    if builtins.isBool requiresVitisHls then
+      requiresVitisHls
+    else
+      throw "coyote-nix: requiresVitisHls must be a Boolean";
+  xilinxTools = [ tools.vivado ] ++ pkgs.lib.optionals checkedRequiresVitisHls [ tools.vitis_hls ];
+in
 pkgs.stdenvNoCC.mkDerivation (
   {
     inherit pname version;
@@ -45,9 +54,8 @@ pkgs.stdenvNoCC.mkDerivation (
         pkg-config
         perl
         which
-        tools.vivado
-        tools.vitis_hls
       ])
+      ++ xilinxTools
       ++ pkgs.lib.optionals (xilinxShell != null) [ xilinxShell ]
       ++ nativeBuildInputs;
 
@@ -69,7 +77,7 @@ pkgs.stdenvNoCC.mkDerivation (
     buildPhase = ''
           runHook preBuild
 
-          export PATH="${tools.vivado}/bin:${tools.vitis_hls}/bin:$PATH"
+          export PATH="${pkgs.lib.makeBinPath xilinxTools}:$PATH"
 
           build_dir="$PWD/.nix-hw-$FDEV_NAME"
           export build_dir

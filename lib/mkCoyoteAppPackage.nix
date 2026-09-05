@@ -6,6 +6,7 @@
   hwSource,
   xilinxShareRoot,
   xilinxShell ? null,
+  requiresVitisHls ? true,
   pname,
   version ? "0.1.0",
   shellPackage,
@@ -75,6 +76,7 @@ let
       xilinxShareRoot
       xilinxShell
       version
+      requiresVitisHls
       ;
     coyoteRoot = effectiveUserProjectCoyoteRoot;
     baseCoyoteRoot = checkedBaseCoyoteRoot;

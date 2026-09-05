@@ -5,6 +5,7 @@
   hwSource,
   xilinxShareRoot,
   xilinxShell ? null,
+  requiresVitisHls ? true,
   pname,
   version ? "0.1.0",
   board,
@@ -35,6 +36,7 @@ let
       xilinxShareRoot
       xilinxShell
       version
+      requiresVitisHls
       ;
   };
 

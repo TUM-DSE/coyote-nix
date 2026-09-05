@@ -6,6 +6,7 @@
   hwSource,
   xilinxShareRoot,
   xilinxShell ? null,
+  requiresVitisHls ? true,
   pnamePrefix,
   version ? "0.1.0",
   projectName ? pnamePrefix,
@@ -47,6 +48,7 @@ let
       xilinxShareRoot
       xilinxShell
       version
+      requiresVitisHls
       ;
   };
   userProjectStageHelpers = import ./coyoteHwStageHelpers.nix {
@@ -57,6 +59,7 @@ let
       xilinxShareRoot
       xilinxShell
       version
+      requiresVitisHls
       ;
     coyoteRoot = effectiveUserProjectCoyoteRoot;
     baseCoyoteRoot = coyoteRoot;

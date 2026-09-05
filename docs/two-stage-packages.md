@@ -7,6 +7,8 @@
 
 They support `u280` and `v80`. They are additive: `mkCoyoteBoardPackages` and all of its existing package names and conventional full-image behavior remain unchanged.
 
+Hardware package constructors require Vitis HLS by default. A configuration that has neither Coyote networking nor an application `hls/<kernel>` directory may explicitly set `requiresVitisHls = false` to use only the existing pinned Vivado wrappers. Corrected Coyote project generation detects real HLS inputs independently and fails configuration if that declaration is wrong; the option never suppresses an HLS command required by the source.
+
 ## V80 custom static checkpoints
 
 A provider-enabled or otherwise custom V80 static build emits generic internal checkpoints as `checkpoints/static/static_synthed.dcp` and `checkpoints/static_routed_locked.dcp`. Coyote's Versal dynamic flow deliberately selects immutable board/PCIe-specific names instead. Normalize a custom static package before supplying its `checkpoints` directory to a shell build:
@@ -27,6 +29,7 @@ The result retains the complete source package and adds both `static_synthed_v80
 coyote-nix.lib.mkCoyoteShellPackage {
   inherit pkgs tools coyoteRoot xilinxShareRoot;
   xilinxShell = xilinx-shell; # optional
+  requiresVitisHls = false; # optional; defaults to true
 
   hwSource = ./shell-hw;
   pname = "project-u280-shell";
@@ -230,6 +233,7 @@ All generated reports, checkpoints, debug probes, and board-applicable bitstream
 coyote-nix.lib.mkCoyoteAppPackage {
   inherit pkgs tools coyoteRoot xilinxShareRoot;
   xilinxShell = xilinx-shell; # optional
+  requiresVitisHls = false; # optional; defaults to true
 
   hwSource = ./app-hw;
   pname = "decoder-u280-app";

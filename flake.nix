@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/v80-opt-report-production";
+      url = "github:taugoust/Coyote/optional-hls-generation";
       flake = false;
     };
     coyoteDeltaBase = {
@@ -987,6 +987,30 @@
             '';
 
         checks.coyote-app-link-integrity = defaultCoyoteSourceChecks.appLinkIntegrityContract;
+        checks.coyote-hls-tool-selection =
+          let
+            toolsWithoutHls = evalTools // {
+              vitis_hls = throw "Vitis HLS must not be evaluated for a Vivado-only stage";
+            };
+            selectionStage =
+              requiresVitisHls:
+              coyoteNixLib.mkCoyoteHwStagePackage {
+                inherit pkgs requiresVitisHls;
+                tools = toolsWithoutHls;
+                coyoteRoot = coyote;
+                hwSource = ./tests;
+                xilinxShareRoot = "/nonexistent/xilinx";
+                pname = "coyote-xilinx-tool-selection-eval";
+                platform = "u280";
+                coyotePlatform = "ultrascale";
+                xilinxVersion = "2023.2";
+              };
+            vivadoOnlyEval = builtins.tryEval ((selectionStage false).drvPath);
+            hlsRequiredEval = builtins.tryEval ((selectionStage true).drvPath);
+          in
+          assert vivadoOnlyEval.success;
+          assert !hlsRequiredEval.success;
+          defaultCoyoteSourceChecks.hlsToolSelectionContract;
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;

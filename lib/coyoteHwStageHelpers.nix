@@ -8,6 +8,7 @@
   xilinxShareRoot,
   xilinxShell ? null,
   version ? "0.1.0",
+  requiresVitisHls ? true,
 }:
 
 let
@@ -51,6 +52,7 @@ rec {
         description
         cores
         checkTimingLog
+        requiresVitisHls
         ;
       preConfigureSetup =
         lib.optionalString (coyoteSourceDelta != null) coyoteSourceDelta.verificationCommand

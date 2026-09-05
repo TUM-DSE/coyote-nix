@@ -147,6 +147,8 @@ For a U280 flow that implements one seed application together with the shell but
 
 `mkCoyoteShellPackage` builds an `EN_PR=1` shell and exports the locked shell contract. `mkCoyoteAppPackage` accepts that exact derivation, passes it to Coyote as `SHELL_PATH`, and builds only application partial artifacts with `BUILD_APP=1`.
 
+Hardware constructors keep Vitis HLS required by default. Pure RTL configurations with networking disabled may set `requiresVitisHls = false`; corrected Coyote source still detects configured `hls/<kernel>` inputs and fails closed if HLS is actually required.
+
 ```nix
 shell = coyote-nix.lib.mkCoyoteShellPackage {
   inherit pkgs tools coyoteRoot xilinxShareRoot;

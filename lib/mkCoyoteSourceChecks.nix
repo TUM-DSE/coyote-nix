@@ -36,6 +36,70 @@ let
         touch "$out"
       '';
 
+  hlsToolSelectionContract =
+    let
+      fakeVivado = pkgs.writeShellScriptBin "vivado" ''
+        exit 0
+      '';
+      fakeVitisHls = pkgs.writeShellScriptBin "vitis_hls" ''
+        exit 0
+      '';
+    in
+    pkgs.runCommand "coyote-hls-tool-selection-contract"
+      {
+        nativeBuildInputs = [
+          pkgs.cmake
+          pkgs.gnumake
+          pkgs.stdenv.cc
+          fakeVivado
+        ];
+      }
+      ''
+        set -euo pipefail
+        fixture=${coyoteRoot}/tests/resident_service_control
+
+        configure_fixture() {
+          source_dir="$1"
+          build_dir="$2"
+          cmake -S "$source_dir" -B "$build_dir" \
+            -DCYT_DIR=${coyoteRoot} \
+            -DFDEV_NAME:STRING=u280 \
+            -DBUILD_APP:STRING=0 \
+            -DBUILD_STATIC:STRING=0 \
+            -DBUILD_SHELL:STRING=1 \
+            -DSTATIC_PATH=${coyoteRoot}/hw/checkpoints
+        }
+
+        rtl_build="$TMPDIR/rtl-only"
+        configure_fixture "$fixture" "$rtl_build"
+        if grep -F 'vitis_hls' "$rtl_build/CMakeFiles/project.dir/build.make" >/dev/null; then
+          echo 'RTL-only project generation unexpectedly requested Vitis HLS' >&2
+          exit 1
+        fi
+        grep -Eq '^set cfg\(vitis_hls\)[[:space:]]+0$' "$rtl_build/base.tcl"
+
+        cp -R "$fixture" "$TMPDIR/hls-fixture"
+        chmod -R u+w "$TMPDIR/hls-fixture"
+        mkdir -p "$TMPDIR/hls-fixture/dummy_app/hls/kernel"
+        printf 'void kernel() {}\n' > "$TMPDIR/hls-fixture/dummy_app/hls/kernel/kernel.cpp"
+
+        if configure_fixture "$TMPDIR/hls-fixture" "$TMPDIR/hls-missing" \
+            >"$TMPDIR/hls-missing.log" 2>&1; then
+          echo 'HLS application unexpectedly configured without Vitis HLS' >&2
+          exit 1
+        fi
+        grep -F 'Vitis HLS not found' "$TMPDIR/hls-missing.log" >/dev/null
+
+        PATH=${fakeVitisHls}/bin:$PATH \
+          configure_fixture "$TMPDIR/hls-fixture" "$TMPDIR/hls-present"
+        grep -F '${fakeVitisHls}/bin/vitis_hls' \
+          "$TMPDIR/hls-present/CMakeFiles/project.dir/build.make" >/dev/null
+        grep -Eq '^set cfg\(vitis_hls\)[[:space:]]+1$' \
+          "$TMPDIR/hls-present/base.tcl"
+
+        touch "$out"
+      '';
+
   routeValidationContract =
     pkgs.runCommand "coyote-routed-flow-validation-contract"
       {
@@ -869,6 +933,7 @@ in
     coprocessorHostApi
     coprocessorRenderContract
     coprocessorSimulation
+    hlsToolSelectionContract
     hostApiCompile
     mkCoprocessorApplicationRender
     physicalTclGeneration
