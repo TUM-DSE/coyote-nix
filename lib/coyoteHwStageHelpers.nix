@@ -556,7 +556,9 @@ rec {
       stage,
       expectedContext,
       signoffClassification ? null,
+      enforceStrictSignoff ? true,
     }:
+    assert builtins.isBool enforceStrictSignoff;
     pkgs.runCommand pname
       {
         nativeBuildInputs = [
@@ -567,6 +569,7 @@ rec {
       ''
         ${pkgs.python3}/bin/python ${implementationStageTool} validate \
           ${stage} --phase validate --context ${lib.escapeShellArg expectedContext}
+        ${lib.optionalString enforceStrictSignoff ''
         strict_result="$TMPDIR/strict-signoff.json"
         strict_args=(
           --stage ${stage}
@@ -585,6 +588,7 @@ rec {
           ${pkgs.jq}/bin/jq . "$strict_result" >&2 || true
           exit "$strict_status"
         fi
+        ''}
         outcome="$(${pkgs.jq}/bin/jq -r '.outcome' ${stage}/metadata/stage.json)"
         if [ "$outcome" != accepted ]; then
           echo "ERROR: implementation validation outcome is $outcome; evidence: ${stage}" >&2
@@ -599,7 +603,8 @@ rec {
           fi
         done
         cp ${stage}/metadata/stage.json "$out/metadata/validation-stage.json"
-        cp "$strict_result" "$out/metadata/strict-signoff.json"
+        ${lib.optionalString enforceStrictSignoff ''cp "$strict_result" "$out/metadata/strict-signoff.json"''}
+        printf '%s\n' '${builtins.toJSON { inherit enforceStrictSignoff; }}' > "$out/metadata/validation-policy.json"
         printf '%s\n' accepted > "$out/metadata/outcome"
       '';
 

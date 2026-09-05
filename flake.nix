@@ -1689,6 +1689,8 @@
               touch "$out"
             '';
 
+        checks.implementation-gate-policy = import ./tests/implementation-gate-policy.nix { inherit pkgs; };
+
         checks.strict-signoff-gate =
           pkgs.runCommand "strict-signoff-gate-contract"
             {

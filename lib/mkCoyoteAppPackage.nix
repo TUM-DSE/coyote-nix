@@ -1340,6 +1340,7 @@ let
     else
       mkImplementationStageGate {
         pname = "${pname}-incremental-validation-gate";
+        enforceStrictSignoff = checkedImplementationEnforceTiming != false;
         stage = incrementalValidate;
         expectedContext = implementationContext.id;
         signoffClassification = checkedSignoffClassification;
@@ -1347,6 +1348,7 @@ let
 
   validationGate = mkImplementationStageGate {
     pname = "${pname}-validation-gate";
+    enforceStrictSignoff = checkedImplementationEnforceTiming != false;
     stage = validate;
     expectedContext = implementationContext.id;
     signoffClassification = checkedSignoffClassification;
@@ -1443,6 +1445,7 @@ let
         else
           mkImplementationStageGate {
             pname = "${pname}-validation-gate-${candidate.id}";
+            enforceStrictSignoff = checkedImplementationEnforceTiming != false;
             stage = candidateValidate;
             expectedContext = implementationContext.id;
             signoffClassification = checkedSignoffClassification;

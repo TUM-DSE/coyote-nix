@@ -862,6 +862,7 @@ let
   };
   outerValidationGate = if outerValidate == null then null else mkImplementationStageGate {
     pname = "${pname}-shell-validation-gate";
+    enforceStrictSignoff = checkedImplementationEnforceTiming != false;
     stage = outerValidate;
     expectedContext = implementationContext.id;
     signoffClassification = checkedSignoffClassification;
@@ -1028,6 +1029,7 @@ let
   };
   incrementalGate = if incrementalValidate == null then null else mkImplementationStageGate {
     pname = "${pname}-incremental-validation-gate";
+    enforceStrictSignoff = checkedImplementationEnforceTiming != false;
     stage = incrementalValidate;
     expectedContext = implementationContext.id;
     signoffClassification = checkedSignoffClassification;
@@ -1101,6 +1103,7 @@ let
 
   dynamicValidationGate = mkImplementationStageGate {
     pname = "${pname}-dynamic-validation-gate";
+    enforceStrictSignoff = checkedImplementationEnforceTiming != false;
     stage = dynamicValidationRaw;
     expectedContext = implementationContext.id;
     signoffClassification = checkedSignoffClassification;
