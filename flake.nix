@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/app-link-integrity-evidence";
+      url = "github:taugoust/Coyote/v80-opt-report-production";
       flake = false;
     };
     coyoteDeltaBase = {

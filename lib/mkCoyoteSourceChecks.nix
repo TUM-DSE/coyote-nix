@@ -808,8 +808,8 @@ let
           ${../nix/tools/patch-u280-vivado-2023.2-physical-stage.py} \
           "$build/base.tcl" "$build/physical_stage.tcl"
 
-        grep -F 'set prefix "shell_''${phase}"' "$build/base.tcl" >/dev/null
-        grep -F '"$report_dir/''${prefix}_timing_summary''${report_suffix}.rpt"' \
+        grep -F 'set prefix [format "shell_%s" $phase]' "$build/base.tcl" >/dev/null
+        grep -F 'set timing_path [file join $report_dir [format "%s_timing_summary%s.rpt" $prefix $report_suffix]]' \
           "$build/base.tcl" >/dev/null
         if grep -F '$report_dir/_' "$build/base.tcl" >/dev/null; then
           echo 'generated physical Tcl lost a runtime report name component' >&2
