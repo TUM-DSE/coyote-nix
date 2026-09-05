@@ -267,27 +267,68 @@ def parse_route_status(text: str):
 
 
 def parse_drc(text: str, kind: str):
-    found_matches = re.findall(r"Checks found:\s*([0-9][0-9,]*)", text, re.IGNORECASE)
-    if len(found_matches) != 1:
-        fail("reports", f"{kind} report requires exactly one Checks found count")
-    checks_found = int(found_matches[0].replace(",", ""))
-    severity_counts = {}
-    for line in text.splitlines():
+    summary_matches = re.findall(
+        r"^\s*(Checks|Violations) found:\s*([0-9][0-9,]*)\s*$",
+        text,
+        re.IGNORECASE | re.MULTILINE,
+    )
+    if len(summary_matches) != 1:
+        fail("reports", f"{kind} report requires exactly one supported DRC summary count")
+    summary_label, raw_summary_count = summary_matches[0]
+    count_column = "Checks" if summary_label.lower() == "checks" else "Violations"
+    checks_found = int(raw_summary_count.replace(",", ""))
+
+    lines = text.splitlines()
+    table_headers = []
+    for index, line in enumerate(lines):
         stripped = line.strip()
         if not stripped.startswith("|") or not stripped.endswith("|"):
             continue
         cells = [cell.strip() for cell in stripped[1:-1].split("|")]
-        if len(cells) < 4 or cells[1].lower() == "severity":
+        lowered = [cell.lower() for cell in cells]
+        if all(field in lowered for field in ("rule", "severity", "description")):
+            table_headers.append((index, cells, lowered))
+    if len(table_headers) != 1:
+        fail("reports", f"{kind} report requires exactly one DRC summary table")
+    header_index, header_cells, header_lowered = table_headers[0]
+    if count_column.lower() not in header_lowered:
+        fail("reports", f"{kind} report summary count label does not match its table")
+    severity_index = header_lowered.index("severity")
+    count_index = header_lowered.index(count_column.lower())
+    if count_index != len(header_cells) - 1:
+        fail("reports", f"{kind} report DRC count column must be the final table column")
+
+    severity_counts = {}
+    saw_table_boundary = False
+    for line in lines[header_index + 1 :]:
+        stripped = line.strip()
+        if not stripped:
+            if saw_table_boundary:
+                break
             continue
-        raw_count = cells[-1].replace(",", "")
-        if not raw_count.isdigit():
+        if stripped.startswith("+") and stripped.endswith("+"):
+            saw_table_boundary = True
             continue
-        severity = cells[1]
+        if not stripped.startswith("|") or not stripped.endswith("|"):
+            if saw_table_boundary:
+                break
+            continue
+        cells = [cell.strip() for cell in stripped[1:-1].split("|")]
+        if len(cells) != len(header_cells):
+            fail("reports", f"{kind} report contains a malformed DRC table row")
+        lowered = [cell.lower() for cell in cells]
+        if all(field in lowered for field in ("rule", "severity", "description")):
+            fail("reports", f"{kind} report contains multiple DRC summary table headers")
+        severity = cells[severity_index]
         if severity not in ("Error", "Critical Warning", "Warning", "Advisory"):
             fail("reports", f"{kind} report contains an unknown DRC severity: {severity}")
+        raw_count = cells[count_index].replace(",", "")
+        if not raw_count.isdigit():
+            fail("reports", f"{kind} report contains a malformed DRC count")
         severity_counts[severity] = severity_counts.get(severity, 0) + int(raw_count)
     if sum(severity_counts.values()) != checks_found:
-        fail("reports", f"{kind} report summary does not account for every DRC check")
+        noun = "check" if count_column == "Checks" else "violation"
+        fail("reports", f"{kind} report summary does not account for every DRC {noun}")
     return {
         "checks": checks_found,
         "errors": severity_counts.get("Error", 0),
