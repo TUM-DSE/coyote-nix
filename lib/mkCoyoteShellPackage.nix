@@ -354,6 +354,7 @@ let
     ];
     expectedPaths = [
       "checkpoints/shell/shell_synthed.dcp"
+      "checkpoints/shell/shell_synthed_import.dcp"
     ];
     extraInstallPhase = installCheckpointReports {
       checkpointDirs = [ "shell" ];
@@ -374,6 +375,7 @@ let
     ];
     expectedPaths = [
       "checkpoints/shell/shell_synthed.dcp"
+      "checkpoints/shell/shell_synthed_import.dcp"
       "reports/synthesis_analysis/complete"
       "reports/synthesis_analysis/summary.json"
       "reports/synthesis_analysis/timing_summary.rpt"
@@ -501,6 +503,7 @@ let
     expectedPaths = [
       "export.cmake"
       "checkpoints/shell/shell_synthed.dcp"
+      "checkpoints/shell/shell_synthed_import.dcp"
       "checkpoints/config_0/user_synthed_c0_0.dcp"
     ];
     extraInstallPhase = installCheckpointReports {
@@ -635,12 +638,14 @@ let
     artifacts = [
       { role = "static-locked-checkpoint"; path = "checkpoints/static_routed_locked_${boardProfile.platform}.dcp"; }
       { role = "shell-synthesized-checkpoint"; path = "checkpoints/shell/shell_synthed.dcp"; }
+      { role = "shell-implementation-import-checkpoint"; path = "checkpoints/shell/shell_synthed_import.dcp"; }
       { role = "seed-synthesized-checkpoint"; path = "checkpoints/config_0/user_synthed_c0_0.dcp"; }
     ];
     commands = ''
       cp ${staticPath}/static_routed_locked_${boardProfile.platform}.dcp \
         "$out/checkpoints/static_routed_locked_${boardProfile.platform}.dcp"
       cp ${synth}/checkpoints/shell/shell_synthed.dcp "$out/checkpoints/shell/"
+      cp ${synth}/checkpoints/shell/shell_synthed_import.dcp "$out/checkpoints/shell/"
       cp ${synth}/checkpoints/config_0/user_synthed_c0_0.dcp "$out/checkpoints/config_0/"
     '';
   } else null;
@@ -661,7 +666,7 @@ let
     preBuildSetup = ''
       ${importImplementationStageArtifacts {
         previousStage = outerInputs;
-        roles = [ "shell-synthesized-checkpoint" "seed-synthesized-checkpoint" ];
+        roles = [ "shell-synthesized-checkpoint" "shell-implementation-import-checkpoint" "seed-synthesized-checkpoint" ];
         expectedPhase = "inputs";
         expectedContext = implementationContext.id;
       }}
@@ -823,6 +828,7 @@ let
     name = "config_0";
     artifacts = (lib.optionals (outerValidate != null) [ { role = "outer-validated-checkpoint"; path = "checkpoints/shell_routed.dcp"; } ]) ++ [
       { role = "shell-synthesized-checkpoint"; path = "checkpoints/shell/shell_synthed.dcp"; }
+      { role = "shell-implementation-import-checkpoint"; path = "checkpoints/shell/shell_synthed_import.dcp"; }
       { role = "seed-synthesized-checkpoint"; path = "checkpoints/config_0/user_synthed_c0_0.dcp"; }
     ] ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [
       { role = "static-synthesized-checkpoint"; path = "checkpoints/static_synthed_${boardProfile.platform}_gen${toString implementationPcieGeneration}.dcp"; }
@@ -833,6 +839,7 @@ let
         cp ${outerValidate}/checkpoints/shell_routed.dcp "$out/checkpoints/"
       ''}
       cp ${synth}/checkpoints/shell/shell_synthed.dcp "$out/checkpoints/shell/"
+      cp ${synth}/checkpoints/shell/shell_synthed_import.dcp "$out/checkpoints/shell/"
       cp ${synth}/checkpoints/config_0/user_synthed_c0_0.dcp "$out/checkpoints/config_0/"
       ${lib.optionalString (boardProfile.fpgaArchitecture == "versal") ''
         cp ${staticPath}/static_synthed_${boardProfile.platform}_gen${toString implementationPcieGeneration}.dcp \
@@ -851,7 +858,7 @@ let
     preBuildSetup = ''
       ${importImplementationStageArtifacts {
         previousStage = dynamicInputs;
-        roles = [ "shell-synthesized-checkpoint" "seed-synthesized-checkpoint" ] ++ lib.optionals (outerValidate != null) [ "outer-validated-checkpoint" ];
+        roles = [ "shell-synthesized-checkpoint" "shell-implementation-import-checkpoint" "seed-synthesized-checkpoint" ] ++ lib.optionals (outerValidate != null) [ "outer-validated-checkpoint" ];
         expectedPhase = "inputs"; expectedContext = implementationContext.id;
       }}
     '';
