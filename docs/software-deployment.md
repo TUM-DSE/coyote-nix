@@ -75,9 +75,11 @@ modules of the same family still compete for the same PCI IDs.
    Endpoint removal/re-enumeration and reset require sole affected-bus ownership.
 5. Bound configuration readiness by an explicit operator timeout. Link-active is
    not configuration-ready; require a valid nonzero/non-FFFF vendor/device read.
-   Where the endpoint was removed, use the verified subordinate-bus discovery
-   path only after readiness/settling policy, then gate BAR0/2/4, bridge windows,
-   binding and nodes. A delayed Clara rediscovery succeeded after an immediate
+   If the endpoint was removed, first apply the bounded settling policy and
+   authorized subordinate-bus discovery, then test the rediscovered endpoint's
+   config readiness. An absent sysfs endpoint cannot be qualified by a normal
+   sysfs-backed setpci read before discovery. Gate BAR0/2/4, bridge windows,
+   binding and nodes only after it reappears. A delayed Clara rediscovery succeeded after an immediate
    attempt failed: that proves eventual readiness, **not a mandatory 276s sleep**.
    Stop at timeout/failure; do not turn one scan into an unbounded retry loop.
 6. Compare unrelated PCI resource/driver identities and kernel health with the

@@ -84,7 +84,8 @@ ready_poll_s="${COYOTE_NIX_INSERT_DRIVER_READY_POLL_S:-0.2}"
 
 normalize_bdf() {
   local bdf="$1"
-  if [ -z "$bdf" ]; then
+  if [[ ! "$bdf" =~ ^([[:xdigit:]]{4}:)?[[:xdigit:]]{2}:[[:xdigit:]]{2}\.[0-7]$ ]]; then
+    echo "ERROR: invalid PCI endpoint BDF: $bdf" >&2
     return 1
   fi
   if [ -e "/sys/bus/pci/devices/$bdf" ]; then

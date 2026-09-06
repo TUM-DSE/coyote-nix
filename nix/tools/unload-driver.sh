@@ -40,7 +40,8 @@ run_as_root() {
 normalize_bdf() {
   local bdf="$1"
 
-  if [ -z "$bdf" ]; then
+  if [[ ! "$bdf" =~ ^([[:xdigit:]]{4}:)?[[:xdigit:]]{2}:[[:xdigit:]]{2}\.[0-7]$ ]]; then
+    echo "ERROR: invalid PCI endpoint BDF: $bdf" >&2
     return 1
   fi
 
