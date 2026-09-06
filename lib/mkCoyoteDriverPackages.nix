@@ -7,6 +7,8 @@
   pnamePrefix ? "coyote-driver",
   packageName ? { targetPlatform, hostName }: "${pnamePrefix}-${targetPlatform}-${hostName}",
   version ? "0.1.0",
+  variant ? "legacy",
+  moduleName ? null,
   extraMakeFlags ? [ ],
   extraAttrs ? { },
 }:
@@ -32,6 +34,14 @@ let
           version
           ;
         driverKernel = driverKernels.${hostName};
+        variant = resolve variant combo;
+        moduleName =
+          if moduleName != null then
+            resolve moduleName combo
+          else if resolve variant combo == "legacy" then
+            "coyote_driver"
+          else
+            "coyote_driver_${resolve variant combo}";
         extraMakeFlags = resolve extraMakeFlags combo;
         extraAttrs = resolve extraAttrs combo;
       };

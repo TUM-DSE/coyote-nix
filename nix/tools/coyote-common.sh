@@ -224,7 +224,7 @@ resolve_default_driver_ko_from_package() {
   local package_out
 
   package_out="$(resolve_driver_package_output "$target_platform")" || return 1
-  echo "$package_out/coyote_driver.ko"
+  echo "$package_out/${COYOTE_MODULE_NAME:-coyote_driver}.ko"
 }
 
 driver_build_hint_for_target_platform() {

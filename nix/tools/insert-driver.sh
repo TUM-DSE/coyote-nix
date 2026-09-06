@@ -42,8 +42,38 @@ if [ ! -f "$ko_path" ]; then
   exit 1
 fi
 
-module_name="$(basename "$ko_path")"
-module_name="${module_name%.ko}"
+module_name="$(modinfo -F name "$ko_path")"
+expected_module="${COYOTE_MODULE_NAME:-coyote_driver}"
+case "$expected_module" in
+  coyote_driver|coyote_driver_ultrascale_plus|coyote_driver_versal) ;;
+  *) echo "ERROR: unsupported COYOTE_MODULE_NAME: $expected_module" >&2; exit 1 ;;
+esac
+if [ "$module_name" != "$expected_module" ]; then
+  echo "ERROR: module identity $module_name does not match selected $expected_module." >&2
+  exit 1
+fi
+module_release="$(modinfo -F vermagic "$ko_path")"
+if [ "${module_release%% *}" != "$(uname -r)" ]; then
+  echo "ERROR: module kernel does not match booted kernel $(uname -r): $module_release" >&2
+  exit 1
+fi
+# Packaged modules retain the authoritative kernel and config. current-system
+# may have switched since boot and must not be used as compatibility evidence.
+package_root="$(dirname "$ko_path")"
+if [ -f "$package_root/kernel-store-path" ]; then
+  expected_kernel="$(<"$package_root/kernel-store-path")"
+  if [ ! -e /run/booted-system/kernel ] || [ "$(readlink -f /run/booted-system/kernel)" != "$expected_kernel/bzImage" ]; then
+    echo "ERROR: packaged kernel differs from /run/booted-system/kernel; rebuild for the declared booted configuration." >&2
+    exit 1
+  fi
+  if [ ! -r /proc/config.gz ] || ! gzip -cd /proc/config.gz | cmp -s - "$package_root/kernel.config"; then
+    echo "ERROR: cannot verify packaged configuration against booted /proc/config.gz." >&2
+    exit 1
+  fi
+else
+  echo "ERROR: module package lacks kernel-store-path/kernel.config boot compatibility evidence." >&2
+  exit 1
+fi
 ready_timeout_s="${COYOTE_NIX_INSERT_DRIVER_READY_TIMEOUT_S:-10}"
 ready_poll_s="${COYOTE_NIX_INSERT_DRIVER_READY_POLL_S:-0.2}"
 
@@ -84,10 +114,6 @@ is_driver_ready() {
     return 0
   fi
 
-  if compgen -G "/dev/coyote_fpga_*_v*" >/dev/null; then
-    return 0
-  fi
-
   return 1
 }
 
@@ -108,6 +134,18 @@ wait_for_driver_ready() {
     sleep "$ready_poll_s"
   done
 }
+
+if [ -n "${FPGA_BDF:-}" ]; then
+  selected_bdf="$(normalize_bdf "$FPGA_BDF")"
+  if [ ! -e "/sys/bus/pci/devices/$selected_bdf" ]; then
+    echo "ERROR: selected endpoint $selected_bdf is absent; refusing insertion before discovery/resource validation." >&2
+    exit 1
+  fi
+  if [ -L "/sys/bus/pci/devices/$selected_bdf/driver" ] && ! is_driver_bound_to_bdf "$selected_bdf"; then
+    echo "ERROR: selected endpoint $selected_bdf belongs to another driver; refusing insertion." >&2
+    exit 1
+  fi
+fi
 
 host="$(hostname)"
 mode="host"
@@ -168,7 +206,11 @@ if ! wait_for_driver_ready; then
   else
     echo "ERROR: driver module loaded, but no Coyote device became ready." >&2
   fi
-  echo "Hint: inspect sudo dmesg for probe errors such as failed XDMA engine detection." >&2
+  if [ -n "${FPGA_BDF:-}" ] && [ -r "/sys/bus/pci/devices/$normalized_bdf/resource" ]; then
+    echo "Target BAR resource ranges (zero/unassigned required BARs block probe):" >&2
+    head -n 6 "/sys/bus/pci/devices/$normalized_bdf/resource" >&2
+  fi
+  echo "Hint: inspect target kernel probe diagnostics and BAR/bridge allocation (including MSI-X BAR), not insmod status alone. No reset/rescan or resource-policy change was attempted." >&2
   exit 1
 fi
 

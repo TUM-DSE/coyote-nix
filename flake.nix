@@ -1046,6 +1046,21 @@
           touch $out
         '';
 
+        checks.driver-deployment =
+          pkgs.runCommand "driver-deployment-check"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.bash
+                pkgs.gzip
+                pkgs.diffutils
+              ];
+            }
+            ''
+              python3 ${./tests/driver-deployment.py} ${./.}
+              touch "$out"
+            '';
+
         checks.hot-reset-multifunction = pkgs.runCommand "hot-reset-multifunction-check" { } ''
           bash ${./tests/hot-reset-multifunction.sh} ${./nix/tools/hot-reset.sh}
           touch $out

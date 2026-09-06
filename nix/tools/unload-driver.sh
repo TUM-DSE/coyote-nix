@@ -2,7 +2,7 @@ set -euo pipefail
 
 usage() {
   echo "Usage: unload-driver" >&2
-  echo "Unload the Coyote kernel driver. If FPGA_BDF is set, unbind that endpoint first." >&2
+  echo "Remove COYOTE_MODULE_NAME (default coyote_driver). FPGA_BDF restricts removal to a module owning no other endpoint; foreign drivers are never changed." >&2
 }
 
 case "${1:-}" in
@@ -17,7 +17,11 @@ if [ $# -gt 0 ]; then
   exit 1
 fi
 
-module_name="coyote_driver"
+module_name="${COYOTE_MODULE_NAME:-coyote_driver}"
+case "$module_name" in
+  coyote_driver|coyote_driver_ultrascale_plus|coyote_driver_versal) ;;
+  *) echo "ERROR: unsupported COYOTE_MODULE_NAME: $module_name" >&2; exit 1 ;;
+esac
 driver_sysfs="/sys/bus/pci/drivers/$module_name"
 
 module_loaded() {
@@ -30,17 +34,6 @@ run_as_root() {
     "$@"
   else
     sudo "$@"
-  fi
-}
-
-write_sysfs_line() {
-  local value="$1"
-  local path="$2"
-
-  if [ "$(id -u)" -eq 0 ]; then
-    printf '%s\n' "$value" > "$path"
-  else
-    printf '%s\n' "$value" | sudo tee "$path" >/dev/null
   fi
 }
 
@@ -90,24 +83,6 @@ list_bound_bdfs() {
   shopt -u nullglob
 }
 
-unbind_bdf_from_driver() {
-  local bdf="$1"
-  local driver="$2"
-  local sysfs_path="/sys/bus/pci/drivers/$driver"
-  local unbind_path="$sysfs_path/unbind"
-
-  if [ ! -e "$sysfs_path/$bdf" ]; then
-    return 0
-  fi
-
-  if [ ! -e "$unbind_path" ]; then
-    echo "WARN: $driver is present but $unbind_path is missing; probe/remove may be stuck." >&2
-    return 1
-  fi
-
-  write_sysfs_line "$bdf" "$unbind_path"
-}
-
 unload_module() {
   local name="$1"
   local rc
@@ -132,27 +107,23 @@ foreign_driver=""
 if [ -n "$requested_bdf" ] && [ -e "/sys/bus/pci/devices/$requested_bdf" ]; then
   foreign_driver="$(bound_driver_for_bdf "$requested_bdf" 2>/dev/null || true)"
   if [ -n "$foreign_driver" ] && [ "$foreign_driver" != "$module_name" ]; then
-    unbind_bdf_from_driver "$requested_bdf" "$foreign_driver"
-    if module_loaded "$foreign_driver"; then
-      unload_module "$foreign_driver" || true
-    fi
+    echo "ERROR: $requested_bdf belongs to $foreign_driver, not $module_name; refusing to change either driver." >&2
+    exit 1
   fi
 fi
 
 if module_loaded "$module_name"; then
-  if [ -n "$requested_bdf" ] && [ -e "$driver_sysfs/$requested_bdf" ]; then
-    unbind_bdf_from_driver "$requested_bdf" "$module_name" || true
-  fi
-
+  # Module removal affects every bound endpoint; validate scope before mutation.
   while IFS= read -r bound_bdf; do
     [ -n "$bound_bdf" ] || continue
-    if [ -n "$requested_bdf" ] && [ "$bound_bdf" = "$requested_bdf" ]; then
-      continue
+    if [ -n "$requested_bdf" ] && [ "$bound_bdf" != "$requested_bdf" ]; then
+      echo "ERROR: $module_name also owns $bound_bdf; refusing module-wide removal for $requested_bdf." >&2
+      exit 1
     fi
-    unbind_bdf_from_driver "$bound_bdf" "$module_name" || true
   done < <(list_bound_bdfs "$driver_sysfs")
 
-  unload_module "$module_name" || true
+  # Let normal module teardown perform unbinding. Never force or mask failure.
+  unload_module "$module_name"
 fi
 
 if module_loaded "$module_name"; then

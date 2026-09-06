@@ -34,6 +34,8 @@ let
           gnugrep
           gawk
           gnused
+          gzip
+          diffutils
           git
           cmake
           gnumake
