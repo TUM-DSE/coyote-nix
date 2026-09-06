@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/develop";
+      url = "github:taugoust/Coyote/4578b3c8738782f1a01d09b189b10f3c0afd7399";
       flake = false;
     };
     coyoteDeltaBase = {
@@ -1012,6 +1012,11 @@
           assert !hlsRequiredEval.success;
           defaultCoyoteSourceChecks.hlsToolSelectionContract;
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
+        checks.coyote-user-project-source-management = pkgs.runCommand "coyote-user-project-source-management" { nativeBuildInputs = [ pkgs.tcl ]; } ''
+          tclsh ${coyote}/tests/user_project_source_management/template_contract.tcl \
+            ${coyote}/scripts/cr_prjcts/cr_user.tcl.in
+          touch "$out"
+        '';
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
         checks.coyote-resident-control-host-api = defaultCoyoteSourceChecks.hostApiCompile;
