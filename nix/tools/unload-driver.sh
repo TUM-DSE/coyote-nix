@@ -99,9 +99,11 @@ unload_module() {
 }
 
 requested_bdf="${FPGA_BDF:-}"
-if [ -n "$requested_bdf" ]; then
-  requested_bdf="$(normalize_bdf "$requested_bdf")"
+if [ -z "$requested_bdf" ]; then
+  echo "ERROR: FPGA_BDF is required; refusing ambiguous module-wide removal." >&2
+  exit 1
 fi
+requested_bdf="$(normalize_bdf "$requested_bdf")"
 
 foreign_driver=""
 if [ -n "$requested_bdf" ] && [ -e "/sys/bus/pci/devices/$requested_bdf" ]; then

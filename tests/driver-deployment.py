@@ -70,6 +70,7 @@ with tempfile.TemporaryDirectory() as directory:
         assert (result.returncode == 0) == good, result.stdout + result.stderr
         return log.read_text()
     assert 'insmod' in run('insert-driver', [ko])
+    assert not run('insert-driver', [ko], False, {'FPGA_BDF': ''})
     assert not run('insert-driver', [ko], False, {'MOCK_MODULE': 'coyote_driver'})
     assert not run('insert-driver', [ko], False, {'MOCK_KERNEL': '6.9.0-rc7'})
     (package / 'kernel.config').write_bytes(b'CONFIG_SMP=n\n')
@@ -81,6 +82,7 @@ with tempfile.TemporaryDirectory() as directory:
     (boot / 'kernel').unlink()
     (boot / 'kernel').symlink_to(kernel / 'bzImage')
     modules.write_text('coyote_driver_versal 100 0 - Live 0\ncoyote_driver 100 0 - Live 0\n')
+    assert not run('unload-driver', good=False, extra={'FPGA_BDF': ''}), 'ambiguous default removal'
     (endpoint / 'driver').unlink()
     (endpoint / 'driver').symlink_to(foreign)
     assert not run('insert-driver', [ko], False), 'insert attempted on foreign endpoint'

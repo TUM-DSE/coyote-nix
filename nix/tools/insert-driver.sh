@@ -15,6 +15,11 @@ if [ $# -gt 2 ]; then
   exit 1
 fi
 
+if [ -z "${FPGA_BDF:-}" ]; then
+  echo "ERROR: FPGA_BDF is required; select the intended endpoint explicitly." >&2
+  exit 1
+fi
+
 target_platform="$(resolve_target_platform 2>/dev/null || true)"
 if [ -z "$target_platform" ]; then
   echo "ERROR: could not determine TARGET_PLATFORM. Set TARGET_PLATFORM explicitly or use a platform devshell." >&2

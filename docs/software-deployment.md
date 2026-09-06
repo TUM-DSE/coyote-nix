@@ -47,10 +47,10 @@ non-NixOS loose module installation. Module signing/lockdown policy may impose
 additional requirements. Probe/binding must pass independently of insmod's rc;
 check required BARs/MSI-X allocation and the expected device/sysfs nodes.
 
-Removal never unbinds or unloads a foreign module. With `FPGA_BDF` it refuses
-module-wide removal if the selected module owns another endpoint. Without a BDF,
-normal removal of the explicitly selected module affects all its endpoints;
-only use that mode with ownership of every endpoint. It does not force removal,
+Removal requires explicit `FPGA_BDF` and never unbinds or unloads a foreign
+module. It refuses module-wide removal if the selected module owns another
+endpoint. A missing BDF fails closed rather than choosing an ambiguous legacy
+family or removing every endpoint. It does not force removal,
 mask errors, repair a wedged kernel, or prove DMA has drained. Legacy and explicit
 modules of the same family still compete for the same PCI IDs.
 
