@@ -998,6 +998,29 @@
               touch "$out"
             '';
 
+        checks.driver-deployment =
+          pkgs.runCommand "driver-deployment-check"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.gnugrep
+                pkgs.gnused
+                pkgs.gawk
+                pkgs.inetutils
+              ];
+            }
+            ''
+              python3 ${./.}/tests/driver-deployment.py ${./.}
+              touch "$out"
+            '';
+
+        checks.subdivision-reference = import ./tests/subdivision-reference.nix {
+          inherit pkgs;
+          coyoteLib = coyoteNixLib;
+        };
+
         checks.coyote-driver-build = coyoteNixLib.mkCoyoteDriverPackage {
           inherit pkgs;
           coyoteRoot = coyote;
@@ -1935,12 +1958,6 @@
           awk '/^        place \{/ { copying = 1 } /^        route \{/ { copying = 0 } copying { print }' \
             generated-rqa-test/physical_stage.tcl > generated-rqa-test/place-case.tcl
           grep -F 'opt_design -directive $directive' generated-rqa-test/place-case.tcl >/dev/null
-          grep -F 'if {[info exists cfg(peer_backend)] && $cfg(peer_backend) eq "aurora_qsfp1"} {' generated-rqa-test/physical_stage.tcl >/dev/null
-          grep -F 'gt1_rxp_in[0] G53' generated-rqa-test/physical_stage.tcl >/dev/null
-          grep -F 'reset_property PACKAGE_PIN $selected_port' generated-rqa-test/physical_stage.tcl >/dev/null
-          grep -F 'gen_channel_container\[24\]' generated-rqa-test/physical_stage.tcl >/dev/null
-          grep -F 'Expected exactly one Aurora channel' generated-rqa-test/physical_stage.tcl >/dev/null
-          grep -F '3 GTYE4_CHANNEL_X0Y44 2 GTYE4_CHANNEL_X0Y45' generated-rqa-test/physical_stage.tcl >/dev/null
           test "$(grep -n 'write_checkpoint -force' generated-rqa-test/physical_stage.tcl | cut -d: -f1)" -lt \
             "$(grep -n 'write_implementation_observations' generated-rqa-test/physical_stage.tcl | cut -d: -f1)"
           if grep -F 'if {0 && $phase in {opt place}} {' \

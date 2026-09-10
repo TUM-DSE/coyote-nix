@@ -16,6 +16,7 @@
   synthesisAnalysis ? { },
   timingOracle ? { },
   implementation ? { },
+  subdivisionReference ? null,
 }:
 
 let
@@ -26,6 +27,29 @@ let
       or (throw "coyote-nix: mkCoyoteShellPackage supports only u280 and v80, not ${board}");
   combineOptPlace = board == "u280" && xilinxVersion == "2023.2";
   collectPhysicalQorAssessment = !combineOptPlace;
+  checkedSubdivisionReference =
+    if subdivisionReference == null then null
+    else if board != "u280" then
+      throw "coyote-nix: subdivisionReference supports only u280"
+    else if !(builtins.isAttrs subdivisionReference)
+      || !(subdivisionReference ? checkpoint)
+      || !(subdivisionReference ? staticCheckpoint)
+      || !(subdivisionReference ? checkpointSha256)
+      || !(subdivisionReference ? staticCheckpointSha256) then
+      throw "coyote-nix: subdivisionReference requires checkpoint, staticCheckpoint and their Sha256 fields"
+    else if !(builtins.all (hash: builtins.isString hash && builtins.match "[0-9a-f]{64}" hash != null)
+      [ subdivisionReference.checkpointSha256 subdivisionReference.staticCheckpointSha256 ]) then
+      throw "coyote-nix: subdivisionReference SHA256 values must be lowercase hexadecimal"
+    else subdivisionReference;
+  hasSubdivisionParent = boardProfile.fpgaArchitecture == "ultrascale_plus";
+  subdivisionProvenance = lib.optionalAttrs (checkedSubdivisionReference != null) {
+    subdivisionReference = {
+      purpose = "pr_subdivide-only";
+      checkpoint = toString checkedSubdivisionReference.checkpoint;
+      staticCheckpoint = toString checkedSubdivisionReference.staticCheckpoint;
+      inherit (checkedSubdivisionReference) checkpointSha256 staticCheckpointSha256;
+    };
+  };
 
   stageHelpers = import ./coyoteHwStageHelpers.nix {
     inherit
@@ -296,7 +320,7 @@ let
         hardwareSource = toString hwSource;
         staticPath = toString staticPath;
         caller = provenance;
-      };
+      } // subdivisionProvenance;
     }
   );
 
@@ -644,7 +668,7 @@ let
       ${pkgs.python3}/bin/python ${implementationStageTool} write ${spec} "$out" "$out"
     '';
 
-  outerInputs = if boardProfile.fpgaArchitecture == "ultrascale_plus" then mkInputBundle {
+  outerInputs = if hasSubdivisionParent && checkedSubdivisionReference == null then mkInputBundle {
     name = "shell";
     artifacts = [
       { role = "static-locked-checkpoint"; path = "checkpoints/static_routed_locked_${boardProfile.platform}.dcp"; }
@@ -871,7 +895,7 @@ let
 
   dynamicInputs = mkInputBundle {
     name = "config_0";
-    artifacts = (lib.optionals (outerValidate != null) [ { role = "outer-validated-checkpoint"; path = "checkpoints/shell_routed.dcp"; } ]) ++ [
+    artifacts = (lib.optionals hasSubdivisionParent [ { role = "outer-validated-checkpoint"; path = "checkpoints/shell_routed.dcp"; } ]) ++ [
       { role = "shell-synthesized-checkpoint"; path = "checkpoints/shell/shell_synthed.dcp"; }
       { role = "seed-synthesized-checkpoint"; path = "checkpoints/config_0/user_synthed_c0_0.dcp"; }
     ] ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [
@@ -881,6 +905,14 @@ let
       ${lib.optionalString (outerValidate != null) ''
         test -e ${outerValidationGate}/metadata/outcome
         cp ${outerValidate}/checkpoints/shell_routed.dcp "$out/checkpoints/"
+      ''}${lib.optionalString (checkedSubdivisionReference != null) ''
+        ${pkgs.python3}/bin/python3 ${../nix/tools/check-subdivision-reference.py} \
+          ${lib.escapeShellArg "${checkedSubdivisionReference.checkpoint}"} \
+          ${checkedSubdivisionReference.checkpointSha256} \
+          ${lib.escapeShellArg "${checkedSubdivisionReference.staticCheckpoint}"} \
+          ${checkedSubdivisionReference.staticCheckpointSha256} \
+          ${lib.escapeShellArg "${staticPath}/static_routed_locked_${boardProfile.platform}.dcp"}
+        cp ${lib.escapeShellArg "${checkedSubdivisionReference.checkpoint}"} "$out/checkpoints/shell_routed.dcp"
       ''}
       cp ${synth}/checkpoints/shell/shell_synthed.dcp "$out/checkpoints/shell/"
       cp ${synth}/checkpoints/config_0/user_synthed_c0_0.dcp "$out/checkpoints/config_0/"
@@ -908,7 +940,7 @@ let
     preBuildSetup = ''
       ${importImplementationStageArtifacts {
         previousStage = dynamicInputs;
-        roles = [ "shell-synthesized-checkpoint" "seed-synthesized-checkpoint" ] ++ lib.optionals (outerValidate != null) [ "outer-validated-checkpoint" ];
+        roles = [ "shell-synthesized-checkpoint" "seed-synthesized-checkpoint" ] ++ lib.optionals hasSubdivisionParent [ "outer-validated-checkpoint" ];
         expectedPhase = "inputs"; expectedContext = implementationContext.id;
       }}
     '';
@@ -1242,7 +1274,7 @@ let
           gate = outerValidationGate;
         };
       };
-    };
+    } // subdivisionProvenance;
   };
 
   imageSpec = mkImplementationSpec {
@@ -1319,4 +1351,4 @@ let
     description = "Reusable Coyote ${boardProfile.platform} PR shell export";
   };
 in
-final
+builtins.seq checkedSubdivisionReference final

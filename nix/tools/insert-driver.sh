@@ -1,5 +1,5 @@
 usage() {
-  echo "Usage: insert-driver [ko_path] [image_hint]" >&2
+  echo "Usage: FPGA_BDF=<endpoint> insert-driver [ko_path] [image_hint]" >&2
   echo "Insert the Coyote kernel driver. If ko_path is omitted, the active dev shell/package defaults are used." >&2
 }
 
@@ -14,6 +14,8 @@ if [ $# -gt 2 ]; then
   usage
   exit 1
 fi
+
+coyote_endpoint_preflight
 
 target_platform="$(resolve_target_platform 2>/dev/null || true)"
 if [ -z "$target_platform" ]; then
@@ -42,53 +44,17 @@ if [ ! -f "$ko_path" ]; then
   exit 1
 fi
 
-module_name="$(basename "$ko_path")"
-module_name="${module_name%.ko}"
+coyote_driver_preflight "$ko_path"
+module_name=coyote_driver
+if coyote_driver_loaded || [ -n "$(coyote_bound_driver "$FPGA_BDF")" ]; then
+  echo "ERROR: coyote_driver is already loaded or bound; explicitly unload before insertion." >&2
+  exit 1
+fi
 ready_timeout_s="${COYOTE_NIX_INSERT_DRIVER_READY_TIMEOUT_S:-10}"
 ready_poll_s="${COYOTE_NIX_INSERT_DRIVER_READY_POLL_S:-0.2}"
 
-normalize_bdf() {
-  local bdf="$1"
-  if [ -z "$bdf" ]; then
-    return 1
-  fi
-  if [ -e "/sys/bus/pci/devices/$bdf" ]; then
-    echo "$bdf"
-    return 0
-  fi
-  if [ -e "/sys/bus/pci/devices/0000:$bdf" ]; then
-    echo "0000:$bdf"
-    return 0
-  fi
-  echo "$bdf"
-}
-
-is_driver_bound_to_bdf() {
-  local bdf="$1"
-  local driver_link="/sys/bus/pci/devices/$bdf/driver"
-  [ -L "$driver_link" ] || return 1
-  [ "$(basename "$(readlink -f "$driver_link")")" = "$module_name" ]
-}
-
 is_driver_ready() {
-  local bdf
-
-  if [ -n "${FPGA_BDF:-}" ]; then
-    bdf="$(normalize_bdf "$FPGA_BDF")"
-    [ -e "/sys/bus/pci/devices/$bdf" ] || return 1
-    is_driver_bound_to_bdf "$bdf"
-    return $?
-  fi
-
-  if compgen -G "/sys/bus/pci/drivers/$module_name/????:??:??.?" >/dev/null; then
-    return 0
-  fi
-
-  if compgen -G "/dev/coyote_fpga_*_v*" >/dev/null; then
-    return 0
-  fi
-
-  return 1
+  [ "$(coyote_bound_driver "$FPGA_BDF")" = "$module_name" ]
 }
 
 wait_for_driver_ready() {
@@ -117,20 +83,19 @@ fi
 
 driver_args=""
 if [ "$mode" = "network" ]; then
-  if [[ "$image_hint" == *"tcp"* ]]; then
-    echo "TCP bitstream."
-    sudo modprobe ice 2>/dev/null || true
-    sleep 2
-  else
-    echo "RDMA bitstream."
-  fi
-
   if [ -n "${COYOTE_DRIVER_ARGS:-}" ]; then
     driver_args="${COYOTE_DRIVER_ARGS}"
   else
     echo "ERROR: network bitstream detected but COYOTE_DRIVER_ARGS is not set for host: $host" >&2
     echo "Set COYOTE_DRIVER_ARGS='ip_addr=... mac_addr=...' and rerun." >&2
     exit 1
+  fi
+  if [[ "$image_hint" == *"tcp"* ]]; then
+    echo "TCP bitstream."
+    sudo modprobe ice 2>/dev/null || true
+    sleep 2
+  else
+    echo "RDMA bitstream."
   fi
 else
   echo "Host bitstream."
@@ -147,27 +112,14 @@ insmod_rc=$?
 set -e
 
 if [ "$insmod_rc" -ne 0 ]; then
-  if wait_for_driver_ready; then
-    echo "Driver $module_name is already loaded and bound."
-    exit 0
-  fi
-
   [ -n "$insmod_out" ] && printf '%s\n' "$insmod_out" >&2
   echo "ERROR: failed to insert driver module: $ko_path" >&2
   exit "$insmod_rc"
 fi
 
 if ! wait_for_driver_ready; then
-  if [ -n "${FPGA_BDF:-}" ]; then
-    normalized_bdf="$(normalize_bdf "$FPGA_BDF")"
-    bound_driver="none"
-    if [ -L "/sys/bus/pci/devices/$normalized_bdf/driver" ]; then
-      bound_driver="$(basename "$(readlink -f "/sys/bus/pci/devices/$normalized_bdf/driver")")"
-    fi
-    echo "ERROR: driver module loaded, but $module_name did not bind to $normalized_bdf (current driver: $bound_driver)." >&2
-  else
-    echo "ERROR: driver module loaded, but no Coyote device became ready." >&2
-  fi
+  bound_driver="$(coyote_bound_driver "$FPGA_BDF")"
+  echo "ERROR: driver module loaded, but $module_name did not bind to $FPGA_BDF (current driver: ${bound_driver:-none})." >&2
   echo "Hint: inspect sudo dmesg for probe errors such as failed XDMA engine detection." >&2
   exit 1
 fi

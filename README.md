@@ -170,6 +170,8 @@ app = coyote-nix.lib.mkCoyoteAppPackage {
 The shell package contains `export.cmake`, `checkpoints/shell_routed_locked.dcp`, reports/checkpoints, boot and board-applicable partial artifacts, and compatibility metadata. The app package contains only `config_*` application partials, app-build reports/checkpoints, and metadata tied to the exact shell.
 
 See [`docs/two-stage-packages.md`](docs/two-stage-packages.md) for the complete API, output layouts, board differences, compatibility contract, and consumer guidance.
+For qualified U280 parent reuse, see the optional
+[`subdivisionReference`](docs/subdivision-reference.md) input.
 
 The established `mkCoyoteBoardPackages` arguments and existing package names are unchanged; the U280 elaboration, synthesis, and routed outputs are additive. Standalone non-two-stage consumers do not need to migrate.
 
@@ -283,6 +285,19 @@ insert-driver [driver.ko] image.bit|image.pdi
 ```
 
 It is only for full-device programming. Do not pass a U280 application `.bin` to `deploy-hw`; unsupported image types are rejected during preflight before the driver is unloaded or any hardware action begins.
+
+`insert-driver`, `unload-driver`, and `deploy-hw` require `FPGA_BDF` identifying an
+existing endpoint (for example `0000:01:00.0`). Module insertion checks the internal
+module name and vermagic kernel release, not the filename alone. `deploy-hw` runs
+the same check before unloading or programming. This catches release mismatches;
+it is not proof of kernel configuration, signatures, or hardware compatibility.
+
+Insertion refuses an already-loaded driver; unload it explicitly before requesting
+a different binary. Removal refuses foreign ownership and a driver bound to other
+endpoints, and propagates kernel removal failures. These checks do not make
+`insmod` endpoint-scoped: it can probe every matching unbound device. Likewise,
+`hot-reset` can affect sibling functions and rescan more broadly than the selected
+endpoint. Verify ownership of the affected devices before deploying.
 
 With a compatible shell already programmed and its Coyote driver active, load one application partial into a vFPGA with:
 

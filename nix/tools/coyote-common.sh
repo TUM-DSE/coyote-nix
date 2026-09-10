@@ -1,5 +1,82 @@
 set -euo pipefail
 
+# Canonical PCI domain:bus:device.function, including the PCI device-number limit.
+coyote_normalize_bdf() {
+  local bdf="${1,,}"
+  if [[ ! "$bdf" =~ ^([0-9a-f]{4}:)?[0-9a-f]{2}:[01][0-9a-f]\.[0-7]$ ]]; then
+    echo "ERROR: invalid or missing FPGA_BDF: $1" >&2
+    return 1
+  fi
+  if [ "${#bdf}" -eq 7 ]; then bdf="0000:$bdf"; fi
+  printf '%s\n' "$bdf"
+}
+
+coyote_bound_driver() {
+  local link="/sys/bus/pci/devices/$1/driver"
+  if [ -L "$link" ]; then
+    basename "$(readlink -f "$link")"
+  fi
+}
+
+coyote_endpoint_preflight() {
+  local owner
+  FPGA_BDF="$(coyote_normalize_bdf "${FPGA_BDF:-}")" || return 1
+  export FPGA_BDF
+  if [ ! -e "/sys/bus/pci/devices/$FPGA_BDF" ]; then
+    echo "ERROR: selected endpoint $FPGA_BDF is absent." >&2
+    return 1
+  fi
+  owner="$(coyote_bound_driver "$FPGA_BDF")" || return 1
+  if [ -n "$owner" ] && [ "$owner" != coyote_driver ]; then
+    echo "ERROR: selected endpoint $FPGA_BDF belongs to another driver: $owner" >&2
+    return 1
+  fi
+}
+
+coyote_driver_loaded() {
+  [ -d /sys/module/coyote_driver ]
+}
+
+# rmmod is module-wide: never remove a driver serving another endpoint.
+coyote_unload_preflight() {
+  local path
+  coyote_endpoint_preflight || return 1
+  for path in /sys/bus/pci/drivers/coyote_driver/????:??:??.?; do
+    [ -e "$path" ] || continue
+    if [ "${path##*/}" != "$FPGA_BDF" ]; then
+      echo "ERROR: coyote_driver also serves ${path##*/}; refusing module-wide unload." >&2
+      return 1
+    fi
+  done
+}
+
+# Check the actual module, not its filename or a package/configuration sidecar.
+# This allows an existing selected binding; insertion adds its own reload guard.
+coyote_driver_preflight() {
+  local ko="$1" name vermagic release running
+  [ -f "$ko" ] || { echo "ERROR: driver module not found: $ko" >&2; return 1; }
+  name="$(modinfo -F name "$ko")" || return 1
+  if [ "$name" != coyote_driver ]; then
+    echo "ERROR: expected module coyote_driver, got: $name" >&2
+    return 1
+  fi
+  vermagic="$(modinfo -F vermagic "$ko")" || return 1
+  running="$(uname -r)" || return 1
+  # Validate the release token, not architecture-specific vermagic flags.
+  release="${vermagic%%[[:space:]]*}"
+  if [[ ! "$running" =~ ^[0-9][A-Za-z0-9._+-]*$ ]] ||
+     [[ ! "$release" =~ ^[0-9][A-Za-z0-9._+-]*$ ]] ||
+     [[ "$vermagic" == *$'\n'* || "$vermagic" == *$'\r'* ]]; then
+    echo "ERROR: malformed or empty kernel release/vermagic." >&2
+    return 1
+  fi
+  if [ "$release" != "$running" ]; then
+    echo "ERROR: module kernel $release does not match running kernel $running." >&2
+    return 1
+  fi
+  coyote_endpoint_preflight
+}
+
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "ERROR: required command not found: $1" >&2

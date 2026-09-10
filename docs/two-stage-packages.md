@@ -375,7 +375,24 @@ The shell compatibility ID is SHA-256 over a versioned domain plus:
 - SHA-256 of `export.cmake`;
 - SHA-256 of `checkpoints/shell_routed_locked.dcp`.
 
-`shell.json` also records the FPGA part, flow settings, Coyote source store path, hardware source store path, static checkpoint path, caller provenance, and a hash manifest for installed artifacts. Its generic `applicationTopology` object records the exported region count, streams per region, application-interface version, and AXI data width. When supported by the Coyote source, the `residentService` object records the external service name and stream ABI, optional per-region slot-status presence/width, and optional control presence, ABI, interface version, base, size, address width, and data width. When logical co-processor ports are exported, the `coprocessor` object records the processor-neutral stream and MMIO dimensions, binding-generation width, and immutable physical-provider inventory. Processor providers remain separate from logical application roles, and an export without co-processor fields receives a disabled object with zero dimensions. Older Coyote exports receive disabled optional objects with zero dimensions, but must still export positive application-topology dimensions.
+`shell.json` records the FPGA part, flow settings, source and static checkpoint
+paths, caller provenance, and hashes of installed artifacts. Its interface objects are:
+
+- `applicationTopology`: region count, total and host-visible streams per region,
+  application-interface version, and AXI data width.
+- `residentService`: service name and stream ABI, optional slot-status width,
+  peer-endpoint ownership/version/count, and control ABI/version/address dimensions.
+- `peerTransport`: enablement, interface version, owner, backend, connector,
+  declared flow-control mode, link/endpoint counts, and stream width. Enabled
+  transports must export complete metadata; a backend name alone is insufficient.
+- `coprocessor`: processor-neutral stream/MMIO dimensions, binding-generation
+  width, and physical-provider inventory. Physical providers are distinct from
+  logical application roles.
+
+Older exports receive disabled optional interfaces with zero counts; host-stream
+count defaults to the total stream count. Application-topology dimensions must
+remain positive. Metadata describes the exported interface, not proof that a
+transport has passed hardware validation.
 
 `app.json` records:
 

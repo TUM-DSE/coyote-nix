@@ -199,6 +199,14 @@ if [ ! -f "$driver_ko" ]; then
   exit 1
 fi
 
+# All driver/endpoint checks must precede unload, reset, or programming.
+coyote_driver_preflight "$driver_ko"
+coyote_unload_preflight
+if [[ "$image" == *rdma* || "$image" == *tcp* ]] && [ -z "${COYOTE_DRIVER_ARGS:-}" ]; then
+  echo "ERROR: network bitstream requires COYOTE_DRIVER_ARGS." >&2
+  exit 1
+fi
+
 program_cmd_argv=()
 # Split --program-cmd into argv without using a shell wrapper.
 # Example: --program-cmd "program-cli --flag value"

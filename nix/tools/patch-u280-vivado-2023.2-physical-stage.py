@@ -85,7 +85,9 @@ def patch_physical_stage(path: Path) -> None:
                 "            if {[llength $selected_port] != 1} {",
                 '                error "Expected exactly one Aurora QSFP1 port $port, found [llength $selected_port]: $selected_port"',
                 "            }",
-                "            if {[get_property LOC $selected_port] ne $pin || [get_property PACKAGE_PIN $selected_port] ne $pin} {",
+                # LOC resolves to a GT site after placement, not a package pin.
+                # Resetting an already-correct port destroys fixed GT pin maps.
+                "            if {[get_property PACKAGE_PIN $selected_port] ne $pin} {",
                 "                reset_property LOC $selected_port",
                 "                reset_property PACKAGE_PIN $selected_port",
                 "                set_property PACKAGE_PIN $pin $selected_port",

@@ -82,6 +82,17 @@ collect_evidence() {
     --output "$stage/reports/shell_strict_signoff_c0.json"
 }
 
+expect_collect_rejected() {
+  local name=$1
+  local stage=$2
+  local expected=$3
+  if collect_evidence "$stage" >"$work/$name.stdout" 2>"$work/$name.stderr"; then
+    echo "strict signoff unexpectedly collected malformed DRC evidence for $name" >&2
+    exit 1
+  fi
+  grep -F -- "$expected" "$work/$name.stderr" >/dev/null
+}
+
 make_classification() {
   local stage=$1
   local output=$2
@@ -340,6 +351,68 @@ collect_evidence "$drc_failure"
 make_manifest "$drc_failure"
 make_classification "$drc_failure" "$work/drc-failure-classification.json"
 expect_rejected drc-failure "$drc_failure" "$work/drc-failure-classification.json" drc
+
+real_vivado_drc_failure="$work/real-vivado-drc-failure"
+cp -a "$accepted" "$real_vivado_drc_failure"
+cp "$fixtures/vivado-2023.2-u280-drc-violations.rpt" \
+  "$real_vivado_drc_failure/reports/shell_drc_c0.rpt"
+collect_evidence "$real_vivado_drc_failure"
+jq -e '
+  .drc.implementation.checks == 266
+  and .drc.implementation.errors == 0
+  and .drc.implementation.criticalWarnings == 2
+  and .drc.implementation.warnings == 261
+' "$real_vivado_drc_failure/reports/shell_strict_signoff_c0.json" >/dev/null
+make_manifest "$real_vivado_drc_failure"
+make_classification "$real_vivado_drc_failure" \
+  "$work/real-vivado-drc-failure-classification.json"
+expect_rejected real-vivado-drc-failure "$real_vivado_drc_failure" \
+  "$work/real-vivado-drc-failure-classification.json" drc
+
+violations_drc_mismatch="$work/violations-drc-mismatch"
+cp -a "$accepted" "$violations_drc_mismatch"
+cat > "$violations_drc_mismatch/reports/shell_drc_c0.rpt" <<'EOF'
+| Command : report_drc -name fixture_signoff -file drc.rpt
+Report DRC
+Violations found: 2
++------+----------+-----------------+------------+
+| Rule | Severity | Description     | Violations |
++------+----------+-----------------+------------+
+| BAD  | Error    | Fixture failure | 1          |
++------+----------+-----------------+------------+
+EOF
+expect_collect_rejected violations-drc-mismatch "$violations_drc_mismatch" \
+  "implementation DRC report summary does not account for every DRC violation"
+
+unknown_drc_severity="$work/unknown-drc-severity"
+cp -a "$accepted" "$unknown_drc_severity"
+cat > "$unknown_drc_severity/reports/shell_drc_c0.rpt" <<'EOF'
+| Command : report_drc -name fixture_signoff -file drc.rpt
+Report DRC
+Violations found: 1
++------+----------+-----------------+------------+
+| Rule | Severity | Description     | Violations |
++------+----------+-----------------+------------+
+| BAD  | Notice   | Fixture failure | 1          |
++------+----------+-----------------+------------+
+EOF
+expect_collect_rejected unknown-drc-severity "$unknown_drc_severity" \
+  "implementation DRC report contains an unknown DRC severity: Notice"
+
+ambiguous_drc_summary="$work/ambiguous-drc-summary"
+cp -a "$accepted" "$ambiguous_drc_summary"
+cat > "$ambiguous_drc_summary/reports/shell_drc_c0.rpt" <<'EOF'
+| Command : report_drc -name fixture_signoff -file drc.rpt
+Report DRC
+Checks found: 0
+Violations found: 0
++------+----------+-------------+--------+
+| Rule | Severity | Description | Checks |
++------+----------+-------------+--------+
++------+----------+-------------+--------+
+EOF
+expect_collect_rejected ambiguous-drc-summary "$ambiguous_drc_summary" \
+  "implementation DRC report requires exactly one supported DRC summary count"
 
 bitstream_drc_failure="$work/bitstream-drc-failure"
 cp -a "$accepted" "$bitstream_drc_failure"

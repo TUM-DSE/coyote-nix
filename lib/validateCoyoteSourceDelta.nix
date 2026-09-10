@@ -173,7 +173,7 @@ let
     [
       "--base-source ${lib.escapeShellArg delta.base.source}"
       "--candidate-source ${lib.escapeShellArg delta.candidate.source}"
-      "--patch ${lib.escapeShellArg delta.patch.path}"
+      "--patch ${lib.escapeShellArg "${delta.patch.path}"}"
       "--base-source-id ${lib.escapeShellArg delta.base.sourceId}"
       "--candidate-source-id ${lib.escapeShellArg delta.candidate.sourceId}"
       "--base-revision ${lib.escapeShellArg delta.base.revision}"

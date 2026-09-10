@@ -18,7 +18,9 @@ let
   normalizeSource = value: if builtins.isAttrs value && value ? outPath then value.outPath else value;
   basePath = normalizeSource baseSource;
   candidatePath = normalizeSource candidateSource;
-  rawPatchPath = normalizeSource patch;
+  # Hash the original input during evaluation; copy it only when building commands.
+  # Renaming it with builtins.path makes read-only flake checks hash an absent path.
+  patchPath = normalizeSource patch;
   immutablePathString = value: builtins.unsafeDiscardStringContext (toString value);
   declaredRevision = value: if builtins.isAttrs value then value.rev or null else null;
   declaredBaseRevision = declaredRevision baseSource;
@@ -36,14 +38,6 @@ let
         builtins.attrNames context == [ key ] && (context.${key}.path or false)
       )
     );
-  patchPath =
-    if builtins.isPath rawPatchPath then
-      builtins.path {
-        path = rawPatchPath;
-        name = "${pname}.patch";
-      }
-    else
-      rawPatchPath;
   isSha256 = value: builtins.isString value && builtins.match "[0-9a-f]{64}" value != null;
   isRevision = value: builtins.isString value && builtins.match "[0-9a-f]{40}" value != null;
   canonicalChangedPaths =
@@ -132,7 +126,7 @@ let
     [
       "--base-source ${lib.escapeShellArg (toString basePath)}"
       "--candidate-source ${lib.escapeShellArg (toString candidatePath)}"
-      "--patch ${lib.escapeShellArg (toString patchPath)}"
+      "--patch ${lib.escapeShellArg "${patchPath}"}"
       "--base-source-id ${lib.escapeShellArg baseSourceId}"
       "--candidate-source-id ${lib.escapeShellArg candidateSourceId}"
       "--base-revision ${lib.escapeShellArg baseRevision}"
@@ -176,7 +170,7 @@ let
             revision = candidateRevision;
           };
           patch = {
-            path = toString patchPath;
+            path = patchPath;
             sha256 = patchSha256;
             changedPaths = canonicalChangedPaths;
           };

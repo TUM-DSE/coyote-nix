@@ -890,7 +890,53 @@ let
         grep -F 'if {[info exists cfg(peer_backend)] && $cfg(peer_backend) eq "aurora_qsfp1"} {' \
           "$build/physical_stage.tcl" >/dev/null
         grep -F 'gt1_rxp_in[0] G53' "$build/physical_stage.tcl" >/dev/null
-        grep -F 'reset_property PACKAGE_PIN $selected_port' "$build/physical_stage.tcl" >/dev/null
+        # Execute the generated relocation command with placed-port properties.
+        awk '
+          /^    if .*cfg\(peer_backend\).*aurora_qsfp1/ { copying = 1 }
+          copying { print }
+          copying && /^    \}/ { exit }
+        ' "$build/physical_stage.tcl" > "$build/relocate.tcl"
+        cat > "$build/port-placement-test.tcl" <<'EOF'
+        proc get_ports {args} {
+          global pin pins
+          set port [lindex [lindex $args end] 0]
+          if {![info exists pins($port)]} { set pins($port) $pin }
+          return $port
+        }
+        proc get_cells {args} { return channel }
+        proc get_property {property object} {
+          global pins expected_loc
+          if {$object eq "channel"} { return $expected_loc }
+          if {$property eq "PACKAGE_PIN"} { return $pins($object) }
+          if {$property eq "LOC"} { return GTYE4_COMMON_X0Y11 }
+          error "Unexpected property $property"
+        }
+        proc reset_property {property object} {
+          global resets
+          lappend resets [list $property $object]
+        }
+        proc set_property {property value object} {
+          global writes pins
+          lappend writes [list $property $value $object]
+          if {$property eq "PACKAGE_PIN"} { set pins($object) $value }
+        }
+        set cfg(peer_backend) aurora_qsfp1
+        set resets {}
+        set writes {}
+        source [lindex $argv 0]
+        if {[array size pins] == 0} { error "No ports exercised" }
+        if {$resets ne {} || $writes ne {}} {
+          error "Matching package pins with site-valued LOC must remain untouched"
+        }
+        set pins(gt1_refclk_n) WRONG_PIN
+        source [lindex $argv 0]
+        if {$resets ne {{LOC gt1_refclk_n} {PACKAGE_PIN gt1_refclk_n}} ||
+            $writes ne {{PACKAGE_PIN M43 gt1_refclk_n} {LOC M43 gt1_refclk_n}} ||
+            $pins(gt1_refclk_n) ne "M43"} {
+          error "Mismatching package pin must relocate only the affected port"
+        }
+        EOF
+        ${pkgs.tcl}/bin/tclsh "$build/port-placement-test.tcl" "$build/relocate.tcl"
         grep -F 'gen_channel_container\[24\]' "$build/physical_stage.tcl" >/dev/null
         grep -F 'Expected exactly one Aurora channel' "$build/physical_stage.tcl" >/dev/null
         grep -F '3 GTYE4_CHANNEL_X0Y44 2 GTYE4_CHANNEL_X0Y45' \
