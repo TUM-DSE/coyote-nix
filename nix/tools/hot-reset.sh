@@ -1,3 +1,5 @@
+set -euo pipefail
+
 usage() {
   echo "Usage: hot-reset [bdf]" >&2
   echo "Run a PCIe secondary-bus hot reset for the FPGA endpoint." >&2
@@ -50,7 +52,9 @@ if ! command -v setpci >/dev/null 2>&1; then
   exit 1
 fi
 
-port="$(basename "$(dirname "$(readlink "$pci_sysfs_root/devices/$dev")")")"
+endpoint_path="$(readlink -f "$pci_sysfs_root/devices/$dev")"
+bridge_path="$(dirname "$endpoint_path")"
+port="$(basename "$bridge_path")"
 if [ ! -e "$pci_sysfs_root/devices/$port" ]; then
   echo "ERROR: upstream port $port not found" >&2
   exit 1
@@ -74,6 +78,7 @@ wait_for_endpoint_ready() {
     fi
 
     vendor_id="$(read_cfg_word "$dev" VENDOR_ID || true)"
+    vendor_id="${vendor_id,,}"
     case "$vendor_id" in
       [0-9a-fA-F][0-9a-fA-F][0-9a-fA-F][0-9a-fA-F])
         if [ "$vendor_id" != "ffff" ] && [ "$vendor_id" != "0000" ]; then
@@ -114,7 +119,9 @@ pci_rescan_enabled() {
 }
 
 remove_and_rescan_endpoint() {
-  local function_path function_dev slot_prefix
+  local function_dev
+
+  validate_reset_domain
 
   echo "Removing endpoint functions for $dev from Linux PCI tree and rescanning..."
 
@@ -123,24 +130,71 @@ remove_and_rescan_endpoint() {
     return 1
   fi
 
-  slot_prefix="${dev%.*}."
-  for function_path in "$pci_sysfs_root"/devices/"$slot_prefix"*; do
-    [ -e "$function_path/remove" ] || continue
-    function_dev="$(basename "$function_path")"
+  for function_dev in "${functions[@]}"; do
     if [ "$function_dev" != "$dev" ]; then
       echo "Removing sibling function $function_dev"
-      echo 1 | sudo tee "$function_path/remove" >/dev/null
+      echo 1 | sudo tee "$pci_sysfs_root/devices/$function_dev/remove" >/dev/null
     fi
   done
 
   echo 1 | sudo tee "$pci_sysfs_root/devices/$dev/remove" >/dev/null
   sleep 1
-  echo 1 | sudo tee "$pci_sysfs_root/rescan" >/dev/null
+  echo 1 | sudo tee "$bus_rescan" >/dev/null
 
   wait_for_endpoint_in_sysfs "PCI rescan"
   wait_for_endpoint_ready "PCI rescan"
   sleep "$rescan_settle_s"
 }
+
+fail() { echo "ERROR: $*" >&2; exit 1; }
+
+# Only a directly attached, exclusive FPGA slot is authorized. In particular,
+# a switch or another endpoint below this bridge would widen the reset domain.
+[[ "$dev" =~ ^[[:xdigit:]]{4}:[[:xdigit:]]{2}:[[:xdigit:]]{2}\.[0-7]$ ]] || fail "invalid endpoint BDF"
+[[ "$port" =~ ^[[:xdigit:]]{4}:[[:xdigit:]]{2}:[[:xdigit:]]{2}\.[0-7]$ ]] || fail "invalid bridge BDF"
+[[ "$(readlink -f "$pci_sysfs_root/devices/$port")" == "$bridge_path" ]] || fail "ambiguous bridge ancestry"
+[[ "$(< "$bridge_path/class")" == 0x0604* ]] || fail "parent is not a PCI bridge"
+primary="$(read_cfg_word "$port" PRIMARY_BUS)"
+secondary="$(read_cfg_word "$port" SECONDARY_BUS)"
+subordinate="$(read_cfg_word "$port" SUBORDINATE_BUS)"
+for bus in "$primary" "$secondary" "$subordinate"; do
+  [[ "$bus" =~ ^[[:xdigit:]]{2}$ ]] || fail "invalid bridge bus register"
+done
+[[ "${primary,,}" == "${port:5:2}" && "${secondary,,}" == "${dev:5:2}" && "${dev:0:4}" == "${port:0:4}" ]] || fail "bridge bus registers disagree with endpoint topology"
+(( 16#$secondary > 16#$primary && 16#$subordinate >= 16#$secondary )) || fail "invalid bridge bus range"
+bus_rescan="$bridge_path/pci_bus/${dev:0:7}/rescan"
+if pci_rescan_enabled; then
+  [[ -e "$bus_rescan" ]] || fail "subordinate bus rescan is unavailable"
+  [[ "$(readlink -f "$bus_rescan")" == "$bridge_path/pci_bus/${dev:0:7}/rescan" ]] || fail "ambiguous subordinate bus ancestry"
+fi
+
+validate_reset_domain() {
+  local path resolved name vendor class bus_number
+  functions=()
+  for path in "$pci_sysfs_root"/devices/*; do
+    resolved="$(readlink -f "$path")" || fail "cannot resolve PCI device $path"
+    name="$(basename "$path")"
+    # Check both ancestry and the hardware forwarding bus range.
+    if [[ "$resolved" != "$bridge_path/"* ]]; then
+      if [[ "${name:0:4}" == "${dev:0:4}" && "${name:5:2}" =~ ^[[:xdigit:]]{2}$ ]]; then
+        bus_number=$((16#${name:5:2}))
+        (( bus_number < 16#$secondary || bus_number > 16#$subordinate )) || fail "device $name in reset bus range outside verified ancestry"
+      fi
+      continue
+    fi
+    [[ "$(dirname "$resolved")" == "$bridge_path" && "${name%.*}" == "${dev%.*}" ]] || fail "foreign descendant $name in reset domain"
+    [[ ! -e "$path/driver" && ! -L "$path/driver" ]] || fail "reset domain function $name is driver-bound"
+    vendor="$(< "$path/vendor")"
+    class="$(< "$path/class")"
+    [[ "$vendor" == 0x10ee && "$class" =~ ^0x[[:xdigit:]]{6}$ && "$class" != 0x06* ]] || fail "non-FPGA endpoint $name in reset domain"
+    if pci_rescan_enabled; then
+      [[ -e "$path/remove" ]] || fail "function $name cannot be removed"
+    fi
+    functions+=("$name")
+  done
+  [[ " ${functions[*]} " == *" $dev "* ]] || fail "selected endpoint disappeared"
+}
+validate_reset_domain
 
 orig_bridge_control="$(read_cfg_word "$port" BRIDGE_CONTROL)"
 if [ -z "$orig_bridge_control" ]; then
@@ -156,13 +210,47 @@ case "$orig_bridge_control" in
     ;;
 esac
 
+orig_bridge_control="${orig_bridge_control,,}"
+(( 16#$orig_bridge_control != 65535 && (16#$orig_bridge_control & 64) == 0 )) || fail "invalid or already asserted BRIDGE_CONTROL"
 asserted_bridge_control="$(printf '%04x' "$((0x$orig_bridge_control | 0x0040))")"
+restore_pending=0
+restore_bridge() {
+  local current
+  current="$(read_cfg_word "$port" BRIDGE_CONTROL)" || return 1
+  current="${current,,}"
+  if [[ "$current" == "$asserted_bridge_control" ]]; then
+    sudo setpci -s "$port" BRIDGE_CONTROL="$orig_bridge_control" || return 1
+    current="$(read_cfg_word "$port" BRIDGE_CONTROL)" || return 1
+    current="${current,,}"
+  fi
+  [[ "$current" == "$orig_bridge_control" ]] || {
+    echo "ERROR: unexpected BRIDGE_CONTROL=$current; refusing to overwrite concurrent changes" >&2
+    return 1
+  }
+  restore_pending=0
+}
+cleanup() {
+  local rc=$?
+  trap - EXIT
+  trap '' HUP INT TERM
+  if (( restore_pending )); then
+    restore_bridge || { echo "ERROR: BRIDGE_CONTROL restoration not verified for $port" >&2; rc=1; }
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 echo "Secondary-bus hot reset via upstream bridge $port for endpoint $dev..."
 echo "Hold=${reset_hold_s}s settle=${post_reset_settle_s}s ready-timeout=${ready_timeout_s}s pci-rescan=${pci_rescan}"
+[[ "$(read_cfg_word "$port" BRIDGE_CONTROL)" == "$orig_bridge_control" ]] || fail "BRIDGE_CONTROL changed before assertion"
+restore_pending=1
 sudo setpci -s "$port" BRIDGE_CONTROL="$asserted_bridge_control"
+[[ "$(read_cfg_word "$port" BRIDGE_CONTROL)" == "$asserted_bridge_control" ]] || fail "reset assertion readback failed"
 sleep "$reset_hold_s"
-sudo setpci -s "$port" BRIDGE_CONTROL="$orig_bridge_control"
+restore_bridge || fail "BRIDGE_CONTROL restoration failed"
 
 echo "Restored BRIDGE_CONTROL=$orig_bridge_control on $port"
 wait_for_endpoint_ready "hot reset"

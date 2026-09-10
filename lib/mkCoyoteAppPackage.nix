@@ -14,6 +14,7 @@
   cmakeFlags ? [ ],
   provenance ? { },
   implementation ? { },
+  enableElaboration ? false,
 }:
 
 let
@@ -43,7 +44,8 @@ let
   xilinxVersion = checkedShellContract.xilinxVersion;
   combineOptPlace = boardName == "u280" && xilinxVersion == "2023.2";
   collectPhysicalQorAssessment = !combineOptPlace;
-  appElaborationEnabled = boardName == "u280";
+  appElaborationEnabled = boardName == "u280" || enableElaboration;
+  synthesizeBlockDesigns = boardName == "v80";
   checkedBaseCoyoteRoot =
     if checkedShellContract.coyoteSource == toString coyoteRoot then
       coyoteRoot
@@ -544,7 +546,7 @@ let
       mkAppElaborationStage {
         pname = "${pname}-elaboration";
         board = boardProfile;
-        inherit xilinxVersion;
+        inherit xilinxVersion synthesizeBlockDesigns;
         cmakeFlags = appCmakeFlags;
         preBuildSetup = validateShellPackage;
         buildApp = true;
@@ -570,8 +572,10 @@ let
            and .fpgaPart == $part
            and .flow.buildApp == true
            and .flow.buildShell == false
-           and .flow.rtlOnly == true
-           and .flow.synthesis == false
+           and .flow.rtlOnly == ${if synthesizeBlockDesigns then "false" else "true"}
+           and .flow.synthesis == ${if synthesizeBlockDesigns then "true" else "false"}
+           and .flow.applicationRtlOnly == true
+           and .flow.synthesizeBlockDesigns == ${if synthesizeBlockDesigns then "true" else "false"}
            and .flow.implementation == false
            ${
              lib.optionalString (checkedUserProjectDelta != null) ''

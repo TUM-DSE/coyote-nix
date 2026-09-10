@@ -15,8 +15,8 @@ case "$tool_name" in
   armr5-none-eabi-*)
     tool_bin="$(coyote_nix_find_armr5_bin "$version" "$tool_name" 2>/dev/null || true)"
     ;;
-  bootgen)
-    tool_bin="$(coyote_nix_find_vitis_bin "$version" bootgen 2>/dev/null || true)"
+  bootgen|xsdb)
+    tool_bin="$(coyote_nix_find_vitis_bin "$version" "$tool_name" 2>/dev/null || true)"
     ;;
   *)
     echo "Unsupported embedded tool wrapper: $tool_name" >&2

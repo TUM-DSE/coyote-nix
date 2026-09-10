@@ -171,7 +171,9 @@ The shell package contains `export.cmake`, `checkpoints/shell_routed_locked.dcp`
 
 See [`docs/two-stage-packages.md`](docs/two-stage-packages.md) for the complete API, output layouts, board differences, compatibility contract, and consumer guidance.
 For qualified U280 parent reuse, see the optional
-[`subdivisionReference`](docs/subdivision-reference.md) input.
+[`subdivisionReference`](docs/subdivision-reference.md) input. V80 applications can
+opt into project elaboration with `enableElaboration = true`; parent block-design
+OOC synthesis may run, but application placement/routing does not.
 
 The established `mkCoyoteBoardPackages` arguments and existing package names are unchanged; the U280 elaboration, synthesis, and routed outputs are additive. Standalone non-two-stage consumers do not need to migrate.
 
@@ -256,6 +258,15 @@ Explicit arguments still override board-derived defaults. The expected board fie
 }
 ```
 
+## Optional XSDB tool
+
+`mkTools` exposes `tools.xsdb` for consumers that need the standard Xilinx debugger.
+Add it explicitly to a development shell; it is not added to the default tools or
+embedded bundle. `COYOTE_NIX_XILINX_VERSION` selects the Vitis installation, using
+the same `xilinx-shell` wrapper as the existing embedded tools. A missing XSDB
+executable fails rather than falling back to another version. This supplies the
+executable only, not an R5 boot or board-recovery procedure.
+
 ## Deployment helpers
 
 Deployment helpers do not bake in or infer project package names. `program-cli` and `deploy-hw` require an explicit image path, either as a positional argument or via `FPGA_BITSTREAM`:
@@ -272,6 +283,10 @@ A consuming project that has an unambiguous default image should provide its own
 `hw_server` logs default to `$HW_SERVER_LOG`, then `$XDG_RUNTIME_DIR/hw_server-<port>.log`, then `/tmp/hw_server-$UID-<port>.log`. The wrappers pre-create logs with world-writable permissions where possible, and fall back to the per-user `/tmp` path if the requested log is not writable.
 
 For hosts with multiple identical FPGA parts, site inventory should provide `FPGA_JTAG_TARGET` as a Vivado hardware-target substring (for example a cable serial). `program-cli` filters `get_hw_targets` by that value before selecting the single device matching `FPGA_PART_HINT`.
+
+`program-cli` refuses preexisting `hw_server` processes on its selected port,
+even when owned by the same Unix user. Select an unused port or ask the server's
+owner to stop it; the helper only cleans up the server session it launches.
 
 `deploy-hw` runs the manual sequence:
 
@@ -295,9 +310,12 @@ it is not proof of kernel configuration, signatures, or hardware compatibility.
 Insertion refuses an already-loaded driver; unload it explicitly before requesting
 a different binary. Removal refuses foreign ownership and a driver bound to other
 endpoints, and propagates kernel removal failures. These checks do not make
-`insmod` endpoint-scoped: it can probe every matching unbound device. Likewise,
-`hot-reset` can affect sibling functions and rescan more broadly than the selected
-endpoint. Verify ownership of the affected devices before deploying.
+`insmod` endpoint-scoped: it can probe every matching unbound device. `hot-reset` requires an exclusive, directly attached FPGA slot with all functions
+unbound. It rejects other bridge descendants and bound siblings before mutation,
+rescans only the verified subordinate bus, and attempts to restore and verify
+bridge control after a failed or interrupted reset. It refuses to overwrite
+unexpected concurrent control changes. This is not automatic recovery for absent
+endpoints, shared bridges, or a failed host; verify exclusive ownership before use.
 
 With a compatible shell already programmed and its Coyote driver active, load one application partial into a vFPGA with:
 

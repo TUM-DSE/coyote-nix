@@ -31,8 +31,8 @@ for config in 0 1; do
 done
 
 cat > "$work/runner.tcl" <<'EOF'
-if {$argc != 7} {
-    puts stderr "usage: runner.tcl TOOL BASE REPORT BOARD PART BUILD_APP BUILD_SHELL"
+if {$argc ni {7 8}} {
+    puts stderr "usage: runner.tcl TOOL BASE REPORT BOARD PART BUILD_APP BUILD_SHELL ?SYNTHESIZE_BLOCK_DESIGNS?"
     exit 2
 }
 set tool [lindex $argv 0]
@@ -44,8 +44,10 @@ set ip_products_ready 0
 
 proc open_project {path} {
     set ::opened_project $path
-    set ::ip_sources_visible 0
+    set ::ip_sources_visible {}
     set ::ip_products_ready 0
+    set ::parent_products_ready 0
+    set ::parent_runs_complete {}
 }
 proc current_project {} {
     return fixture_project
@@ -64,35 +66,65 @@ proc get_property {property object} {
         TOP {
             return design_user_wrapper_0
         }
+        IP_FILE {
+            return "$object.xci"
+        }
+        STATUS {
+            if {[info exists ::env(TEST_PARENT_RUN_FAILURE)]} { return "synth_design ERROR" }
+            if {$object ni $::parent_runs_complete} { error "Parent run not waited on" }
+            return "synth_design Complete!"
+        }
         default {
             error "unexpected property: $property"
         }
     }
 }
 proc get_ips {args} {
-    if {$args ne {-quiet}} {
-        error "unexpected get_ips arguments: $args"
+    if {$args ne {-quiet -exclude_bd_ips}} {
+        error "Elaboration must not treat BD child IPs as standalone IPs"
     }
     return {fixture_ip_0 fixture_ip_1}
 }
 proc get_files {args} {
-    if {$args ne {-quiet -of_objects sources_1 -filter {FILE_TYPE == IP}}} {
-        error "unexpected get_files arguments: $args"
+    if {[lindex $args end] eq {FILE_TYPE == "Block Designs"}} {
+        if {[info exists ::env(TEST_BLOCK_DESIGNS)]} { return {parent0.bd parent1.bd} }
+        return {}
     }
-    return {fixture_ip_0.xci fixture_ip_1.xci}
+    set file [lindex $args end]
+    if {$file ni {fixture_ip_0.xci fixture_ip_1.xci}} { error "Unknown IP file $file" }
+    if {[info exists ::env(TEST_MISSING_IP_FILE)]} { return {} }
+    return $file
 }
 proc set_property {property value objects} {
     if {$property ne "GENERATE_SYNTH_CHECKPOINT" || $value ne "false" ||
-        $objects ne {fixture_ip_0.xci fixture_ip_1.xci}} {
-        error "unexpected IP source-visibility request: $property $value $objects"
+        $objects ni {fixture_ip_0.xci fixture_ip_1.xci}} {
+        error "Checkpoint policy must apply to standalone IP files: $property $value $objects"
     }
-    set ::ip_sources_visible 1
+    lappend ::ip_sources_visible $objects
+}
+proc create_ip_run {bd} {
+    if {!$::parent_products_ready} { error "Parent products not generated" }
+    if {[info exists ::env(TEST_MISSING_PARENT_RUN)]} { return {} }
+    return "${bd}_synth"
+}
+proc launch_runs {args} {
+    if {![info exists ::env(TEST_BLOCK_DESIGNS)]} { error "Unexpected OOC synthesis" }
+}
+proc wait_on_run {run} { lappend ::parent_runs_complete $run }
+proc get_runs {args} {
+    if {[info exists ::env(TEST_MISSING_RUN_OBJECT)]} { return {} }
+    return [lindex $args end]
 }
 proc generate_target {target objects} {
+    if {$target eq "synthesis" && $objects eq {parent0.bd parent1.bd}} {
+        if {[info exists ::env(TEST_PARENT_GENERATION_FAILURE)]} { error "Parent generation failed" }
+        set ::parent_products_ready 1
+        return
+    }
     if {$target ne "synthesis" || $objects ne {fixture_ip_0 fixture_ip_1}} {
         error "unexpected generate_target request: $target $objects"
     }
-    if {!$::ip_sources_visible} {
+    if {[lsort $::ip_sources_visible] ne {fixture_ip_0.xci fixture_ip_1.xci}} {
         error "synthesis IP output products generated before top-level source visibility"
     }
     if {[info exists ::env(TEST_IP_GENERATION_FAILURE)]} {
@@ -104,8 +136,11 @@ proc update_compile_order {args} {
     if {$args ne {-fileset sources_1}} {
         error "unexpected update_compile_order arguments: $args"
     }
-    if {!$::ip_sources_visible || !$::ip_products_ready} {
+    if {[llength $::ip_sources_visible] != 2 || !$::ip_products_ready} {
         error "compile order updated before synthesis IP sources were visible and generated"
+    }
+    if {[info exists ::env(TEST_BLOCK_DESIGNS)] && [llength $::parent_runs_complete] != 2} {
+        error "Parent block designs were not synthesized"
     }
 }
 proc synth_design {args} {
@@ -183,9 +218,30 @@ fi
 test ! -e "$work/missing-user-rtl/complete"
 test ! -e "$work/missing-user-rtl/units.tsv"
 
-if grep -E '(^|[[:space:]])(launch_runs|write_checkpoint|opt_design|place_design|route_design)([[:space:]]|$)' \
-  "$tool" >/dev/null; then
-  echo "ERROR: RTL elaboration tool contains synthesis or implementation commands" >&2
+# V80 permits parent-BD OOC synthesis, but the application itself stays RTL-only.
+sed -e 's/set cfg(fdev) u280/set cfg(fdev) v80/' \
+  -e 's/xcu280-fsvh2892-2L-e/xcvc1902-vsva2197-2MP-e-S/' \
+  "$work/base.tcl" > "$work/v80-base.tcl"
+run_v80() {
+  env TEST_BLOCK_DESIGNS=1 "$@" tclsh "$work/runner.tcl" "$tool" \
+    "$work/v80-base.tcl" "$work/v80-report" v80 xcvc1902-vsva2197-2MP-e-S 1 0 1
+}
+run_v80
+test -f "$work/v80-report/complete"
+for failure in TEST_PARENT_GENERATION_FAILURE TEST_PARENT_RUN_FAILURE \
+  TEST_MISSING_PARENT_RUN TEST_MISSING_RUN_OBJECT TEST_MISSING_IP_FILE; do
+  # Start with prior success to prove failure removes stale completion evidence.
+  run_v80 >/dev/null
+  if run_v80 "$failure=1" >/dev/null 2>&1; then
+    echo "ERROR: mixed-BD elaboration accepted $failure" >&2
+    exit 1
+  fi
+  test ! -e "$work/v80-report/complete"
+  test ! -e "$work/v80-report/units.tsv"
+done
+if run_tool "$work/unapproved-bd" "$work/base.tcl" 1 0 \
+  TEST_BLOCK_DESIGNS=1 >/dev/null 2>&1; then
+  echo 'ERROR: default RTL-only elaboration unexpectedly synthesized parent BDs' >&2
   exit 1
 fi
 

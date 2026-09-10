@@ -281,6 +281,7 @@ rec {
       buildShell,
       preBuildSetup ? "",
       canonicalBuildDependency ? true,
+      synthesizeBlockDesigns ? false,
     }:
     let
       expectedBuildApp = if buildApp then "1" else "0";
@@ -297,8 +298,10 @@ rec {
           inherit xilinxVersion;
           flow = {
             inherit buildApp buildShell;
-            rtlOnly = true;
-            synthesis = false;
+            rtlOnly = !synthesizeBlockDesigns;
+            synthesis = synthesizeBlockDesigns;
+            applicationRtlOnly = true;
+            inherit synthesizeBlockDesigns;
             implementation = false;
           };
           sourceManagementMode = "All";
@@ -330,7 +333,8 @@ rec {
         ''
           vivado -mode tcl -source ${appElaborationTool} -notrace -tclargs \
             "$build_dir/base.tcl" "$build_dir/reports/app-elaboration" \
-            '${board.board}' '${board.fpgaPart}' '${expectedBuildApp}' '${expectedBuildShell}'
+            '${board.board}' '${board.fpgaPart}' '${expectedBuildApp}' '${expectedBuildShell}' \
+            '${if synthesizeBlockDesigns then "1" else "0"}'
         ''
       ];
       expectedPaths = [
@@ -358,7 +362,8 @@ rec {
             buildShell
             canonicalBuildDependency
             ;
-          rtlOnly = true;
+          rtlOnly = !synthesizeBlockDesigns;
+          inherit synthesizeBlockDesigns;
           metadata = "metadata/elaboration.json";
           completion = "reports/app-elaboration/complete";
         };
@@ -570,24 +575,24 @@ rec {
         ${pkgs.python3}/bin/python ${implementationStageTool} validate \
           ${stage} --phase validate --context ${lib.escapeShellArg expectedContext}
         ${lib.optionalString enforceStrictSignoff ''
-        strict_result="$TMPDIR/strict-signoff.json"
-        strict_args=(
-          --stage ${stage}
-          --context ${lib.escapeShellArg expectedContext}
-          ${lib.optionalString (
-            signoffClassification != null
-          ) "--classification ${lib.escapeShellArg (toString signoffClassification)}"}
-          --output "$strict_result"
-        )
-        set +e
-        ${pkgs.python3}/bin/python ${strictSignoffTool} verify "''${strict_args[@]}"
-        strict_status=$?
-        set -e
-        if [ "$strict_status" -ne 0 ]; then
-          echo "ERROR: strict physical signoff rejected validation evidence: ${stage}" >&2
-          ${pkgs.jq}/bin/jq . "$strict_result" >&2 || true
-          exit "$strict_status"
-        fi
+          strict_result="$TMPDIR/strict-signoff.json"
+          strict_args=(
+            --stage ${stage}
+            --context ${lib.escapeShellArg expectedContext}
+            ${lib.optionalString (
+              signoffClassification != null
+            ) "--classification ${lib.escapeShellArg (toString signoffClassification)}"}
+            --output "$strict_result"
+          )
+          set +e
+          ${pkgs.python3}/bin/python ${strictSignoffTool} verify "''${strict_args[@]}"
+          strict_status=$?
+          set -e
+          if [ "$strict_status" -ne 0 ]; then
+            echo "ERROR: strict physical signoff rejected validation evidence: ${stage}" >&2
+            ${pkgs.jq}/bin/jq . "$strict_result" >&2 || true
+            exit "$strict_status"
+          fi
         ''}
         outcome="$(${pkgs.jq}/bin/jq -r '.outcome' ${stage}/metadata/stage.json)"
         if [ "$outcome" != accepted ]; then
@@ -604,7 +609,9 @@ rec {
         done
         cp ${stage}/metadata/stage.json "$out/metadata/validation-stage.json"
         ${lib.optionalString enforceStrictSignoff ''cp "$strict_result" "$out/metadata/strict-signoff.json"''}
-        printf '%s\n' '${builtins.toJSON { inherit enforceStrictSignoff; }}' > "$out/metadata/validation-policy.json"
+        printf '%s\n' '${
+          builtins.toJSON { inherit enforceStrictSignoff; }
+        }' > "$out/metadata/validation-policy.json"
         printf '%s\n' accepted > "$out/metadata/outcome"
       '';
 

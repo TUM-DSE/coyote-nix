@@ -273,7 +273,27 @@ SHELL_PATH=<exact shellPackage store path>
 
 The Nix dependency and the `SHELL_PATH` value therefore identify the same immutable package. Before each build stage, the helper verifies that the package has `export.cmake`, `shell_routed_locked.dcp`, valid shell metadata, and matching artifact hashes.
 
-The U280 app graph is `RTL elaboration -> synth -> immutable input bundle -> link -> opt -> place -> route -> validate -> gate -> image`; V80 starts at `synth`. The U280-only elaboration stage runs production `BUILD_APP` project generation and `synth_design -rtl` for every user unit under automatic source management, then emits atomic completion and unit evidence without synthesis or implementation. It is available as `coyoteTwoStage.stages.elaboration` and is a canonical dependency of U280 synthesis. The installed bitstream tree is deliberately filtered to `config_*` directories, so it cannot publish `cyt_top` boot images or `shell_top` partials. Intermediate checkpoints and reports belong to their independently rootable stage outputs; the final package retains the accepted routed checkpoint, validation evidence, application partials, and compatibility metadata.
+The U280 app graph is `RTL elaboration -> synth -> immutable input bundle -> link
+-> opt -> place -> route -> validate -> gate -> image`. Its mandatory preflight
+runs production `BUILD_APP` project generation and `synth_design -rtl` for every
+application unit under automatic source management. Completion and unit evidence
+are published atomically; any failure removes stale completion evidence.
+
+V80 starts at `synth` by default. Set `enableElaboration = true` in
+`mkCoyoteAppPackage` to add a preflight dependency. The stage is available as
+`coyoteTwoStage.stages.elaboration`, so consumers can also expose it as a package
+and build it without running application synthesis or routing. V80 preflight
+may **synthesize parent block designs out-of-context**, including their child IPs;
+standalone IPs are generated separately. This is more expensive than pure RTL
+elaboration. The application top itself is still elaborated with `-rtl`, and no
+placement or routing runs. Metadata distinguishes this mode from U280's RTL-only
+stage. The option does not disable U280's existing mandatory preflight.
+
+The installed bitstream tree is filtered to `config_*` directories, so it cannot
+publish `cyt_top` boot images or `shell_top` partials. Intermediate checkpoints and
+reports belong to their independently rootable stages; the final package retains
+the accepted routed checkpoint, validation evidence, application partials, and
+compatibility metadata.
 
 Before publishing the linked checkpoint, the U280 and V80 link stage opens the exact routed/locked shell and records the physical partition pins for every application RP. It repeats the snapshot after linking and requires identical logical pins, physical partition-pin locations, pblock ranges, and pblock-site density. The same gate fingerprints all placement-fixed and route-fixed objects outside the application RPs before and after linking. A missing/empty evidence set, changed boundary, or protected-static placement/route drift fails the link. This makes applications with one shell ABI—including application-size or code-distance variants—share the shell's physical RP boundary rather than silently deriving a new one.
 

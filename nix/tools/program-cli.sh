@@ -160,86 +160,39 @@ hw_server_uses_port() {
   [ "$hw_server_port" = "3121" ]
 }
 
-find_foreign_hw_servers() {
-  local current_uid pid pid_uid info
+find_unowned_hw_servers() {
+  local pid session info
 
-  current_uid="$(id -u)"
   for pid in $(pgrep -x hw_server || true); do
     hw_server_uses_port "$pid" || continue
-    pid_uid="$(ps -o uid= -p "$pid" 2>/dev/null | awk '{print $1}' || true)"
-    [ -n "$pid_uid" ] || continue
-
-    if [ "$pid_uid" != "$current_uid" ]; then
-      info="$(ps -o user= -o pid= -o args= -p "$pid" 2>/dev/null || true)"
-      if [ -n "$info" ]; then
-        printf '%s\n' "$info"
-      else
-        printf 'uid=%s pid=%s hw_server port=%s\n' "$pid_uid" "$pid" "$hw_server_port"
-      fi
+    # Only the session launched below belongs to this invocation. A shared
+    # UID or programming lock is not ownership of an existing debug server.
+    if [ -n "$hw_server_pgid" ]; then
+      session="$(ps -o sid= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
+      [ "$session" != "$hw_server_pgid" ] || continue
+    fi
+    info="$(ps -o user= -o pid= -o args= -p "$pid" 2>/dev/null || true)"
+    if [ -n "$info" ]; then
+      printf '%s\n' "$info"
+    else
+      printf 'pid=%s hw_server port=%s\n' "$pid" "$hw_server_port"
     fi
   done
-}
-
-stop_own_hw_servers() {
-  local current_uid pid pid_uid remaining_pids attempts
-  local own_pids=()
-
-  current_uid="$(id -u)"
-  for pid in $(pgrep -x hw_server || true); do
-    hw_server_uses_port "$pid" || continue
-    pid_uid="$(ps -o uid= -p "$pid" 2>/dev/null | awk '{print $1}' || true)"
-    [ -n "$pid_uid" ] || continue
-
-    if [ "$pid_uid" = "$current_uid" ]; then
-      own_pids+=("$pid")
-    fi
-  done
-
-  if [ "${#own_pids[@]}" -eq 0 ]; then
-    return 0
-  fi
-
-  echo "Stopping existing hw_server process(es) on port $hw_server_port: ${own_pids[*]}"
-  kill "${own_pids[@]}" 2>/dev/null || true
-
-  attempts=0
-  while [ "$attempts" -lt 10 ]; do
-    remaining_pids=()
-    for pid in "${own_pids[@]}"; do
-      if kill -0 "$pid" 2>/dev/null; then
-        remaining_pids+=("$pid")
-      fi
-    done
-
-    if [ "${#remaining_pids[@]}" -eq 0 ]; then
-      return 0
-    fi
-
-    sleep 0.2
-    attempts=$((attempts + 1))
-  done
-
-  echo "ERROR: hw_server process(es) on port $hw_server_port did not exit after SIGTERM: ${remaining_pids[*]}" >&2
-  echo "Refusing to force-kill them; another programming/debug session may be active." >&2
-  echo "Stop them manually if they are stale, then retry program-cli." >&2
-  exit 1
 }
 
 acquire_program_lock
 
-foreign_hw_servers="$(find_foreign_hw_servers)"
-if [ -n "$foreign_hw_servers" ]; then
-  echo "ERROR: refusing to use an existing hw_server owned by another user on port $hw_server_port." >&2
+unowned_hw_servers="$(find_unowned_hw_servers)"
+if [ -n "$unowned_hw_servers" ]; then
+  echo "ERROR: refusing to use or stop an existing hw_server on port $hw_server_port." >&2
   echo "Ask the owner/admin to stop it, or choose a different COYOTE_NIX_HW_SERVER_PORT/HW_SERVER_PORT." >&2
   echo >&2
-  echo "Existing foreign hw_server process(es):" >&2
-  printf '%s\n' "$foreign_hw_servers" >&2
+  echo "Existing hw_server process(es), not owned by this invocation:" >&2
+  printf '%s\n' "$unowned_hw_servers" >&2
   exit 1
 fi
 
-# Vivado and hw_server major versions must match. Restart any existing
-# current-user hw_server on this port so this invocation uses the shell-selected version.
-stop_own_hw_servers
+# Launch the shell-selected version in a dedicated session for owned cleanup.
 
 fallback_hw_server_log="${TMPDIR:-/tmp}/hw_server-$(id -u)-$hw_server_port.log"
 hw_server_log="${HW_SERVER_LOG:-}"
@@ -264,11 +217,11 @@ if ! kill -0 "$hw_server_pid" 2>/dev/null; then
   exit 1
 fi
 
-foreign_hw_servers="$(find_foreign_hw_servers)"
-if [ -n "$foreign_hw_servers" ]; then
-  echo "ERROR: a foreign hw_server appeared on port $hw_server_port after starting our hw_server; refusing to continue." >&2
-  echo "Existing foreign hw_server process(es):" >&2
-  printf '%s\n' "$foreign_hw_servers" >&2
+unowned_hw_servers="$(find_unowned_hw_servers)"
+if [ -n "$unowned_hw_servers" ]; then
+  echo "ERROR: an unowned hw_server appeared on port $hw_server_port after starting our hw_server; refusing to continue." >&2
+  echo "Existing hw_server process(es), not owned by this invocation:" >&2
+  printf '%s\n' "$unowned_hw_servers" >&2
   exit 1
 fi
 

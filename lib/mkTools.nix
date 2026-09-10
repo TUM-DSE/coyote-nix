@@ -287,6 +287,12 @@ rec {
     script = ../nix/tools/xilinx-embedded-wrapper.sh;
   };
 
+  xsdb = mkXilinxWrapper {
+    name = "xsdb";
+    description = "Run XSDB from the selected Vitis installation inside xilinx-shell.";
+    script = ../nix/tools/xilinx-embedded-wrapper.sh;
+  };
+
   embedded = pkgs.symlinkJoin {
     name = "xilinx-embedded-tools";
     paths = [

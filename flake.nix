@@ -115,7 +115,7 @@
                     root="$out/2025.1/Vitis"
                     mkdir -p "$root/bin" "$root/gnu/armr5/lin/gcc-arm-none-eabi/bin"
                     : > "$root/.settings64-Vitis.sh"
-                    for tool in bootgen armr5-none-eabi-gcc armr5-none-eabi-readelf; do
+                    for tool in xsdb bootgen armr5-none-eabi-gcc armr5-none-eabi-readelf; do
                       case "$tool" in
                         armr5-*) dir="$root/gnu/armr5/lin/gcc-arm-none-eabi/bin" ;;
                         *) dir="$root/bin" ;;
@@ -485,15 +485,19 @@
           pname = "example-u280-app";
           shellPackage = evalU280Shell;
         };
-        evalV80App = coyoteNixLib.mkCoyoteAppPackage {
-          inherit pkgs;
-          tools = evalTools;
-          coyoteRoot = ./.;
-          hwSource = ./.;
-          xilinxShareRoot = "/nonexistent/xilinx";
-          pname = "example-v80-app";
-          shellPackage = evalV80Shell;
-        };
+        mkEvalV80App =
+          enableElaboration:
+          coyoteNixLib.mkCoyoteAppPackage {
+            inherit pkgs enableElaboration;
+            tools = evalTools;
+            coyoteRoot = ./.;
+            hwSource = ./.;
+            xilinxShareRoot = "/nonexistent/xilinx";
+            pname = "example-v80-app";
+            shellPackage = evalV80Shell;
+          };
+        evalV80App = mkEvalV80App false;
+        evalV80ElaboratedApp = mkEvalV80App true;
         evalDeltaU280Shell = coyoteNixLib.mkCoyoteShellPackage {
           inherit pkgs;
           tools = evalTools;
@@ -1016,6 +1020,25 @@
               touch "$out"
             '';
 
+        checks.program-server-ownership =
+          pkgs.runCommand "program-server-ownership-check"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.bash
+                pkgs.coreutils
+                pkgs.gnugrep
+                pkgs.gnused
+                pkgs.gawk
+                pkgs.procps
+                pkgs.util-linux
+              ];
+            }
+            ''
+              python3 ${./.}/tests/program-server-ownership.py ${./.}
+              touch "$out"
+            '';
+
         checks.subdivision-reference = import ./tests/subdivision-reference.nix {
           inherit pkgs;
           coyoteLib = coyoteNixLib;
@@ -1170,6 +1193,9 @@
             'armr5-none-eabi-readelf -h probe.elf'
           test "$(${embeddedTestTools.embedded}/bin/bootgen -arch versal)" = \
             'bootgen -arch versal'
+          test "$(${embeddedTestTools.xsdb}/bin/xsdb -eval 'puts {hello world}')" = \
+            'xsdb -eval puts {hello world}'
+          bash ${./tests/xilinx-embedded-wrappers.sh} ${./.}
           if COYOTE_NIX_XILINX_VERSION=2024.2 \
             ${embeddedTestTools.embedded}/bin/bootgen -help >/dev/null 2>&1; then
             echo "ERROR: wrapper accepted an absent Vitis version" >&2
@@ -1415,6 +1441,12 @@
           '';
 
         checks.two-stage-packages-eval =
+          assert !evalV80App.coyoteTwoStage.elaboration.enabled;
+          assert evalV80ElaboratedApp.coyoteTwoStage.elaboration.enabled;
+          assert evalV80ElaboratedApp.coyoteTwoStage.elaboration.canonicalBuildDependency;
+          assert !evalV80ElaboratedApp.coyoteTwoStage.stages.elaboration.coyoteAppElaboration.rtlOnly;
+          assert
+            evalV80ElaboratedApp.coyoteTwoStage.stages.elaboration.coyoteAppElaboration.synthesizeBlockDesigns;
           assert coyoteNixLib ? mkCoyoteShellPackage;
           assert coyoteNixLib ? mkCoyoteV80StaticCheckpointPackage;
           assert coyoteNixLib ? mkCoyoteSourceChecks;

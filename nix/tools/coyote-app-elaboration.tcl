@@ -1,5 +1,5 @@
-if {$argc != 6} {
-    puts stderr "usage: coyote-app-elaboration.tcl BASE_TCL REPORT_DIR EXPECTED_BOARD EXPECTED_PART EXPECTED_BUILD_APP EXPECTED_BUILD_SHELL"
+if {$argc ni {6 7}} {
+    puts stderr "usage: coyote-app-elaboration.tcl BASE_TCL REPORT_DIR EXPECTED_BOARD EXPECTED_PART EXPECTED_BUILD_APP EXPECTED_BUILD_SHELL ?SYNTHESIZE_BLOCK_DESIGNS?"
     exit 2
 }
 
@@ -9,6 +9,7 @@ set expected_board [lindex $argv 2]
 set expected_part [lindex $argv 3]
 set expected_build_app [lindex $argv 4]
 set expected_build_shell [lindex $argv 5]
+set synthesize_block_designs [expr {$argc == 7 ? [lindex $argv 6] : "0"}]
 set units_tmp [file join $output_dir units.tsv.tmp]
 set units_path [file join $output_dir units.tsv]
 set completion_tmp [file join $output_dir complete.tmp]
@@ -30,6 +31,9 @@ if {[catch {
         if {![info exists cfg($key)]} {
             error "Coyote application elaboration base Tcl lacks required cfg($key)"
         }
+    }
+    if {$synthesize_block_designs ni {0 1}} {
+        error "SYNTHESIZE_BLOCK_DESIGNS must be 0 or 1"
     }
     if {$expected_build_app ni {0 1} || $expected_build_shell ni {0 1}} {
         error "Coyote application elaboration build-mode expectations must be 0 or 1"
@@ -71,14 +75,40 @@ if {[catch {
                 error "Coyote application project has no synthesis top: $project_path"
             }
 
-            set project_ips [get_ips -quiet]
-            if {[llength $project_ips] > 0} {
-                set project_ip_files [get_files -quiet -of_objects $source_fileset -filter {FILE_TYPE == IP}]
-                if {[llength $project_ip_files] != [llength $project_ips]} {
-                    error "Coyote application project IP object/file count mismatch: [llength $project_ips]/[llength $project_ip_files]"
+            set parent_block_designs [get_files -quiet -of_objects $source_fileset \
+                -filter {FILE_TYPE == "Block Designs"}]
+            if {[llength $parent_block_designs] > 0} {
+                if {!$synthesize_block_designs} {
+                    error "Application project contains block designs; parent synthesis was not enabled"
                 }
-                set_property GENERATE_SYNTH_CHECKPOINT false $project_ip_files
-                generate_target synthesis $project_ips
+                generate_target synthesis $parent_block_designs
+                foreach parent_block_design $parent_block_designs {
+                    set parent_runs [create_ip_run $parent_block_design]
+                    if {[llength $parent_runs] == 0} {
+                        error "No synthesis run created for block design: $parent_block_design"
+                    }
+                    launch_runs -jobs 1 $parent_runs
+                    foreach parent_run $parent_runs {
+                        wait_on_run $parent_run
+                        set run_object [get_runs -quiet $parent_run]
+                        if {[llength $run_object] != 1 ||
+                            ![string match "*Complete!*" [get_property STATUS $run_object]]} {
+                            error "Application parent block-design synthesis failed: $parent_block_design ($parent_run)"
+                        }
+                    }
+                }
+            }
+
+            set standalone_ips [get_ips -quiet -exclude_bd_ips]
+            foreach standalone_ip $standalone_ips {
+                set ip_file [get_files -quiet [get_property IP_FILE $standalone_ip]]
+                if {[llength $ip_file] != 1} {
+                    error "Application standalone IP must have exactly one source file: $standalone_ip"
+                }
+                set_property GENERATE_SYNTH_CHECKPOINT false $ip_file
+            }
+            if {[llength $standalone_ips] > 0} {
+                generate_target synthesis $standalone_ips
             }
             update_compile_order -fileset $source_fileset
             synth_design -rtl -name "rtl_elaboration_c${i}_$j" -top $top -part $part
