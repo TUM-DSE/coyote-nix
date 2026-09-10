@@ -15,7 +15,7 @@ cat > "$fake_bin/setpci" <<'EOF'
 set -eu
 case "${*: -1}" in
   PRIMARY_BUS) echo c0 ;;
-  SECONDARY_BUS) echo c1 ;;
+  SECONDARY_BUS) cat "$COYOTE_TEST_ROOT/secondary" ;;
   SUBORDINATE_BUS) echo c2 ;;
   BRIDGE_CONTROL) cat "$COYOTE_TEST_ROOT/control" ;;
   BRIDGE_CONTROL=*)
@@ -32,8 +32,36 @@ esac
 EOF
 cat > "$fake_bin/tee" <<'EOF'
 #!/usr/bin/env bash
+set -euo pipefail
 printf '%s\n' "$1" >> "$COYOTE_TEST_ROOT/mutations"
-exec "$COYOTE_TEST_REAL_TEE" "$@"
+value=$(cat)
+printf '%s\n' "$value" | "$COYOTE_TEST_REAL_TEE" "$@"
+case "$1" in
+  */remove)
+    name=$(basename "$(dirname "$1")")
+    printf '%s\n' "$name" >> "$COYOTE_TEST_ROOT/removed"
+    rm "$COYOTE_NIX_PCI_SYSFS_ROOT/devices/$name"
+    ;;
+  */pci_bus/0000:c1/rescan)
+    count=$(( $(cat "$COYOTE_TEST_ROOT/scans") + 1 ))
+    printf '%s\n' "$count" > "$COYOTE_TEST_ROOT/scans"
+    if [[ "$COYOTE_TEST_MODE" == never-discovered ]]; then exit 0; fi
+    if [[ "$COYOTE_TEST_MODE" == missed-first-scan && "$count" == 1 ]]; then exit 0; fi
+    if [[ "$COYOTE_TEST_MODE" == retry-range ]]; then
+      echo c2 > "$COYOTE_TEST_ROOT/secondary"
+      exit 0
+    fi
+    if [[ "$COYOTE_TEST_MODE" == retry-foreign || "$COYOTE_TEST_MODE" == rediscovery-foreign ]]; then
+      parent="$COYOTE_TEST_ROOT/topology/0000:c0:01.1"
+      mkdir -p "$parent/0000:c1:01.0"
+      ln -s "$parent/0000:c1:01.0" "$COYOTE_NIX_PCI_SYSFS_ROOT/devices/0000:c1:01.0"
+      if [[ "$COYOTE_TEST_MODE" == retry-foreign ]]; then exit 0; fi
+    fi
+    while read -r name; do
+      ln -s "$COYOTE_TEST_ROOT/topology/0000:c0:01.1/$name" "$COYOTE_NIX_PCI_SYSFS_ROOT/devices/$name"
+    done < "$COYOTE_TEST_ROOT/removed"
+    ;;
+esac
 EOF
 cat > "$fake_bin/sleep" <<'EOF'
 #!/usr/bin/env bash
@@ -79,11 +107,14 @@ setup() {
   add_function 0000:c1:00.0
   add_function 0000:c1:00.1
   echo 0012 > "$workdir/control"
+  echo c1 > "$workdir/secondary"
   : > "$workdir/mutations"
   : > "$workdir/reads"
+  : > "$workdir/removed"
+  echo 0 > "$workdir/scans"
   export COYOTE_TEST_MODE=normal
 }
-run() { bash "$hot_reset" > "$workdir/output" 2>&1; }
+run() { timeout 8 bash "$hot_reset" > "$workdir/output" 2>&1; }
 reject() {
   if run; then echo "unexpected success: $case_name"; exit 1; fi
   test ! -s "$workdir/mutations"
@@ -154,4 +185,36 @@ for case_name in single multifunction no-rescan; do
   test ! -s "$pci_root/rescan"
   test -s "$workdir/reads"
   echo "PASS readiness and scoped rescan: $case_name"
+done
+
+export COYOTE_NIX_HOT_RESET_READY_TIMEOUT_S=3
+for case_name in missed-first-scan never-discovered retry-foreign rediscovery-foreign retry-range; do
+  setup
+  export COYOTE_TEST_MODE="$case_name"
+  if [[ "$case_name" == missed-first-scan ]]; then
+    run || { cat "$workdir/output"; exit 1; }
+    test "$(< "$workdir/scans")" -eq 2
+    test -e "$pci_root/devices/$FPGA_BDF"
+  else
+    if run; then echo "unexpected success: $case_name"; exit 1; fi
+    if [[ "$case_name" == rediscovery-foreign ]]; then
+      test -e "$pci_root/devices/$FPGA_BDF"
+    else
+      test ! -e "$pci_root/devices/$FPGA_BDF"
+    fi
+    if [[ "$case_name" == retry-foreign || "$case_name" == rediscovery-foreign ]]; then
+      test "$(< "$workdir/scans")" -eq 1
+      grep -F 'foreign descendant' "$workdir/output" >/dev/null
+    elif [[ "$case_name" == retry-range ]]; then
+      test "$(< "$workdir/scans")" -eq 1
+      grep -F 'bus range changed' "$workdir/output" >/dev/null
+    else
+      grep -F 'did not reappear within' "$workdir/output" >/dev/null
+      test "$(< "$workdir/scans")" -ge 1
+    fi
+  fi
+  test "$(grep -c '^BRIDGE_CONTROL=' "$workdir/mutations")" -eq 2
+  test "$(< "$workdir/control")" = 0012
+  test ! -s "$pci_root/rescan"
+  echo "PASS bounded rediscovery: $case_name"
 done

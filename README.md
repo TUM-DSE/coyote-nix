@@ -313,7 +313,10 @@ endpoints, and propagates kernel removal failures. These checks do not make
 `insmod` endpoint-scoped: it can probe every matching unbound device. `hot-reset` requires an exclusive, directly attached FPGA slot with all functions
 unbound. It rejects other bridge descendants and bound siblings before mutation,
 rescans only the verified subordinate bus, and attempts to restore and verify
-bridge control after a failed or interrupted reset. It refuses to overwrite
+bridge control after a failed or interrupted reset. If initial rediscovery misses
+the endpoint, it rechecks the domain and repeats that same scoped scan within
+`COYOTE_NIX_HOT_RESET_READY_TIMEOUT_S`, using the existing readiness poll interval.
+It never repeats the reset or falls back to a global scan. It refuses to overwrite
 unexpected concurrent control changes. This is not automatic recovery for absent
 endpoints, shared bridges, or a failed host; verify exclusive ownership before use.
 

@@ -92,19 +92,27 @@ wait_for_endpoint_ready() {
   done
 }
 
-wait_for_endpoint_in_sysfs() {
-  local deadline now context="${1:-PCI rescan}"
+rescan_until_endpoint_found() {
+  local deadline now
   deadline=$(( $(date +%s) + ready_timeout_s ))
 
   while :; do
-    if [ -e "$pci_sysfs_root/devices/$dev" ]; then
-      return 0
-    fi
-
     now=$(date +%s)
     if [ "$now" -ge "$deadline" ]; then
-      echo "ERROR: endpoint $dev did not reappear in sysfs within ${ready_timeout_s}s after $context" >&2
+      echo "ERROR: endpoint $dev did not reappear within ${ready_timeout_s}s of scoped PCI rescans" >&2
       return 1
+    fi
+    # A missed scan does not schedule rediscovery on a non-hotplug bus.
+    # Revalidate the same reset domain before each bounded discovery attempt.
+    [[ "$(readlink -f "$pci_sysfs_root/devices/$port")" == "$bridge_path" ]] || fail "bridge ancestry changed during rediscovery"
+    [[ "$(read_cfg_word "$port" SECONDARY_BUS)" == "$secondary" &&
+       "$(read_cfg_word "$port" SUBORDINATE_BUS)" == "$subordinate" ]] || fail "bridge bus range changed during rediscovery"
+    [[ "$(readlink -f "$bus_rescan")" == "$bridge_path/pci_bus/${dev:0:7}/rescan" ]] || fail "subordinate bus ancestry changed during rediscovery"
+    validate_reset_domain 0
+    echo 1 | sudo tee "$bus_rescan" >/dev/null
+    if [ -e "$pci_sysfs_root/devices/$dev" ]; then
+      validate_reset_domain
+      return 0
     fi
 
     sleep "$ready_poll_s"
@@ -139,9 +147,7 @@ remove_and_rescan_endpoint() {
 
   echo 1 | sudo tee "$pci_sysfs_root/devices/$dev/remove" >/dev/null
   sleep 1
-  echo 1 | sudo tee "$bus_rescan" >/dev/null
-
-  wait_for_endpoint_in_sysfs "PCI rescan"
+  rescan_until_endpoint_found
   wait_for_endpoint_ready "PCI rescan"
   sleep "$rescan_settle_s"
 }
@@ -169,7 +175,7 @@ if pci_rescan_enabled; then
 fi
 
 validate_reset_domain() {
-  local path resolved name vendor class bus_number
+  local path resolved name vendor class bus_number require_endpoint="${1:-1}"
   functions=()
   for path in "$pci_sysfs_root"/devices/*; do
     resolved="$(readlink -f "$path")" || fail "cannot resolve PCI device $path"
@@ -192,7 +198,9 @@ validate_reset_domain() {
     fi
     functions+=("$name")
   done
-  [[ " ${functions[*]} " == *" $dev "* ]] || fail "selected endpoint disappeared"
+  if (( require_endpoint )); then
+    [[ " ${functions[*]} " == *" $dev "* ]] || fail "selected endpoint disappeared"
+  fi
 }
 validate_reset_domain
 
