@@ -93,7 +93,7 @@ wait_for_endpoint_ready() {
 }
 
 rescan_until_endpoint_found() {
-  local deadline now
+  local deadline now attempt=0
   deadline=$(( $(date +%s) + ready_timeout_s ))
 
   while :; do
@@ -109,6 +109,8 @@ rescan_until_endpoint_found() {
        "$(read_cfg_word "$port" SUBORDINATE_BUS)" == "$subordinate" ]] || fail "bridge bus range changed during rediscovery"
     [[ "$(readlink -f "$bus_rescan")" == "$bridge_path/pci_bus/${dev:0:7}/rescan" ]] || fail "subordinate bus ancestry changed during rediscovery"
     validate_reset_domain 0
+    attempt=$((attempt + 1))
+    echo "Scoped PCI discovery attempt $attempt for $dev"
     echo 1 | sudo tee "$bus_rescan" >/dev/null
     if [ -e "$pci_sysfs_root/devices/$dev" ]; then
       validate_reset_domain
