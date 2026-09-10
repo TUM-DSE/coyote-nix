@@ -8,6 +8,10 @@
       url = "github:taugoust/Coyote/develop";
       flake = false;
     };
+    coyoteDriver = {
+      url = "github:taugoust/Coyote/e5927167687f603e42aa24dcf248028fb1f4542d";
+      flake = false;
+    };
     coyoteDeltaBase = {
       url = "github:taugoust/Coyote/d0e293778b2e14c3b69c3e9e6295b10dabafe24e";
       flake = false;
@@ -23,14 +27,22 @@
       nixpkgs,
       flake-utils,
       coyote,
+      coyoteDriver,
       coyoteDeltaBase,
       coyoteDeltaCandidate,
       ...
     }:
     let
-      coyoteNixLib = (import ./lib) // {
+      baseLib = import ./lib;
+      coyoteNixLib = baseLib // {
         defaultCoyote = coyote;
         defaultCoyoteRevision = coyote.rev;
+        defaultDriverSource = coyoteDriver;
+        defaultDriverRevision = coyoteDriver.rev;
+        mkCoyoteDriverPackage =
+          args: baseLib.mkCoyoteDriverPackage ({ driverSource = coyoteDriver; } // args);
+        mkCoyoteDriverPackages =
+          args: baseLib.mkCoyoteDriverPackages ({ driverSource = coyoteDriver; } // args);
       };
       linuxSystems = builtins.filter (
         system: builtins.match ".*-linux" system != null
@@ -985,6 +997,14 @@
                 "$integrated_final" >/dev/null
               touch "$out"
             '';
+
+        checks.coyote-driver-build = coyoteNixLib.mkCoyoteDriverPackage {
+          inherit pkgs;
+          coyoteRoot = coyote;
+          pname = "coyote-driver-build-check";
+          targetPlatform = "ultrascale_plus";
+          driverKernel = pkgs.linuxPackages.kernel;
+        };
 
         checks.coyote-app-link-integrity = defaultCoyoteSourceChecks.appLinkIntegrityContract;
         checks.coyote-hls-tool-selection =

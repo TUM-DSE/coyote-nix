@@ -1,6 +1,7 @@
 {
   pkgs,
   coyoteRoot,
+  driverSource ? coyoteRoot,
   driverKernels,
   targetPlatforms,
   hostNames ? builtins.attrNames driverKernels,
@@ -26,6 +27,7 @@ let
         inherit
           pkgs
           coyoteRoot
+          driverSource
           pname
           targetPlatform
           hostName

@@ -51,6 +51,23 @@
         "type": "github"
       }
     },
+    "coyoteDriver": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1789045588,
+        "narHash": "sha256-L425HIbyEBWGx8leRQ/LcOjj9XTj+CcMqlN0EL3ohV0=",
+        "owner": "taugoust",
+        "repo": "Coyote",
+        "rev": "e5927167687f603e42aa24dcf248028fb1f4542d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "taugoust",
+        "repo": "Coyote",
+        "rev": "e5927167687f603e42aa24dcf248028fb1f4542d",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -90,6 +107,7 @@
         "coyote": "coyote",
         "coyoteDeltaBase": "coyoteDeltaBase",
         "coyoteDeltaCandidate": "coyoteDeltaCandidate",
+        "coyoteDriver": "coyoteDriver",
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs"
       }

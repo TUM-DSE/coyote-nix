@@ -1,6 +1,7 @@
 {
   pkgs,
   coyoteRoot,
+  driverSource ? coyoteRoot,
   pname,
   targetPlatform,
   driverKernel,
@@ -13,7 +14,7 @@
 pkgs.stdenv.mkDerivation (
   {
     inherit pname version;
-    src = coyoteRoot + "/driver";
+    src = driverSource + "/driver";
 
     nativeBuildInputs = driverKernel.moduleBuildDependencies;
     dontConfigure = true;

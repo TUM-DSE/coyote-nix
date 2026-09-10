@@ -199,6 +199,19 @@ A source-delta build additionally compares the accepted reference checkpoint wit
 
 ## Driver package matrix
 
+The flake-exported `mkCoyoteDriverPackage` and `mkCoyoteDriverPackages` use a
+separately pinned `coyoteDriver` input from Coyote's `framed` lineage. This includes
+DMA page-pinning/writeback safety and Linux 7.1+ dma-buf callback compatibility
+without changing the FPGA `coyote` input. The caller still supplies the host kernel;
+this does not select or upgrade it. `defaultDriverSource` and
+`defaultDriverRevision` expose the selected source for provenance.
+
+Pass `driverSource = coyoteRoot;` to explicitly build a shell-matched historical
+driver, or provide another compatible source. Direct `import ./lib` users retain
+the historical `driverSource ? coyoteRoot` default; the separate pin is supplied
+by the flake API, not by filesystem imports. Driver/kernel and hardware runtime
+compatibility still require validation.
+
 `mkCoyoteDriverPackages` builds the conventional Coyote driver package matrix for a set of site-provided host kernels and target platforms:
 
 ```nix
