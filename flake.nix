@@ -1101,6 +1101,7 @@
           assert !hlsRequiredEval.success;
           defaultCoyoteSourceChecks.hlsToolSelectionContract;
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
+        checks.coyote-coprocessor-render = defaultCoyoteSourceChecks.coprocessorRenderContract;
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
         checks.coyote-resident-control-host-api = defaultCoyoteSourceChecks.hostApiCompile;

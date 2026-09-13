@@ -350,6 +350,8 @@ let
       ''
         set -euo pipefail
         fixture=${coyoteRoot}/tests/coprocessor_ports
+        python "$fixture/package_count_test.py" \
+          ${coyoteRoot}/hw/templates/common/lynx_pkg_tmplt.txt
 
         render_case() {
           name="$1"
