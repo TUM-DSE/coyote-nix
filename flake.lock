@@ -3,11 +3,11 @@
     "coyote": {
       "flake": false,
       "locked": {
-        "lastModified": 1789333136,
-        "narHash": "sha256-47JXCuw73ebhBpxvOia2nenbS3bIZ+UUBylc1De+tGw=",
+        "lastModified": 1789337921,
+        "narHash": "sha256-OsQE2EmX659BV8ib1HkggVAgr1ymecyiEnIXcUd6TCE=",
         "owner": "taugoust",
         "repo": "Coyote",
-        "rev": "2d00605d4f32796c4e04937936f5ff6dd42ecc1a",
+        "rev": "4492d0419f85e286452b9c9e2f37c97d6a5e4b41",
         "type": "github"
       },
       "original": {
@@ -54,11 +54,11 @@
     "coyoteDriver": {
       "flake": false,
       "locked": {
-        "lastModified": 1789333136,
-        "narHash": "sha256-47JXCuw73ebhBpxvOia2nenbS3bIZ+UUBylc1De+tGw=",
+        "lastModified": 1789337921,
+        "narHash": "sha256-OsQE2EmX659BV8ib1HkggVAgr1ymecyiEnIXcUd6TCE=",
         "owner": "taugoust",
         "repo": "Coyote",
-        "rev": "2d00605d4f32796c4e04937936f5ff6dd42ecc1a",
+        "rev": "4492d0419f85e286452b9c9e2f37c97d6a5e4b41",
         "type": "github"
       },
       "original": {
