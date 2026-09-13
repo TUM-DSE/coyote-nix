@@ -234,6 +234,27 @@ coyote-driver-<targetPlatform>-<hostName>
 
 The site flake still owns host inventory and kernel policy; this helper only encodes the generic package-matrix mechanics.
 
+Both builders accept `driverVariant`, defaulting to `"legacy"`. With a
+variant-capable `driverSource`, select `"ultrascale_plus"` or `"versal"`; a
+nonlegacy variant must match `targetPlatform`. The matrix also accepts
+`driverVariant = combo: combo.targetPlatform;`. The existing default source pin
+only supports legacy identity; supply a compatible source explicitly to use
+isolated variants.
+
+Legacy produces `coyote_driver.ko`; isolated variants produce
+`coyote_driver_<family>.ko`, installed at the package root and under the kernel's
+`extra/` directory. `share/coyote/driver-identity.json` records `driverVariant`,
+`moduleName` and `targetPlatform`; the same values are exposed as package
+attributes. Identity is derived from the variant, not an arbitrary filename.
+Default package discovery requires exactly one root `.ko` and refuses ambiguity.
+
+Rebuild userspace against the namespace-capable Coyote library and select
+`COYOTE_DEVICE_PREFIX=coyote_ultrascale_plus_fpga` or `coyote_versal_fpga`.
+Device indices are local to each module. Old libraries ignore the variable;
+setting it alone does not retarget an old executable. `mkTools` must likewise
+receive the namespace-capable `coyoteRoot` for `reconfigure-app`. There are no
+conflicting legacy device aliases or automatic IPC permission changes.
+
 ## Dev shell board context
 
 `mkCoyoteDevShell` accepts an optional `board` attrset, such as one supplied by a site flake. When present, it fills the Coyote board defaults used by the shell:
@@ -303,13 +324,25 @@ It is only for full-device programming. Do not pass a U280 application `.bin` to
 
 `insert-driver`, `unload-driver`, and `deploy-hw` require `FPGA_BDF` identifying an
 existing endpoint (for example `0000:01:00.0`). Module insertion checks the internal
-module name and vermagic kernel release, not the filename alone. `deploy-hw` runs
-the same check before unloading or programming. This catches release mismatches;
-it is not proof of kernel configuration, signatures, or hardware compatibility.
+module name, vermagic kernel release and actual PCI aliases against the selected
+endpoint's modalias, not the filename alone. Supported names are `coyote_driver`,
+`coyote_driver_ultrascale_plus` and `coyote_driver_versal`. `deploy-hw` runs the
+same check before unloading or programming; insertion rechecks after programming.
+This catches wrong-platform legacy binaries despite their identical names. It is
+not proof of kernel configuration, signatures, or shell ABI compatibility.
+The combined workflow conservatively refuses a currently unsupported/golden PCI
+identity even if the desired image would change it; it has no bypass for that
+bootstrap case.
 
 Insertion refuses an already-loaded driver; unload it explicitly before requesting
-a different binary. Removal refuses foreign ownership and a driver bound to other
-endpoints, and propagates kernel removal failures. These checks do not make
+a different binary. Full deployment may switch from legacy to an isolated module,
+but refuses an already-loaded requested module outside the selected binding
+before disrupting the current owner. Removal uses only the selected endpoint's
+actual supported owner; an unbound endpoint is a no-op. It refuses foreign
+ownership and a driver bound to other endpoints. It calls `rmmod` while still
+bound so kernel reference checks protect open clients; successful unregister
+unbinds the endpoint, and removal failures propagate without an earlier sysfs
+unbind. These checks do not make
 `insmod` endpoint-scoped: it can probe every matching unbound device. `hot-reset` requires an exclusive, directly attached FPGA slot with all functions
 unbound. It rejects other bridge descendants and bound siblings before mutation,
 rescans only the verified subordinate bus, and attempts to restore and verify

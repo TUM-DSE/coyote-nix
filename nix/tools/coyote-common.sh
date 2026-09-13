@@ -18,6 +18,13 @@ coyote_bound_driver() {
   fi
 }
 
+coyote_supported_module() {
+  case "$1" in
+    coyote_driver|coyote_driver_ultrascale_plus|coyote_driver_versal) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 coyote_endpoint_preflight() {
   local owner
   FPGA_BDF="$(coyote_normalize_bdf "${FPGA_BDF:-}")" || return 1
@@ -27,24 +34,26 @@ coyote_endpoint_preflight() {
     return 1
   fi
   owner="$(coyote_bound_driver "$FPGA_BDF")" || return 1
-  if [ -n "$owner" ] && [ "$owner" != coyote_driver ]; then
+  if [ -n "$owner" ] && ! coyote_supported_module "$owner"; then
     echo "ERROR: selected endpoint $FPGA_BDF belongs to another driver: $owner" >&2
     return 1
   fi
 }
 
 coyote_driver_loaded() {
-  [ -d /sys/module/coyote_driver ]
+  [ -d "/sys/module/$1" ]
 }
 
 # rmmod is module-wide: never remove a driver serving another endpoint.
 coyote_unload_preflight() {
   local path
   coyote_endpoint_preflight || return 1
-  for path in /sys/bus/pci/drivers/coyote_driver/????:??:??.?; do
+  current_module="$(coyote_bound_driver "$FPGA_BDF")" || return 1
+  [ -n "$current_module" ] || return 0
+  for path in /sys/bus/pci/drivers/"$current_module"/????:??:??.?; do
     [ -e "$path" ] || continue
     if [ "${path##*/}" != "$FPGA_BDF" ]; then
-      echo "ERROR: coyote_driver also serves ${path##*/}; refusing module-wide unload." >&2
+      echo "ERROR: $current_module also serves ${path##*/}; refusing module-wide unload." >&2
       return 1
     fi
   done
@@ -56,8 +65,8 @@ coyote_driver_preflight() {
   local ko="$1" name vermagic release running
   [ -f "$ko" ] || { echo "ERROR: driver module not found: $ko" >&2; return 1; }
   name="$(modinfo -F name "$ko")" || return 1
-  if [ "$name" != coyote_driver ]; then
-    echo "ERROR: expected module coyote_driver, got: $name" >&2
+  if ! coyote_supported_module "$name"; then
+    echo "ERROR: unsupported Coyote module name: $name" >&2
     return 1
   fi
   vermagic="$(modinfo -F vermagic "$ko")" || return 1
@@ -74,7 +83,40 @@ coyote_driver_preflight() {
     echo "ERROR: module kernel $release does not match running kernel $running." >&2
     return 1
   fi
-  coyote_endpoint_preflight
+  coyote_endpoint_preflight || return 1
+  coyote_module_alias_preflight "$ko" || return 1
+  requested_module="$name"
+  # Deployment may reload the selected binding, but must not disrupt it only
+  # to discover that the requested module is already loaded elsewhere.
+  if coyote_driver_loaded "$requested_module" &&
+     [ "$(coyote_bound_driver "$FPGA_BDF")" != "$requested_module" ]; then
+    echo "ERROR: requested module $requested_module is already loaded outside the selected binding." >&2
+    return 1
+  fi
+}
+
+coyote_module_alias_preflight() {
+  local aliases alias modalias matched=0
+  modalias="$(<"/sys/bus/pci/devices/$FPGA_BDF/modalias")" || return 1
+  if [[ ! "$modalias" =~ ^pci:v[0-9A-Fa-f]{8}d[0-9A-Fa-f]{8}sv[0-9A-Fa-f]{8}sd[0-9A-Fa-f]{8}bc[0-9A-Fa-f]{2}sc[0-9A-Fa-f]{2}i[0-9A-Fa-f]{2}$ ]]; then
+    echo "ERROR: malformed or missing PCI modalias for $FPGA_BDF." >&2
+    return 1
+  fi
+  aliases="$(modinfo -F alias "$1")" || return 1
+  while IFS= read -r alias; do
+    # PCI aliases emitted by modpost use hex digits and glob wildcards.
+    # Reject malformed metadata, never interpret it as shell code.
+    if [[ ! "$alias" =~ ^pci:v[0-9A-Fa-f*?]+d[0-9A-Fa-f*?]+sv[0-9A-Fa-f*?]+sd[0-9A-Fa-f*?]+bc[0-9A-Fa-f*?]+sc[0-9A-Fa-f*?]+i[0-9A-Fa-f*?]+$ ]]; then
+      echo "ERROR: malformed or missing module PCI alias: $alias" >&2
+      return 1
+    fi
+    # shellcheck disable=SC2053
+    [[ "$modalias" == $alias ]] && matched=1
+  done <<< "$aliases"
+  if [ "$matched" != 1 ]; then
+    echo "ERROR: module PCI aliases do not match selected endpoint $FPGA_BDF." >&2
+    return 1
+  fi
 }
 
 require_cmd() {
@@ -298,10 +340,19 @@ resolve_driver_package_output() {
 
 resolve_default_driver_ko_from_package() {
   local target_platform="$1"
-  local package_out
+  local package_out ko
+  local -a candidates=()
 
   package_out="$(resolve_driver_package_output "$target_platform")" || return 1
-  echo "$package_out/coyote_driver.ko"
+  for ko in "$package_out"/*.ko; do
+    [ -f "$ko" ] || continue
+    candidates+=("$ko")
+  done
+  if [ "${#candidates[@]}" -ne 1 ]; then
+    echo "ERROR: expected exactly one driver .ko in $package_out; found ${#candidates[@]}." >&2
+    return 1
+  fi
+  printf '%s\n' "${candidates[0]}"
 }
 
 driver_build_hint_for_target_platform() {

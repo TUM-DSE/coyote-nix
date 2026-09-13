@@ -4,6 +4,7 @@
   driverSource ? coyoteRoot,
   driverKernels,
   targetPlatforms,
+  driverVariant ? "legacy",
   hostNames ? builtins.attrNames driverKernels,
   pnamePrefix ? "coyote-driver",
   packageName ? { targetPlatform, hostName }: "${pnamePrefix}-${targetPlatform}-${hostName}",
@@ -33,6 +34,7 @@ let
           hostName
           version
           ;
+        driverVariant = resolve driverVariant combo;
         driverKernel = driverKernels.${hostName};
         extraMakeFlags = resolve extraMakeFlags combo;
         extraAttrs = resolve extraAttrs combo;

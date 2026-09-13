@@ -1044,6 +1044,8 @@
           coyoteLib = coyoteNixLib;
         };
 
+        checks.driver-package-variants = import ./tests/driver-package-variants.nix { inherit pkgs; };
+
         checks.coyote-driver-build = coyoteNixLib.mkCoyoteDriverPackage {
           inherit pkgs;
           coyoteRoot = coyote;

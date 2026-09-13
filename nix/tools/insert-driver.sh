@@ -45,9 +45,11 @@ if [ ! -f "$ko_path" ]; then
 fi
 
 coyote_driver_preflight "$ko_path"
-module_name=coyote_driver
-if coyote_driver_loaded || [ -n "$(coyote_bound_driver "$FPGA_BDF")" ]; then
-  echo "ERROR: coyote_driver is already loaded or bound; explicitly unload before insertion." >&2
+# Set from the actual KO by coyote_driver_preflight in the shared prelude.
+# shellcheck disable=SC2154
+module_name="$requested_module"
+if coyote_driver_loaded "$module_name" || [ -n "$(coyote_bound_driver "$FPGA_BDF")" ]; then
+  echo "ERROR: $module_name is already loaded or endpoint is bound; explicitly unload before insertion." >&2
   exit 1
 fi
 ready_timeout_s="${COYOTE_NIX_INSERT_DRIVER_READY_TIMEOUT_S:-10}"
@@ -101,6 +103,8 @@ else
   echo "Host bitstream."
 fi
 
+# insmod registers the driver's PCI aliases kernel-wide: other matching unbound
+# endpoints may also bind. The selected-endpoint checks do not restrict probing.
 set +e
 if [ -n "$driver_args" ]; then
   # shellcheck disable=SC2086
