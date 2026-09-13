@@ -9,7 +9,7 @@
       flake = false;
     };
     coyoteDriver = {
-      url = "github:taugoust/Coyote/e5927167687f603e42aa24dcf248028fb1f4542d";
+      url = "github:taugoust/Coyote/framed";
       flake = false;
     };
     coyoteDeltaBase = {
@@ -43,6 +43,8 @@
           args: baseLib.mkCoyoteDriverPackage ({ driverSource = coyoteDriver; } // args);
         mkCoyoteDriverPackages =
           args: baseLib.mkCoyoteDriverPackages ({ driverSource = coyoteDriver; } // args);
+        mkCoyoteDriverChecks =
+          args: baseLib.mkCoyoteDriverChecks ({ driverSource = coyoteDriver; } // args);
       };
       linuxSystems = builtins.filter (
         system: builtins.match ".*-linux" system != null
@@ -1043,6 +1045,25 @@
           inherit pkgs;
           coyoteLib = coyoteNixLib;
         };
+
+        packages.coyote-driver-qualification =
+          let
+            qualification = coyoteNixLib.mkCoyoteDriverChecks {
+              inherit pkgs;
+              coyoteRoot = coyote;
+              driverKernel = pkgs.linuxPackages.kernel;
+            };
+          in
+          pkgs.linkFarm "coyote-driver-qualification" [
+            {
+              name = "namespace";
+              path = qualification.namespace;
+            }
+            {
+              name = "modules";
+              path = qualification.modules;
+            }
+          ];
 
         checks.driver-package-variants = import ./tests/driver-package-variants.nix { inherit pkgs; };
 

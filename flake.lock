@@ -63,8 +63,8 @@
       },
       "original": {
         "owner": "taugoust",
+        "ref": "framed",
         "repo": "Coyote",
-        "rev": "e5927167687f603e42aa24dcf248028fb1f4542d",
         "type": "github"
       }
     },

@@ -8,6 +8,7 @@
   mkCoyoteAppPackage = import ./mkCoyoteAppPackage.nix;
   mkCoyoteDriverPackage = import ./mkCoyoteDriverPackage.nix;
   mkCoyoteDriverPackages = import ./mkCoyoteDriverPackages.nix;
+  mkCoyoteDriverChecks = import ./mkCoyoteDriverChecks.nix;
   mkCoyoteDevShell = import ./mkCoyoteDevShell.nix;
   mkCoyoteSourceChecks = import ./mkCoyoteSourceChecks.nix;
   mkCoyoteR5FirmwarePackage = import ./mkCoyoteR5FirmwarePackage.nix;

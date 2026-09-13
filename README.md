@@ -58,6 +58,7 @@ coyote-nix.lib.mkCoyoteV80StaticCheckpointPackage
 coyote-nix.lib.mkCoyoteAppPackage
 coyote-nix.lib.mkCoyoteDriverPackage
 coyote-nix.lib.mkCoyoteDriverPackages
+coyote-nix.lib.mkCoyoteDriverChecks
 coyote-nix.lib.mkCoyoteDevShell
 coyote-nix.lib.mkCoyoteSourceChecks
 coyote-nix.lib.mkApp
@@ -254,6 +255,54 @@ Device indices are local to each module. Old libraries ignore the variable;
 setting it alone does not retarget an old executable. `mkTools` must likewise
 receive the namespace-capable `coyoteRoot` for `reconfigure-app`. There are no
 conflicting legacy device aliases or automatic IPC permission changes.
+
+### Driver qualification
+
+`mkCoyoteDriverChecks` takes `pkgs`, `coyoteRoot`, `driverKernel`, optional
+`driverSource`, and optional `hostName` (default `"unknown"`). Like the driver
+builders, the flake API defaults `driverSource` to `coyoteDriver`; direct library
+imports default it to `coyoteRoot`. Both tests and modules use `driverSource`,
+including its userspace sources, independently of the FPGA source.
+
+```nix
+let
+  qualification = coyote-nix.lib.mkCoyoteDriverChecks {
+    inherit pkgs coyoteRoot;
+    driverSource = namespaceCapableCoyote;
+    driverKernel = site.driverKernels.buildHost;
+    hostName = "buildHost";
+  };
+in {
+  checks.${system} = {
+    driver-namespace = qualification.namespace;
+    driver-modules = qualification.modules;
+  };
+  packages.${system}.driver = qualification.drivers.ultrascale_plus-ultrascale_plus;
+}
+```
+
+`namespace` runs Coyote's `tests/device_namespace_test.py` (real userspace
+constructor/path/mutex behavior under ASan/UBSan). `modules` builds legacy and
+isolated modules for both UltraScale+ and Versal against the supplied kernel,
+then runs `tests/driver_variant_test.py` for identities, aliases, symbols and
+vermagic. `drivers` exposes those same four packages as
+`<targetPlatform>-<driverVariant>` for reuse. Instantiate once per kernel for a
+site matrix; namespace checks can be shared. These are device-free checks, not
+hardware or DMA acceptance.
+
+The default pinned producer lacks namespace support, so qualification is an
+explicit opt-in package, not a default flake check. It fails rather than silently
+skipping missing producer tests/features. For an unpublished local producer branch,
+from the coyote-nix checkout use a temporary override (substitute your checkout
+and branch; do not commit local dependencies):
+
+```sh
+nix build .#coyote-driver-qualification --no-write-lock-file \
+  --override-input coyoteDriver "git+file://$PWD/../Coyote?ref=my-driver-branch"
+```
+
+This package uses the flake's baseline kernel. Use the library API for the exact
+site kernel; the override does not modify the independently pinned FPGA input.
 
 ## Dev shell board context
 
