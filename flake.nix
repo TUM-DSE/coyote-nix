@@ -9,7 +9,7 @@
       flake = false;
     };
     coyoteDriver = {
-      url = "github:taugoust/Coyote/framed";
+      url = "github:taugoust/Coyote/develop";
       flake = false;
     };
     coyoteDeltaBase = {

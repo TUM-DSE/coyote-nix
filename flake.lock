@@ -54,16 +54,16 @@
     "coyoteDriver": {
       "flake": false,
       "locked": {
-        "lastModified": 1789045588,
-        "narHash": "sha256-L425HIbyEBWGx8leRQ/LcOjj9XTj+CcMqlN0EL3ohV0=",
+        "lastModified": 1789319650,
+        "narHash": "sha256-6NjdiG9aF/WhbF46f8DVr6168jXxuA0uXAf41S6Gj3E=",
         "owner": "taugoust",
         "repo": "Coyote",
-        "rev": "e5927167687f603e42aa24dcf248028fb1f4542d",
+        "rev": "a3b9c09384c73c21f7674b8aec1218f933acf862",
         "type": "github"
       },
       "original": {
         "owner": "taugoust",
-        "ref": "framed",
+        "ref": "develop",
         "repo": "Coyote",
         "type": "github"
       }

@@ -205,8 +205,8 @@ A source-delta build additionally compares the accepted reference checkpoint wit
 ## Driver package matrix
 
 The flake-exported `mkCoyoteDriverPackage` and `mkCoyoteDriverPackages` use a
-separately pinned `coyoteDriver` input from Coyote's `framed` lineage. This includes
-DMA page-pinning/writeback safety and Linux 7.1+ dma-buf callback compatibility
+separately locked `coyoteDriver` input following Coyote's `develop` branch. This includes
+platform namespaces, DMA page-pinning/writeback safety and Linux 7.1+ dma-buf compatibility
 without changing the FPGA `coyote` input. The caller still supplies the host kernel;
 this does not select or upgrade it. `defaultDriverSource` and
 `defaultDriverRevision` expose the selected source for provenance.
@@ -238,9 +238,9 @@ The site flake still owns host inventory and kernel policy; this helper only enc
 Both builders accept `driverVariant`, defaulting to `"legacy"`. With a
 variant-capable `driverSource`, select `"ultrascale_plus"` or `"versal"`; a
 nonlegacy variant must match `targetPlatform`. The matrix also accepts
-`driverVariant = combo: combo.targetPlatform;`. The existing default source pin
-only supports legacy identity; supply a compatible source explicitly to use
-isolated variants.
+`driverVariant = combo: combo.targetPlatform;`. The default driver source supports
+both legacy and isolated identities. Historical source overrides must provide
+variant support when selecting a nonlegacy identity.
 
 Legacy produces `coyote_driver.ko`; isolated variants produce
 `coyote_driver_<family>.ko`, installed at the package root and under the kernel's
@@ -290,9 +290,9 @@ vermagic. `drivers` exposes those same four packages as
 site matrix; namespace checks can be shared. These are device-free checks, not
 hardware or DMA acceptance.
 
-The default pinned producer lacks namespace support, so qualification is an
-explicit opt-in package, not a default flake check. It fails rather than silently
-skipping missing producer tests/features. For an unpublished local producer branch,
+Run `nix build .#coyote-driver-qualification` to qualify the default driver source.
+This is an explicit opt-in package, not a default flake check. It fails rather than
+silently skipping missing producer tests/features. For an unpublished local producer branch,
 from the coyote-nix checkout use a temporary override (substitute your checkout
 and branch; do not commit local dependencies):
 
