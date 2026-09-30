@@ -88,7 +88,8 @@ rec {
   # comp_hls.tcl. This does NOT run Vitis HLS again -- it only collects
   # reports already written under
   #   <project>_config_<i>/user_c<i>_<j>/hdl/ext/<kernel>_hls/<kernel>_c<i>_<j>/solution1/syn/report/
-  # into reports/<outputDir>/<kernel>_c<i>_<j>/ inside the build tree, so
+  # into reports/<outputDir>/<kernel>_c<i>_<j>/ inside the build tree (along
+  # with the solution's .autopilot/db/ design database), so
   # installCheckpointReports can pick them up like any other report dir.
   collectHlsCsynthReports =
     {
@@ -101,6 +102,11 @@ rec {
         mkdir -p "$build_dir/reports/${outputDir}/$kernel_dir"
         cp "$report_dir"/*_csynth.rpt "$build_dir/reports/${outputDir}/$kernel_dir/" 2>/dev/null || true
         cp "$report_dir"/*_csynth.xml "$build_dir/reports/${outputDir}/$kernel_dir/" 2>/dev/null || true
+        solution_dir="$(dirname "$(dirname "$report_dir")")"
+        if [ -d "$solution_dir/.autopilot/db" ]; then
+          mkdir -p "$build_dir/reports/${outputDir}/$kernel_dir/.autopilot"
+          cp -r "$solution_dir/.autopilot/db" "$build_dir/reports/${outputDir}/$kernel_dir/.autopilot/"
+        fi
       done < <(find "$build_dir" -type d -path '*/hdl/ext/*/syn/report' -print0 2>/dev/null)
     '';
 
