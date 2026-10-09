@@ -25,10 +25,12 @@ let
     else
       throw "coyote-nix: mkCoyoteAppPackage requires a shell from mkCoyoteShellPackage";
   checkedShellContract =
-    if (shellContract.kind or null) == "shell" && (shellContract.enPr or false) then
-      shellContract
+    if (shellContract.kind or null) != "shell" || !(shellContract.enPr or false) then
+      throw "coyote-nix: mkCoyoteAppPackage requires an EN_PR shell contract"
+    else if (shellContract.topology.regions or 1) != 1 then
+      throw "coyote-nix: application packaging for multi-region shells requires a selected-region flow, which is not supported"
     else
-      throw "coyote-nix: mkCoyoteAppPackage requires an EN_PR shell contract";
+      shellContract;
   boardName =
     if board == null then
       checkedShellContract.board

@@ -80,6 +80,8 @@ BUILD_SHELL=1
 EN_PR=1
 EN_SHELL_PBLOCK=1  # U280
 EN_SHELL_PBLOCK=0  # V80
+N_CONFIG=1         # explicitly set for multi-region shell builds
+N_REGIONS=<count>  # explicitly set for multi-region shell builds
 STATIC_PATH=<staticPath>
 ```
 
@@ -160,7 +162,7 @@ The gate independently verifies the stage manifest and every declared artifact, 
 
 A new physical recipe therefore uses a review loop: build and root `coyoteTwoStage.stages.validate`, inspect its raw reports, endpoint sidecar, stage manifest, and `*_strict_signoff*.json`, author the exact immutable classification, then rebuild only the lightweight gate/final package. The classification is intentionally excluded from physical recipe identity, so review does not rerun link/place/route/validation; a different realized manifest, checkpoint, report, or source identity requires a new classification.
 
-The immutable packaged graph currently supports the QShell MVP topology of exactly one configuration and one region. The legacy Coyote aggregate flow remains available for multi-configuration/multi-region projects until per-unit DFX bundle staging is added; immutable package constructors reject any explicitly different topology and Coyote's staged link target verifies the generated topology before invoking Vivado.
+Immutable V80 shell packaging stages one complete configuration with 1..15 physical regions. Every region's seed checkpoint and seed partial is an explicit, separately identified staged input/output; exported shell metadata records each region's hierarchy cell and seed checkpoint/image hashes. This supports full-shell builds for multi-region consumers without claiming selected-region application builds: `mkCoyoteAppPackage` remains fail-closed for multi-region shells and nonzero region targets until target-specific application source, integrity, and partial-selection flows are qualified. U280 immutable shell packaging remains one-region only. Multi-configuration topologies remain unsupported by immutable packaging; the legacy Coyote aggregate flow remains available for unsupported topologies. The staged link target verifies the generated configuration/region counts before invoking Vivado.
 
 ### Fast synthesized-shell analysis
 

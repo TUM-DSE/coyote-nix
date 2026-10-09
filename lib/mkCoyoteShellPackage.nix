@@ -153,6 +153,9 @@ let
     "-DBUILD_SHELL:STRING=1"
     "-DEN_PR:STRING=1"
     "-DEN_SHELL_PBLOCK:STRING=${enShellPblock}"
+  ] ++ lib.optionals (checkedImplementationTopology.regions > 1) [
+    "-DN_CONFIG:STRING=1"
+    "-DN_REGIONS:STRING=${toString checkedImplementationTopology.regions}"
   ];
   shellSynthesisCmakeFlags = shellBaseCmakeFlags ++ [
     # Synthesis and its fast analysis do not read the routed/fixed static DCP.
@@ -168,7 +171,9 @@ let
     "-DTIMING_ORACLE_MAX_PATHS:STRING=${toString timingOraclePolicy.maxPaths}"
   ];
 
-  shellExpectedBitstreams = boardProfile.twoStage.shellExpectedBitstreams;
+  shellExpectedBitstreams = boardProfile.twoStage.shellExpectedBitstreams
+    ++ map (entry: "config_0/vfpga_c0_${toString entry.region}.${boardProfile.twoStage.appPartialExtension}")
+      (builtins.filter (entry: entry.region != 0) regionInventory.physicalRegions);
   shellImplementationBaseFlags = shellCmakeFlags ++ [
     "-DIMMUTABLE_IMPLEMENTATION_STAGES:BOOL=ON"
   ];
@@ -204,9 +209,20 @@ let
   };
   implementationDirectives = defaultDirectives // (implementation.directives or { });
   implementationTopology = implementation.topology or { configurations = 1; regions = 1; };
+  regionInventory = import ./coyoteRegionTopology.nix { inherit lib; topology = implementationTopology; };
   checkedImplementationTopology =
-    if implementationTopology == { configurations = 1; regions = 1; } then implementationTopology else
-      throw "coyote-nix: immutable physical staging currently supports exactly one configuration and one region";
+    let
+      declared = regionInventory.topology;
+      regionFlag = effectiveFlagValue "N_REGIONS" cmakeFlags;
+      configFlag = effectiveFlagValue "N_CONFIG" cmakeFlags;
+    in if (regionFlag != null && regionFlag != toString declared.regions)
+      || (configFlag != null && configFlag != "1") then
+      throw "coyote-nix: N_CONFIG/N_REGIONS flags disagree with implementation.topology"
+    else if board != "v80" && declared.regions != 1 then
+      throw "coyote-nix: multi-region immutable shell packaging currently supports only v80"
+    else declared;
+  seedCopyCommands = lib.concatMapStringsSep "\n" (path:
+    ''cp ${synth}/${path} "$out/${path}"'') regionInventory.seedPaths;
   implementationCores = implementation.resources.cores or 8;
   checkedImplementationCores = if builtins.isInt implementationCores && implementationCores > 0 then
     implementationCores
@@ -336,6 +352,8 @@ let
 
     install -m0644 "$build_dir/export.cmake" "$out/export.cmake"
     cp -r "$build_dir/checkpoints/." "$out/checkpoints/"
+    mkdir -p "$out/checkpoints/config_0"
+    ${seedCopyCommands}
     if [ -d "$build_dir/reports" ]; then
       cp -r "$build_dir/reports/." "$out/reports/"
     fi
@@ -384,6 +402,12 @@ let
       "$out/export.cmake" \
       "$out/metadata/shell-resident.json" \
       "$out/metadata/shell.json"
+    ${lib.optionalString (checkedImplementationTopology.regions > 1) ''
+      ${pkgs.python3}/bin/python3 ${../nix/tools/coyote-region-contract.py} shell-inventory \
+        "$out" ${toString checkedImplementationTopology.regions} \
+        "$out/metadata/shell.json" "$out/metadata/shell-regions.json"
+      mv "$out/metadata/shell-regions.json" "$out/metadata/shell.json"
+    ''}
     rm "$out/metadata/shell-base.json" "$out/metadata/shell-resident.json"
     printf '%s\n' "$compatibility_id" > "$out/metadata/compatibility-id"
   '';
@@ -394,6 +418,7 @@ let
     inherit xilinxVersion;
     cmakeFlags = shellSynthesisCmakeFlags;
     buildCommands = [
+      "${pkgs.python3}/bin/python3 ${../nix/tools/coyote-region-contract.py} check-export . ${toString checkedImplementationTopology.regions}"
       "make project"
       "make shell_synthesis_checkpoint"
     ];
@@ -540,14 +565,14 @@ let
     cmakeFlags = shellSynthesisCmakeFlags;
     preBuildSetup = synthesisAnalysisReuseSetup;
     buildCommands = [
+      "${pkgs.python3}/bin/python3 ${../nix/tools/coyote-region-contract.py} check-export . ${toString checkedImplementationTopology.regions}"
       "make project"
       "make synth"
     ];
     expectedPaths = [
       "export.cmake"
       "checkpoints/shell/shell_synthed.dcp"
-      "checkpoints/config_0/user_synthed_c0_0.dcp"
-    ];
+    ] ++ regionInventory.seedPaths;
     extraInstallPhase = installCheckpointReports {
       checkpointDirs = [
         "shell"
@@ -680,13 +705,12 @@ let
     artifacts = [
       { role = "static-locked-checkpoint"; path = "checkpoints/static_routed_locked_${boardProfile.platform}.dcp"; }
       { role = "shell-synthesized-checkpoint"; path = "checkpoints/shell/shell_synthed.dcp"; }
-      { role = "seed-synthesized-checkpoint"; path = "checkpoints/config_0/user_synthed_c0_0.dcp"; }
-    ];
+    ] ++ regionInventory.seedArtifacts;
     commands = ''
       cp ${staticPath}/static_routed_locked_${boardProfile.platform}.dcp \
         "$out/checkpoints/static_routed_locked_${boardProfile.platform}.dcp"
       cp ${synth}/checkpoints/shell/shell_synthed.dcp "$out/checkpoints/shell/"
-      cp ${synth}/checkpoints/config_0/user_synthed_c0_0.dcp "$out/checkpoints/config_0/"
+      ${seedCopyCommands}
     '';
   } else null;
 
@@ -712,7 +736,7 @@ let
     preBuildSetup = ''
       ${importImplementationStageArtifacts {
         previousStage = outerInputs;
-        roles = [ "shell-synthesized-checkpoint" "seed-synthesized-checkpoint" ];
+        roles = [ "shell-synthesized-checkpoint" ] ++ map (artifact: artifact.role) regionInventory.seedArtifacts;
         expectedPhase = "inputs";
         expectedContext = implementationContext.id;
       }}
@@ -929,8 +953,7 @@ let
     name = "config_0";
     artifacts = (lib.optionals hasSubdivisionParent [ { role = "outer-validated-checkpoint"; path = "checkpoints/shell_routed.dcp"; } ]) ++ [
       { role = "shell-synthesized-checkpoint"; path = "checkpoints/shell/shell_synthed.dcp"; }
-      { role = "seed-synthesized-checkpoint"; path = "checkpoints/config_0/user_synthed_c0_0.dcp"; }
-    ] ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [
+    ] ++ regionInventory.seedArtifacts ++ lib.optionals (boardProfile.fpgaArchitecture == "versal") [
       { role = "static-synthesized-checkpoint"; path = "checkpoints/static_synthed_${boardProfile.platform}_gen${toString implementationPcieGeneration}.dcp"; }
     ];
     commands = ''
@@ -947,7 +970,7 @@ let
         cp ${lib.escapeShellArg "${checkedSubdivisionReference.checkpoint}"} "$out/checkpoints/shell_routed.dcp"
       ''}
       cp ${synth}/checkpoints/shell/shell_synthed.dcp "$out/checkpoints/shell/"
-      cp ${synth}/checkpoints/config_0/user_synthed_c0_0.dcp "$out/checkpoints/config_0/"
+      ${seedCopyCommands}
       ${lib.optionalString (boardProfile.fpgaArchitecture == "versal") ''
         cp ${staticPath}/static_synthed_${boardProfile.platform}_gen${toString implementationPcieGeneration}.dcp \
           "$out/checkpoints/static_synthed_${boardProfile.platform}_gen${toString implementationPcieGeneration}.dcp"
@@ -972,7 +995,8 @@ let
     preBuildSetup = ''
       ${importImplementationStageArtifacts {
         previousStage = dynamicInputs;
-        roles = [ "shell-synthesized-checkpoint" "seed-synthesized-checkpoint" ] ++ lib.optionals hasSubdivisionParent [ "outer-validated-checkpoint" ];
+        roles = [ "shell-synthesized-checkpoint" ] ++ map (artifact: artifact.role) regionInventory.seedArtifacts
+          ++ lib.optionals hasSubdivisionParent [ "outer-validated-checkpoint" ];
         expectedPhase = "inputs"; expectedContext = implementationContext.id;
       }}
     '';
@@ -1236,6 +1260,8 @@ let
     stageNames = boardProfile.twoStage.shellStageNames;
     expectedBitstreams = shellExpectedBitstreams;
     appPartialExtension = boardProfile.twoStage.appPartialExtension;
+    topology = checkedImplementationTopology;
+    inherit (regionInventory) physicalRegions;
     metadataPath = "metadata/shell.json";
     compatibilityIdPath = "metadata/compatibility-id";
     staticPath = toString staticPath;

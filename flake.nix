@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/develop";
+      url = "github:taugoust/Coyote/3317044e407596f8b463914ee97cb00424d06679";
       flake = false;
     };
     coyoteDriver = {
@@ -1058,6 +1058,11 @@
               touch "$out"
             '';
 
+        checks.region-topology = import ./tests/region-topology.nix {
+          inherit pkgs;
+          coyoteLib = coyoteNixLib;
+        };
+
         checks.subdivision-reference = import ./tests/subdivision-reference.nix {
           inherit pkgs;
           coyoteLib = coyoteNixLib;
@@ -1120,6 +1125,8 @@
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
         checks.coyote-coprocessor-render = defaultCoyoteSourceChecks.coprocessorRenderContract;
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
+        checks.coyote-region-flow = pkgs.callPackage "${coyote}/tests/region_flow/check.nix" { };
+        checks.coyote-debug-routing = pkgs.callPackage "${coyote}/tests/debug_routing/check.nix" { };
         checks.coyote-qdma-write-wrapper = defaultCoyoteSourceChecks.qdmaWriteWrapperSimulation;
         checks.coyote-qdma-read-wrapper = defaultCoyoteSourceChecks.qdmaReadWrapperSimulation;
         checks.coyote-resident-discovery = defaultCoyoteSourceChecks.residentDiscoverySimulation;

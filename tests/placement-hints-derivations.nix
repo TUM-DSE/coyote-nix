@@ -22,7 +22,7 @@ let
   };
   checkedArgs = packageArgs // {
     implementation = (packageArgs.implementation or { }) // {
-      topology = {
+      topology = (packageArgs.implementation or { }).topology or {
         configurations = 1;
         regions = 1;
       };
