@@ -158,6 +158,32 @@ let
           (cd "$build" && ${python}/bin/python write_hdl.py 1 0 0)
         }
 
+        render_static_crc_case() {
+          name="$1"
+          generation="$2"
+          build="$TMPDIR/$name"
+          cmake -S "$fixture" -B "$build" \
+            -DCYT_DIR=${coyoteRoot} \
+            -DFDEV_NAME:STRING=v80 \
+            -DPCIE_GEN:STRING="$generation" \
+            -DBUILD_APP:STRING=0 \
+            -DBUILD_STATIC:STRING=1 \
+            -DBUILD_SHELL:STRING=0 \
+            -DTEST_ENABLE_SERVICE:BOOL=OFF \
+            -DTEST_ENABLE_CONTROL:BOOL=OFF \
+            -DSTATIC_PATH=${coyoteRoot}/hw/checkpoints
+          mkdir -p "$build/coyote-resident-service-control-fixture_static/hdl/static"
+          (cd "$build" && ${python}/bin/python write_hdl.py 0 0 0)
+          test -f "$build/coyote-resident-service-control-fixture_static/hdl/static/static_top.sv"
+        }
+
+        render_static_crc_case static-crc-gen4 4
+        grep -F ".GENERATE_CRC(1'b0)" \
+          "$TMPDIR/static-crc-gen4/coyote-resident-service-control-fixture_static/hdl/static/static_top.sv" >/dev/null
+        render_static_crc_case static-crc-gen5 5
+        grep -F ".GENERATE_CRC(1'b1)" \
+          "$TMPDIR/static-crc-gen5/coyote-resident-service-control-fixture_static/hdl/static/static_top.sv" >/dev/null
+
         render_case control-u280 u280 \
           -DTEST_ENABLE_SERVICE:BOOL=ON \
           -DTEST_ENABLE_CONTROL:BOOL=ON \
@@ -695,6 +721,35 @@ let
         touch "$out"
       '';
 
+  qdmaWriteWrapperSimulation =
+    pkgs.runCommand "coyote-qdma-write-wrapper-simulation"
+      {
+        nativeBuildInputs = [
+          pkgs.stdenv.cc
+          pkgs.gnumake
+          pkgs.verilator
+        ];
+      }
+      ''
+        set -euo pipefail
+        bash ${coyoteRoot}/hw/tests/run_qdma_wr_wrapper_test.sh
+        touch "$out"
+      '';
+
+  scalarTimingGroupContracts =
+    pkgs.runCommand "coyote-scalar-timing-group-contracts"
+      {
+        nativeBuildInputs = [ pkgs.tcl ];
+      }
+      ''
+        set -euo pipefail
+        ${pkgs.tcl}/bin/tclsh ${coyoteRoot}/tests/synthesis_analysis/template_contract.tcl \
+          ${coyoteRoot}/scripts/dyn/synthesis_analysis.tcl.in
+        ${pkgs.tcl}/bin/tclsh ${coyoteRoot}/tests/timing_oracle/template_contract.tcl \
+          ${coyoteRoot}/scripts/dyn/timing_oracle.tcl.in
+        touch "$out"
+      '';
+
   coprocessorSimulation =
     pkgs.runCommand "coyote-coprocessor-port-gateway-simulation"
       {
@@ -989,6 +1044,8 @@ in
     r5ProviderModel
     r5ProviderSimulation
     r5ProviderStackLint
+    qdmaWriteWrapperSimulation
+    scalarTimingGroupContracts
     renderContract
     routeValidationContract
     splitterSimulation

@@ -1103,6 +1103,8 @@
         checks.coyote-resident-control-render = defaultCoyoteSourceChecks.renderContract;
         checks.coyote-coprocessor-render = defaultCoyoteSourceChecks.coprocessorRenderContract;
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
+        checks.coyote-qdma-write-wrapper = defaultCoyoteSourceChecks.qdmaWriteWrapperSimulation;
+        checks.coyote-scalar-timing-group-contracts = defaultCoyoteSourceChecks.scalarTimingGroupContracts;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
         checks.coyote-resident-control-host-api = defaultCoyoteSourceChecks.hostApiCompile;
         checks.coyote-u280-generated-physical-tcl = defaultCoyoteSourceChecks.physicalTclGeneration;
