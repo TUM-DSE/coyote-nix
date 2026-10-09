@@ -144,7 +144,13 @@ class PhysicalComparisonTest(unittest.TestCase):
         implementation = self.root / "implementation.rpt"
         bitstream = self.root / "bitstream.rpt"
         implementation.write_text((FIXTURES / "drc.rpt").read_text())
-        bitstream.write_text(implementation.read_text().replace("Warning", "Error"))
+        bitstream.write_text(
+            "Report DRC\nChecks found: 1\n"
+            "| Rule | Severity | Description | Checks |\n"
+            "+------+----------+-------------+--------+\n"
+            "| TEST-1 | Error | Test violation | 1 |\n"
+            "+------+----------+-------------+--------+\n"
+        )
         _, drc = compare_tool.parse_diagnostics({
             "drc-report": implementation, "bitstream-drc-report": bitstream,
         })
