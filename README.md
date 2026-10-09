@@ -170,7 +170,7 @@ app = coyote-nix.lib.mkCoyoteAppPackage {
 
 The shell package contains `export.cmake`, `checkpoints/shell_routed_locked.dcp`, reports/checkpoints, boot and board-applicable partial artifacts, and compatibility metadata. The app package contains only `config_*` application partials, app-build reports/checkpoints, and metadata tied to the exact shell.
 
-See [`docs/two-stage-packages.md`](docs/two-stage-packages.md) for the complete API, output layouts, board differences, compatibility contract, and consumer guidance.
+See [`docs/two-stage-packages.md`](docs/two-stage-packages.md) for the complete API, output layouts, board differences, compatibility contract, and consumer guidance. See [`docs/physical-iteration.md`](docs/physical-iteration.md) for V80 placement-only hints, hash-verified report comparisons (`coyote-compare-physical`), and registered checkpoint retention (`coyote-retain-physical`).
 For qualified U280 parent reuse, see the optional
 [`subdivisionReference`](docs/subdivision-reference.md) input. V80 applications can
 opt into project elaboration with `enableElaboration = true`; parent block-design

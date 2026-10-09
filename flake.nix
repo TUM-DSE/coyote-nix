@@ -54,6 +54,23 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
+        physicalReportScripts = pkgs.runCommand "coyote-physical-report-scripts" { } ''
+          mkdir -p "$out"
+          cp ${./nix/tools/coyote-compare-physical.py} "$out/coyote-compare-physical.py"
+          cp ${./nix/tools/coyote-retain-physical.py} "$out/coyote-retain-physical.py"
+          cp ${./nix/tools/coyote-implementation-stage.py} "$out/coyote-implementation-stage.py"
+          cp ${./nix/tools/coyote-strict-signoff.py} "$out/coyote-strict-signoff.py"
+        '';
+        physicalReportTool =
+          name:
+          pkgs.writeShellApplication {
+            inherit name;
+            runtimeInputs = [
+              pkgs.python3
+              pkgs.nix
+            ];
+            text = ''exec python3 ${physicalReportScripts}/${name}.py "$@"'';
+          };
         evalTools = coyoteNixLib.mkTools {
           inherit pkgs;
           coyoteRoot = ./.;
@@ -1208,6 +1225,59 @@
                 test "$(sha256sum "$TMPDIR/protected-static-integrity-fixture/$path" | cut -d' ' -f1)" = \
                   "$expected"
               done < <(jq -r '.evidence[] | [.path, .sha256] | @tsv' "$gate")
+              touch "$out"
+            '';
+
+        packages.coyote-compare-physical = physicalReportTool "coyote-compare-physical";
+        packages.coyote-retain-physical = physicalReportTool "coyote-retain-physical";
+
+        checks.placement-hints =
+          let
+            reuse = import ./tests/placement-hints-derivations.nix {
+              mkCoyoteShellPackage = coyoteNixLib.mkCoyoteShellPackage;
+              packageArgs = {
+                inherit pkgs;
+                tools = evalTools;
+                coyoteRoot = coyote;
+                hwSource = ./tests/fixtures;
+                xilinxShareRoot = "/nonexistent/xilinx";
+                pname = "placement-hint-reuse";
+                board = "v80";
+                implementation.topology = {
+                  configurations = 1;
+                  regions = 3;
+                };
+                xilinxVersion = "2025.1";
+                staticPath = "${coyote}/hw/checkpoints";
+              };
+            };
+          in
+          pkgs.runCommand "placement-hints"
+            {
+              nativeBuildInputs = [
+                pkgs.python3
+                pkgs.tcl
+                pkgs.gnugrep
+              ];
+              reuseEvidence = builtins.toJSON reuse;
+            }
+            ''
+              bash ${./tests/placement-hints.sh} ${pkgs.python3}/bin/python3 ${pkgs.tcl}/bin/tclsh ${./.} ${coyote}
+              mkdir -p "$out"
+              printf '%s\n' "$reuseEvidence" > "$out/reuse.json"
+            '';
+
+        checks.physical-report-tools =
+          pkgs.runCommand "physical-report-tools"
+            {
+              nativeBuildInputs = [ pkgs.python3 ];
+            }
+            ''
+              cp -r ${./.} source
+              chmod -R u+w source
+              cd source
+              python3 -m unittest discover -s tests -p 'test_compare_physical.py' -v
+              python3 -m unittest discover -s tests -p 'test_retain_physical.py' -v
               touch "$out"
             '';
 

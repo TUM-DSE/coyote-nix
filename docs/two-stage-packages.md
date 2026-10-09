@@ -96,6 +96,8 @@ The package graph uses immutable physical stages rather than Coyote's legacy agg
 
 ### Immutable physical stages
 
+For separately bound V80 shell `placementHints`, saved-stage comparison and checkpoint retention commands, see [Bounded physical iteration](physical-iteration.md). Placement hints do not change synthesis inputs; existing XDC/common-source edits retain their normal invalidation behavior.
+
 Shell and application constructors accept an optional implementation recipe:
 
 ```nix

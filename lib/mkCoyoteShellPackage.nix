@@ -17,6 +17,7 @@
   timingOracle ? { },
   implementation ? { },
   subdivisionReference ? null,
+  placementHints ? null,
 }:
 
 let
@@ -243,6 +244,12 @@ let
     id = builtins.hashString "sha256" (builtins.toJSON implementationContextWithoutId);
   };
   implementationContextFile = pkgs.writeText "${pname}-implementation-context.json" (builtins.toJSON implementationContext);
+  placementHintsContract =
+    if placementHints == null then null
+    else if boardProfile.board != "v80" then
+      throw "coyote-nix: placementHints currently supports only the independently staged V80 flow"
+    else
+      import ./mkCoyotePlacementHints.nix { inherit pkgs; hints = placementHints; };
   mkImplementationSpec =
     {
       name,
@@ -739,6 +746,7 @@ let
     inputPath, outputPath, outputRole, strategy, extraFlags,
     incrementalMode ? "none", incrementalEvidence ? false,
     extraPreBuildSetup ? "",
+    placementHints ? null,
   }:
     let
       reportPrefix = if phase == "validate" then "shell" else "shell_${phase}";
@@ -766,11 +774,18 @@ let
       ] ++ lib.optionals incrementalEvidence [
         { role = "incremental-reference-evidence"; path = "metadata/incremental-reference.json"; }
       ];
+      stageStrategy = strategy // lib.optionalAttrs (placementHints != null) {
+        placementHints = { api = "coyote-nix.placement-hints/v1"; id = placementHints.id; };
+      };
       spec = mkImplementationSpec {
-      inherit phase strategy unit;
+      inherit phase unit;
+      strategy = stageStrategy;
       name = "${name}-${phase}";
       predecessorPath = predecessor;
-      artifacts = [ { role = outputRole; path = outputPath; } ] ++ phaseArtifacts ++ lib.optionals (phase == "validate") [
+      artifacts = [ { role = outputRole; path = outputPath; } ] ++ phaseArtifacts
+        ++ lib.optionals (placementHints != null) [
+          { role = "placement-hints-input"; path = "metadata/placement-hints.json"; }
+        ] ++ lib.optionals (phase == "validate") [
         { role = "bitstream-drc-report"; path = "${reportDirectory}/shell_drc_bitstream_checks${reportSuffix}.rpt"; }
         { role = "validation-result"; path = "${reportDirectory}/validation.json"; }
       ];
@@ -804,6 +819,20 @@ let
           expectedContext = implementationContext.id;
         }}
         ${extraPreBuildSetup}
+        ${lib.optionalString (placementHints != null) ''
+          if [ '${phase}' != place ]; then
+            echo "ERROR: placement hints may only be bound to a place stage" >&2
+            exit 1
+          fi
+          mkdir -p "$build_dir/metadata"
+          cp ${placementHints.manifest} "$build_dir/metadata/placement-hints.json"
+          chmod u+w "$build_dir/physical_stage.tcl"
+          ${pkgs.python3}/bin/python3 ${../nix/tools/coyote-placement-hints.py} inject \
+            --runner "$build_dir/physical_stage.tcl" \
+            --manifest "$build_dir/metadata/placement-hints.json" \
+            --apply-tcl ${../nix/tools/coyote-placement-hints.tcl} \
+            --data-output "$build_dir/placement-hints-generated.tcl"
+        ''}
         ${lib.optionalString (!collectPhysicalQorAssessment && builtins.elem phase [ "opt" "place" ]) ''
           chmod u+w "$build_dir/base.tcl" "$build_dir/physical_stage.tcl"
           ${pkgs.python3}/bin/python3 \
@@ -827,6 +856,9 @@ let
       nativeBuildInputs = [ pkgs.jq pkgs.python3 ];
       extraInstallPhase = ''
         mkdir -p "$out/$(dirname ${outputPath})" "$out/metadata" "$out/${reportDirectory}"
+        ${lib.optionalString (placementHints != null) ''
+          cp "$build_dir/metadata/placement-hints.json" "$out/metadata/placement-hints.json"
+        ''}
         cp "$build_dir/${outputPath}" "$out/${outputPath}"
         cp "$build_dir/${reportDirectory}/"*.rpt "$out/${reportDirectory}/"
         cp "$build_dir/${physicalPath}" "$out/${physicalPath}"
@@ -984,6 +1016,7 @@ let
     inputPath = if combineOptPlace then "checkpoints/config_0/shell_linked_c0.dcp" else "checkpoints/config_0/shell_opted_c0.dcp";
     outputPath = "checkpoints/config_0/shell_phys_opted_c0.dcp"; outputRole = "placed-checkpoint";
     strategy = lib.optionalAttrs combineOptPlace { opt = implementationDirectives.opt; combinedOptPlace = true; } // { place = implementationDirectives.place; physOpt = implementationDirectives.physOpt; };
+    placementHints = placementHintsContract;
     extraFlags = lib.optionals combineOptPlace [ "-DIMPLEMENTATION_OPT_DIRECTIVE:STRING=${implementationDirectives.opt}" ] ++ [ "-DIMPLEMENTATION_PLACE_DIRECTIVE:STRING=${implementationDirectives.place}" "-DIMPLEMENTATION_PHYS_OPT_DIRECTIVE:STRING=${implementationDirectives.physOpt}" ];
   };
   dynamicRoute = mkPhysicalStage {
@@ -1237,6 +1270,11 @@ let
       context = implementationContext;
       resources.cores = checkedImplementationCores;
       directives = implementationDirectives;
+      placementHints = if placementHintsContract == null then null else {
+        api = "coyote-nix.placement-hints/v1";
+        id = placementHintsContract.id;
+        manifest = "metadata/placement-hints.json";
+      };
       inherit combineOptPlace;
       image = "self";
       incremental = if checkedIncrementalReference == null then null else {
