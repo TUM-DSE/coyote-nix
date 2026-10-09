@@ -31,11 +31,15 @@ let
   base = mkCoyoteShellPackage checkedArgs;
   a = mkCoyoteShellPackage (checkedArgs // { placementHints = hintsA; });
   b = mkCoyoteShellPackage (checkedArgs // { placementHints = hintsB; });
+  invalidName = mkCoyoteShellPackage (checkedArgs // {
+    placementHints.groups = map (group: group // { name = "queue-0"; }) hintsA.groups;
+  });
   baseStages = base.coyoteTwoStage.stages;
   aStages = a.coyoteTwoStage.stages;
   bStages = b.coyoteTwoStage.stages;
   drv = stage: stage.drvPath;
 in
+assert !(builtins.tryEval invalidName.coyoteTwoStage.physical.placementHints.id).success;
 assert a.coyoteTwoStage.physical.placementHints.id != b.coyoteTwoStage.physical.placementHints.id;
 assert drv baseStages.residentShellSynthesis == drv aStages.residentShellSynthesis;
 assert drv aStages.residentShellSynthesis == drv bStages.residentShellSynthesis;

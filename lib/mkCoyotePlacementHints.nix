@@ -4,7 +4,7 @@ let
   lib = pkgs.lib;
   fail = message: throw "coyote-nix: placementHints ${message}";
   isToken =
-    value: builtins.isString value && builtins.match "[A-Za-z][A-Za-z0-9_-]{0,47}" value != null;
+    value: builtins.isString value && builtins.match "[A-Za-z][A-Za-z0-9_]{0,47}" value != null;
   isCell =
     value: builtins.isString value && value != "" && builtins.match ".*[[:cntrl:]].*" value == null;
   isSite =

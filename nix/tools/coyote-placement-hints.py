@@ -8,7 +8,8 @@ from pathlib import Path
 
 CELL_RE = re.compile(r".+\Z", re.DOTALL)
 SITE_RE = re.compile(r"[A-Z][A-Z0-9_]*_X[0-9]+Y[0-9]+\Z")
-NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]{0,47}\Z")
+# Vivado Pblock identifiers accept underscores, but not hyphens.
+NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,47}\Z")
 
 
 def fail(message):

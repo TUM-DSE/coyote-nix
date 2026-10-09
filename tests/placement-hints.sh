@@ -70,6 +70,7 @@ w = pathlib.Path(sys.argv[2])
 valid = {"api":"coyote-nix.placement-hints/v1","groups":[{"name":"a","cells":["x/y"],"sites":["SLICE_X1Y1"]}]}
 for mutate in (
     lambda x: x.update(groups=[]),
+    lambda x: x["groups"][0].update(name="queue-0"),
     lambda x: x["groups"].append({"name":"b","cells":["x/y/child"],"sites":["SLICE_X2Y2"]}),
     lambda x: x["groups"][0].update(cells=["bad\nselector"]),
 ):
