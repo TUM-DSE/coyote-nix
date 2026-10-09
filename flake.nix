@@ -1104,6 +1104,13 @@
         checks.coyote-coprocessor-render = defaultCoyoteSourceChecks.coprocessorRenderContract;
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-qdma-write-wrapper = defaultCoyoteSourceChecks.qdmaWriteWrapperSimulation;
+        checks.coyote-qdma-read-wrapper = defaultCoyoteSourceChecks.qdmaReadWrapperSimulation;
+        checks.coyote-resident-discovery = defaultCoyoteSourceChecks.residentDiscoverySimulation;
+        checks.coyote-coprocessor-control = defaultCoyoteSourceChecks.coprocessorControlSimulation;
+        checks.coyote-axi-tie-off = defaultCoyoteSourceChecks.axiTieOffSimulation;
+        checks.coyote-r5-provider = defaultCoyoteSourceChecks.r5ProviderSimulation;
+        checks.coyote-r5-provider-stack = defaultCoyoteSourceChecks.r5ProviderStackLint;
+        checks.coyote-r5-platform-render = defaultCoyoteSourceChecks.r5PlatformRenderContract;
         checks.coyote-scalar-timing-group-contracts = defaultCoyoteSourceChecks.scalarTimingGroupContracts;
         checks.coyote-resident-control-splitter = defaultCoyoteSourceChecks.splitterSimulation;
         checks.coyote-resident-control-host-api = defaultCoyoteSourceChecks.hostApiCompile;

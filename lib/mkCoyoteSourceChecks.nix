@@ -191,6 +191,19 @@ let
         render_case control-v80 v80 \
           -DTEST_ENABLE_SERVICE:BOOL=ON \
           -DTEST_ENABLE_CONTROL:BOOL=ON
+        render_case packet-limit-v80 v80 -DPMTU_BYTES:STRING=65535
+        for invalid_pmtu in 0 65536 2097152; do
+          if cmake -S "$fixture" -B "$TMPDIR/invalid-pmtu-$invalid_pmtu" \
+            -DCYT_DIR=${coyoteRoot} -DFDEV_NAME:STRING=v80 \
+            -DBUILD_APP:STRING=0 -DBUILD_STATIC:STRING=0 -DBUILD_SHELL:STRING=1 \
+            -DSTATIC_PATH=${coyoteRoot}/hw/checkpoints \
+            -DPMTU_BYTES:STRING="$invalid_pmtu" > "$TMPDIR/pmtu.log" 2>&1; then
+            echo "unsupported CPM packet size was accepted: $invalid_pmtu" >&2
+            exit 1
+          fi
+          grep -F 'V80 host-stream PMTU_BYTES must be an integer from 1 to 65535' \
+            "$TMPDIR/pmtu.log" >/dev/null
+        done
         render_case slot-status-u280 u280 \
           -DTEST_ENABLE_SERVICE:BOOL=ON \
           -DTEST_ENABLE_CONTROL:BOOL=ON \
@@ -600,6 +613,12 @@ let
           echo 'R5 provider unexpectedly accepted a separate application clock' >&2
           exit 1
         fi
+        # This is HDL generation only, using fake Xilinx executables. Satisfy
+        # CMake's exported-checkpoint existence contract without running static
+        # synthesis; this marker is never opened by Vivado or used as evidence.
+        mkdir -p "$TMPDIR/provider-static/checkpoints"
+        printf 'render-only checkpoint marker; not a DCP\n' > \
+          "$TMPDIR/provider-static/checkpoints/static_synthed_v80_gen4.dcp"
         cmake -S "$fixture" -B "$TMPDIR/provider-shell" \
           -DCYT_DIR=${coyoteRoot} -DFDEV_NAME:STRING=v80 \
           -DBUILD_APP:STRING=0 -DBUILD_STATIC:STRING=0 -DBUILD_SHELL:STRING=1 \
@@ -721,12 +740,82 @@ let
         touch "$out"
       '';
 
+  qdmaReadWrapperSimulation =
+    pkgs.runCommand "coyote-qdma-read-wrapper-simulation"
+      {
+        nativeBuildInputs = [
+          pkgs.stdenv.cc
+          pkgs.gnumake
+          pkgs.python3
+          pkgs.verilator
+        ];
+      }
+      ''
+        bash ${coyoteRoot}/hw/tests/run_qdma_rd_wrapper_test.sh ${coyoteRoot}
+        bash ${coyoteRoot}/hw/tests/run_req_parser_packetization_test.sh ${coyoteRoot}
+        touch "$out"
+      '';
+
+  residentDiscoverySimulation =
+    pkgs.runCommand "coyote-resident-discovery-simulation"
+      {
+        nativeBuildInputs = [
+          pkgs.stdenv.cc
+          pkgs.gnumake
+          pkgs.python3
+          pkgs.verilator
+        ];
+      }
+      ''
+        python3 ${coyoteRoot}/tests/resident_service_control/discovery.py
+        touch "$out"
+      '';
+
+  coprocessorControlSimulation =
+    pkgs.runCommand "coyote-coprocessor-control-simulation"
+      {
+        nativeBuildInputs = [
+          pkgs.stdenv.cc
+          pkgs.gnumake
+          pkgs.python3
+          pkgs.verilator
+        ];
+      }
+      ''
+        verilator --binary --timing --assert --top-module coprocessor_control_target_tb \
+          -Wall -Wno-fatal ${coyoteRoot}/hw/hdl/coprocessor/coprocessor_control_target.sv \
+          ${coyoteRoot}/hw/tests/coprocessor_control_target_tb.sv
+        ./obj_dir/Vcoprocessor_control_target_tb
+        touch "$out"
+      '';
+
+  axiTieOffSimulation =
+    pkgs.runCommand "coyote-axi-master-tie-off-simulation"
+      {
+        nativeBuildInputs = [
+          pkgs.stdenv.cc
+          pkgs.gnumake
+          pkgs.python3
+          pkgs.verilator
+        ];
+      }
+      ''
+        verilator --binary --timing --assert --top-module axi_tie_off_tb -Wall -Wno-fatal \
+          -I${coyoteRoot}/hw/hdl/pkg \
+          ${coyoteRoot}/hw/tests/qdma_wr_test_pkg.sv \
+          ${coyoteRoot}/hw/hdl/pkg/axi_intf.sv \
+          ${coyoteRoot}/hw/tests/axi_tie_off_tb.sv
+        ./obj_dir/Vaxi_tie_off_tb
+        touch "$out"
+      '';
+
   qdmaWriteWrapperSimulation =
     pkgs.runCommand "coyote-qdma-write-wrapper-simulation"
       {
         nativeBuildInputs = [
           pkgs.stdenv.cc
           pkgs.gnumake
+          pkgs.python3
           pkgs.verilator
         ];
       }
@@ -1045,6 +1134,10 @@ in
     r5ProviderSimulation
     r5ProviderStackLint
     qdmaWriteWrapperSimulation
+    qdmaReadWrapperSimulation
+    residentDiscoverySimulation
+    coprocessorControlSimulation
+    axiTieOffSimulation
     scalarTimingGroupContracts
     renderContract
     routeValidationContract
