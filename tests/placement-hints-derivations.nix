@@ -22,24 +22,49 @@ let
   };
   checkedArgs = packageArgs // {
     implementation = (packageArgs.implementation or { }) // {
-      topology = (packageArgs.implementation or { }).topology or {
-        configurations = 1;
-        regions = 1;
-      };
+      topology =
+        (packageArgs.implementation or { }).topology or {
+          configurations = 1;
+          regions = 1;
+        };
     };
   };
   base = mkCoyoteShellPackage checkedArgs;
   a = mkCoyoteShellPackage (checkedArgs // { placementHints = hintsA; });
   b = mkCoyoteShellPackage (checkedArgs // { placementHints = hintsB; });
-  invalidName = mkCoyoteShellPackage (checkedArgs // {
-    placementHints.groups = map (group: group // { name = "queue-0"; }) hintsA.groups;
-  });
+  invalidName = mkCoyoteShellPackage (
+    checkedArgs
+    // {
+      placementHints.groups = map (group: group // { name = "queue-0"; }) hintsA.groups;
+    }
+  );
+  required = mkCoyoteShellPackage (
+    checkedArgs
+    // {
+      placementHints = hintsA // {
+        requirePlacement = true;
+      };
+    }
+  );
+  invalidRequirement = mkCoyoteShellPackage (
+    checkedArgs
+    // {
+      placementHints = hintsA // {
+        requirePlacement = "true";
+      };
+    }
+  );
   baseStages = base.coyoteTwoStage.stages;
   aStages = a.coyoteTwoStage.stages;
   bStages = b.coyoteTwoStage.stages;
   drv = stage: stage.drvPath;
 in
 assert !(builtins.tryEval invalidName.coyoteTwoStage.physical.placementHints.id).success;
+assert !(builtins.tryEval invalidRequirement.coyoteTwoStage.physical.placementHints.id).success;
+assert required.coyoteTwoStage.physical.placementHints.api == "coyote-nix.placement-hints/v2";
+assert drv required.coyoteTwoStage.stages.synth == drv aStages.synth;
+assert drv required.coyoteTwoStage.stages.opt == drv aStages.opt;
+assert drv required.coyoteTwoStage.stages.place != drv aStages.place;
 assert a.coyoteTwoStage.physical.placementHints.id != b.coyoteTwoStage.physical.placementHints.id;
 assert drv baseStages.residentShellSynthesis == drv aStages.residentShellSynthesis;
 assert drv aStages.residentShellSynthesis == drv bStages.residentShellSynthesis;

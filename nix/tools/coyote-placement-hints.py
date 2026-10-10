@@ -25,9 +25,19 @@ def load_manifest(path):
         data = json.loads(Path(path).read_text())
     except (OSError, json.JSONDecodeError) as exc:
         fail(f"cannot read manifest: {exc}")
-    if not isinstance(data, dict) or set(data) != {"api", "groups"}:
-        fail("manifest must contain only api and groups")
-    if data["api"] != "coyote-nix.placement-hints/v1" or not isinstance(data["groups"], list) or not data["groups"]:
+    if not isinstance(data, dict):
+        fail("manifest must be an object")
+    api = data.get("api")
+    expected = {"api", "groups"}
+    if api == "coyote-nix.placement-hints/v2":
+        expected.add("requirePlacement")
+        if data.get("requirePlacement") is not True:
+            fail("version 2 requires requirePlacement=true")
+    elif api != "coyote-nix.placement-hints/v1":
+        fail("unsupported placement hint API")
+    if set(data) != expected:
+        fail("unexpected placement manifest fields")
+    if not isinstance(data["groups"], list) or not data["groups"]:
         fail("unsupported or empty manifest")
     names, cells, sites = set(), [], set()
     for group in data["groups"]:
@@ -64,7 +74,9 @@ def emit_data(data):
         cells = " ".join(tcl_word(x) for x in group["cells"])
         sites = " ".join(tcl_word(x) for x in group["sites"])
         groups.append(f"[list {tcl_word(group['name'])} [list {cells}] [list {sites}]]")
-    return "set ::coyote_placement_hint_groups [list " + " ".join(groups) + "]\n"
+    required = int(data.get("requirePlacement", False))
+    return (f"set ::coyote_placement_hint_required {required}\n"
+            + "set ::coyote_placement_hint_groups [list " + " ".join(groups) + "]\n")
 
 
 def inject(args):

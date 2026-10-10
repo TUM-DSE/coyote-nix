@@ -10,8 +10,19 @@ let
   isSite =
     value: builtins.isString value && builtins.match "[A-Z][A-Z0-9_]*_X[0-9]+Y[0-9]+" value != null;
   checked =
-    if !builtins.isAttrs hints || builtins.attrNames hints != [ "groups" ] then
-      fail "must be an attribute set containing only groups"
+    if
+      !builtins.isAttrs hints
+      || !(builtins.elem (builtins.attrNames hints) [
+        [ "groups" ]
+        [
+          "groups"
+          "requirePlacement"
+        ]
+      ])
+    then
+      fail "must contain groups and optionally requirePlacement"
+    else if !builtins.isBool (hints.requirePlacement or false) then
+      fail "requirePlacement must be a Boolean"
     else if !builtins.isList hints.groups || hints.groups == [ ] then
       fail "groups must be a nonempty list"
     else
@@ -59,9 +70,14 @@ let
         ) (lib.range 0 (builtins.length cells - 1));
         sites = lib.concatMap (group: group.sites) groups;
         normalized = {
-          api = "coyote-nix.placement-hints/v1";
+          api =
+            if hints.requirePlacement or false then
+              "coyote-nix.placement-hints/v2"
+            else
+              "coyote-nix.placement-hints/v1";
           inherit groups;
-        };
+        }
+        // lib.optionalAttrs (hints.requirePlacement or false) { requirePlacement = true; };
       in
       if names != lib.unique names then
         fail "group names must be unique"

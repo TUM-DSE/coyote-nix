@@ -799,7 +799,7 @@ let
         { role = "incremental-reference-evidence"; path = "metadata/incremental-reference.json"; }
       ];
       stageStrategy = strategy // lib.optionalAttrs (placementHints != null) {
-        placementHints = { api = "coyote-nix.placement-hints/v1"; id = placementHints.id; };
+        placementHints = { api = placementHints.checked.api; id = placementHints.id; };
       };
       spec = mkImplementationSpec {
       inherit phase unit;
@@ -1297,7 +1297,7 @@ let
       resources.cores = checkedImplementationCores;
       directives = implementationDirectives;
       placementHints = if placementHintsContract == null then null else {
-        api = "coyote-nix.placement-hints/v1";
+        api = placementHintsContract.checked.api;
         id = placementHintsContract.id;
         manifest = "metadata/placement-hints.json";
       };

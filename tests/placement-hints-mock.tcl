@@ -74,6 +74,13 @@ if {[lsearch -exact $placed_cells {inst_shell/qshell/output_queues[0].inst_outpu
     error "hierarchical selector did not expand to its primitive leaf"
 }
 
+set ::pblocks {}
+set ::coyote_placement_hint_required 1
+coyote_apply_placement_hints
+if {[get_property IS_SOFT [lindex $::pblocks 0]] ne "false"} {
+    error "required placement did not enforce the admitted region"
+}
+
 proc expect_reject {groups label} {
     set ::coyote_placement_hint_groups $groups
     if {![catch {coyote_apply_placement_hints} message]} { error "$label was unexpectedly accepted" }
