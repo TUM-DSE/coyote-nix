@@ -21,6 +21,12 @@ proc coyote_apply_placement_hints {} {
         error "placement hint inputs were not initialized"
     }
 
+    # Capabilities belong to one input application, not the Vivado session.
+    set require_placement [expr {[info exists ::coyote_placement_hint_required] && $::coyote_placement_hint_required}]
+    set allow_unplaced_static [expr {[info exists ::coyote_placement_hint_unplaced_static] && $::coyote_placement_hint_unplaced_static}]
+    set ::coyote_placement_hint_required 0
+    set ::coyote_placement_hint_unplaced_static 0
+
     set all_cells [get_cells -hier]
     set names {}
     set primitive_names {}
@@ -122,9 +128,15 @@ proc coyote_apply_placement_hints {} {
         }
 
         foreach name $resolved_names {
+            set unplaced_static 0
             if {[coyote_hint_is_below $name $static_root] ||
                 [coyote_hint_is_below $static_root $name]} {
-                error "placement selector intersects frozen static hierarchy: $name"
+                if {!$allow_unplaced_static ||
+                    $name eq $static_root ||
+                    ![coyote_hint_is_below $name $static_root]} {
+                    error "placement selector intersects frozen static hierarchy: $name"
+                }
+                set unplaced_static 1
             }
             foreach rp_root $rp_roots {
                 if {[coyote_hint_is_below $name $rp_root] ||
@@ -140,6 +152,19 @@ proc coyote_apply_placement_hints {} {
                 if {[coyote_hint_is_below $protected_cell_name $name] ||
                     [coyote_hint_is_below $name $protected_cell_name]} {
                     set protected_cell [dict get $cell_by_name $protected_cell_name]
+                    if {$unplaced_static &&
+                        [coyote_hint_is_below $protected_cell_name $name] &&
+                        [coyote_hint_property_true $protected_cell IS_PRIMITIVE]} {
+                        if {[catch {set location [get_property -quiet LOC $protected_cell]}]} {
+                            error "cannot establish unplaced static cell: $protected_cell_name"
+                        }
+                        if {$location ne ""} {
+                            error "static placement requires unplaced cells: $protected_cell_name"
+                        }
+                        if {[get_property -quiet PRIMITIVE_GROUP $protected_cell] eq "CLOCK"} {
+                            error "static placement cannot select clock resources: $protected_cell_name"
+                        }
+                    }
                     if {[coyote_hint_property_true $protected_cell IS_LOC_FIXED] ||
                         [coyote_hint_property_true $protected_cell IS_BEL_FIXED]} {
                         error "placement selector intersects a fixed cell: $protected_cell_name"
@@ -166,7 +191,7 @@ proc coyote_apply_placement_hints {} {
         lassign $item pblock_name cells sites
         set pblock [create_pblock $pblock_name]
         set soft true
-        if {[info exists ::coyote_placement_hint_required] && $::coyote_placement_hint_required} {
+        if {$require_placement} {
             set soft false
         }
         set_property IS_SOFT $soft $pblock

@@ -72,11 +72,17 @@ required = dict(valid, api="coyote-nix.placement-hints/v2", requirePlacement=Tru
 p = w / "required.json"; p.write_text(json.dumps(required))
 assert m.load_manifest(p)["requirePlacement"] is True
 assert "set ::coyote_placement_hint_required 1" in m.emit_data(required)
+static = dict(required, api="coyote-nix.placement-hints/v3", allowUnplacedStatic=True)
+p = w / "static.json"; p.write_text(json.dumps(static))
+assert m.load_manifest(p)["allowUnplacedStatic"] is True
+assert "set ::coyote_placement_hint_unplaced_static 1" in m.emit_data(static)
 for mutate in (
     lambda x: x.update(groups=[]),
     lambda x: x.update(requirePlacement=True),
     lambda x: x.update(api="coyote-nix.placement-hints/v2", requirePlacement="true"),
     lambda x: x.update(api="coyote-nix.placement-hints/v2"),
+    lambda x: x.update(api="coyote-nix.placement-hints/v3", requirePlacement=True),
+    lambda x: x.update(api="coyote-nix.placement-hints/v3", requirePlacement="true", allowUnplacedStatic=True),
     lambda x: x["groups"][0].update(name="queue-0"),
     lambda x: x["groups"].append({"name":"b","cells":["x/y/child"],"sites":["SLICE_X2Y2"]}),
     lambda x: x["groups"][0].update(cells=["bad\nselector"]),

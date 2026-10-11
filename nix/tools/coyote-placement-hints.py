@@ -29,7 +29,13 @@ def load_manifest(path):
         fail("manifest must be an object")
     api = data.get("api")
     expected = {"api", "groups"}
-    if api == "coyote-nix.placement-hints/v2":
+    if api == "coyote-nix.placement-hints/v3":
+        expected.update({"requirePlacement", "allowUnplacedStatic"})
+        if data.get("allowUnplacedStatic") is not True:
+            fail("version 3 requires allowUnplacedStatic=true")
+        if type(data.get("requirePlacement")) is not bool:
+            fail("requirePlacement must be a Boolean")
+    elif api == "coyote-nix.placement-hints/v2":
         expected.add("requirePlacement")
         if data.get("requirePlacement") is not True:
             fail("version 2 requires requirePlacement=true")
@@ -75,7 +81,9 @@ def emit_data(data):
         sites = " ".join(tcl_word(x) for x in group["sites"])
         groups.append(f"[list {tcl_word(group['name'])} [list {cells}] [list {sites}]]")
     required = int(data.get("requirePlacement", False))
+    unplaced_static = int(data.get("allowUnplacedStatic", False))
     return (f"set ::coyote_placement_hint_required {required}\n"
+            + f"set ::coyote_placement_hint_unplaced_static {unplaced_static}\n"
             + "set ::coyote_placement_hint_groups [list " + " ".join(groups) + "]\n")
 
 

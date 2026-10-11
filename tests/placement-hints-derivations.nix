@@ -54,6 +54,23 @@ let
       };
     }
   );
+  staticHints = mkCoyoteShellPackage (
+    checkedArgs
+    // {
+      placementHints = hintsA // {
+        allowUnplacedStatic = true;
+        requirePlacement = true;
+      };
+    }
+  );
+  invalidStatic = mkCoyoteShellPackage (
+    checkedArgs
+    // {
+      placementHints = hintsA // {
+        allowUnplacedStatic = "true";
+      };
+    }
+  );
   baseStages = base.coyoteTwoStage.stages;
   aStages = a.coyoteTwoStage.stages;
   bStages = b.coyoteTwoStage.stages;
@@ -62,6 +79,11 @@ in
 assert !(builtins.tryEval invalidName.coyoteTwoStage.physical.placementHints.id).success;
 assert !(builtins.tryEval invalidRequirement.coyoteTwoStage.physical.placementHints.id).success;
 assert required.coyoteTwoStage.physical.placementHints.api == "coyote-nix.placement-hints/v2";
+assert !(builtins.tryEval invalidStatic.coyoteTwoStage.physical.placementHints.id).success;
+assert staticHints.coyoteTwoStage.physical.placementHints.api == "coyote-nix.placement-hints/v3";
+assert drv staticHints.coyoteTwoStage.stages.synth == drv aStages.synth;
+assert drv staticHints.coyoteTwoStage.stages.opt == drv aStages.opt;
+assert drv staticHints.coyoteTwoStage.stages.place != drv aStages.place;
 assert drv required.coyoteTwoStage.stages.synth == drv aStages.synth;
 assert drv required.coyoteTwoStage.stages.opt == drv aStages.opt;
 assert drv required.coyoteTwoStage.stages.place != drv aStages.place;

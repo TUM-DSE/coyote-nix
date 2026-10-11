@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/3317044e407596f8b463914ee97cb00424d06679";
+      url = "github:taugoust/Coyote/0655838932550b013656e2939df6cf3a4c62aa11";
       flake = false;
     };
     coyoteDriver = {

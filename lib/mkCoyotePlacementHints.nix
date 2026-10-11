@@ -12,17 +12,21 @@ let
   checked =
     if
       !builtins.isAttrs hints
-      || !(builtins.elem (builtins.attrNames hints) [
-        [ "groups" ]
-        [
+      || !(hints ? groups)
+      || builtins.any (
+        name:
+        !(builtins.elem name [
           "groups"
           "requirePlacement"
-        ]
-      ])
+          "allowUnplacedStatic"
+        ])
+      ) (builtins.attrNames hints)
     then
-      fail "must contain groups and optionally requirePlacement"
+      fail "must contain groups and only supported placement options"
     else if !builtins.isBool (hints.requirePlacement or false) then
       fail "requirePlacement must be a Boolean"
+    else if !builtins.isBool (hints.allowUnplacedStatic or false) then
+      fail "allowUnplacedStatic must be a Boolean"
     else if !builtins.isList hints.groups || hints.groups == [ ] then
       fail "groups must be a nonempty list"
     else
@@ -71,13 +75,19 @@ let
         sites = lib.concatMap (group: group.sites) groups;
         normalized = {
           api =
-            if hints.requirePlacement or false then
+            if hints.allowUnplacedStatic or false then
+              "coyote-nix.placement-hints/v3"
+            else if hints.requirePlacement or false then
               "coyote-nix.placement-hints/v2"
             else
               "coyote-nix.placement-hints/v1";
           inherit groups;
         }
-        // lib.optionalAttrs (hints.requirePlacement or false) { requirePlacement = true; };
+        // lib.optionalAttrs (hints.requirePlacement or false) { requirePlacement = true; }
+        // lib.optionalAttrs (hints.allowUnplacedStatic or false) {
+          allowUnplacedStatic = true;
+          requirePlacement = hints.requirePlacement or false;
+        };
       in
       if names != lib.unique names then
         fail "group names must be unique"

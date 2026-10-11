@@ -101,4 +101,33 @@ dict set ::pblock_sites existing {}
 expect_reject [list \
     [list parent [list inst_shell/qshell] [list SLICE_X10Y20]] \
     [list child [list {inst_shell/qshell/output_queues[0].inst_output_queue}] [list SLICE_X11Y21]]] "hierarchical selector overlap"
+# Static opt-in is limited to unplaced non-clock descendants; it cannot move
+# a previously placed reference even when its fixed-location flag is clear.
+lappend ::cells inst_static/logic inst_static/logic/ff
+set ::pblocks {}
+dict set ::props inst_static/logic/ff,IS_PRIMITIVE 1
+set static_group [list [list static_logic [list inst_static/logic] [list SLICE_X11Y21]]]
+set ::coyote_placement_hint_unplaced_static 0
+expect_reject $static_group "static default remains protected"
+set ::coyote_placement_hint_unplaced_static 1
+set ::coyote_placement_hint_groups $static_group
+coyote_apply_placement_hints
+if {[dict get $::pblock_cells coyote_hint_static_logic] ne "inst_static/logic/ff"} {
+    error "unplaced static selection was not applied"
+}
+set ::pblocks {}
+expect_reject $static_group "static capability does not leak to the next input"
+proc expect_static_reject {groups label} {
+    set ::coyote_placement_hint_unplaced_static 1
+    expect_reject $groups $label
+}
+expect_static_reject [list [list whole_static [list inst_static] [list SLICE_X11Y21]]] "static insertion root"
+dict set ::props inst_static/logic/ff,LOC SLICE_X11Y21
+expect_static_reject $static_group "already placed static cell"
+dict set ::props inst_static/logic/ff,LOC ""
+dict set ::props inst_static/logic/ff,PRIMITIVE_GROUP CLOCK
+expect_static_reject $static_group "unplaced static clock resource"
+dict set ::props inst_static/logic/ff,PRIMITIVE_GROUP LUT
+dict set ::props inst_static/logic,IS_LOC_FIXED 1
+expect_static_reject $static_group "fixed static ancestor"
 puts "placement hint Tcl admission behavior passed"
