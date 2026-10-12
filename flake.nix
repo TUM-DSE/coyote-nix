@@ -5,7 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
     coyote = {
-      url = "github:taugoust/Coyote/0655838932550b013656e2939df6cf3a4c62aa11";
+      url = "github:taugoust/Coyote/ce8c4b432bf11618c0c48fa5b8f1efaad9e1f35c";
       flake = false;
     };
     coyoteDriver = {
@@ -1127,6 +1127,9 @@
         checks.coyote-route-validation-contract = defaultCoyoteSourceChecks.routeValidationContract;
         checks.coyote-region-flow = pkgs.callPackage "${coyote}/tests/region_flow/check.nix" { };
         checks.coyote-debug-routing = pkgs.callPackage "${coyote}/tests/debug_routing/check.nix" { };
+        checks.coyote-control-fanout = pkgs.callPackage "${coyote}/tests/control_fanout/check.nix" {
+          coyoteRoot = coyote;
+        };
         checks.coyote-qdma-write-wrapper = defaultCoyoteSourceChecks.qdmaWriteWrapperSimulation;
         checks.coyote-qdma-read-wrapper = defaultCoyoteSourceChecks.qdmaReadWrapperSimulation;
         checks.coyote-resident-discovery = defaultCoyoteSourceChecks.residentDiscoverySimulation;

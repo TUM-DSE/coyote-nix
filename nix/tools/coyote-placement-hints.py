@@ -29,7 +29,11 @@ def load_manifest(path):
         fail("manifest must be an object")
     api = data.get("api")
     expected = {"api", "groups"}
-    if api == "coyote-nix.placement-hints/v3":
+    if api == "coyote-nix.placement-hints/v4":
+        expected.update({"requirePlacement", "allowUnplacedStatic"})
+        if any(type(data.get(key)) is not bool for key in ("requirePlacement", "allowUnplacedStatic")):
+            fail("placement capabilities must be Booleans")
+    elif api == "coyote-nix.placement-hints/v3":
         expected.update({"requirePlacement", "allowUnplacedStatic"})
         if data.get("allowUnplacedStatic") is not True:
             fail("version 3 requires allowUnplacedStatic=true")
@@ -47,17 +51,35 @@ def load_manifest(path):
         fail("unsupported or empty manifest")
     names, cells, sites = set(), [], set()
     for group in data["groups"]:
-        if not isinstance(group, dict) or set(group) != {"name", "cells", "sites"}:
-            fail("each group must contain exactly name, cells, and sites")
+        allowed = {"name", "cells", "sites"}
+        if api == "coyote-nix.placement-hints/v4":
+            allowed.add("excludeCells")
+        if not isinstance(group, dict) or not {"name", "cells", "sites"} <= set(group) <= allowed:
+            fail("group has missing or unsupported fields")
         name, members, regions = group["name"], group["cells"], group["sites"]
         if not isinstance(name, str) or not NAME_RE.fullmatch(name) or name in names:
             fail("group names must be unique simple identifiers")
         names.add(name)
         if not isinstance(members, list) or not members or any(not isinstance(x, str) or not CELL_RE.fullmatch(x) or not x.isprintable() for x in members):
             fail("cell selectors must be nonempty exact printable hierarchical names")
-        if len(set(members)) != len(members) or any(overlaps(left, right) for left in members for right in cells + members if left != right):
-            fail("cell selectors must be unique, disjoint, and not contain one another")
-        cells.extend(members)
+        if len(set(members)) != len(members) or any(overlaps(left, right) for left in members for right in members if left != right):
+            fail("group cell selectors must be unique and disjoint")
+        excluded = group.get("excludeCells", [])
+        if not isinstance(excluded, list) or any(not isinstance(x, str) or not CELL_RE.fullmatch(x) or not x.isprintable() for x in excluded):
+            fail("exclusions must be exact printable hierarchical names")
+        if len(set(excluded)) != len(excluded) or any(overlaps(left, right) for left in excluded for right in excluded if left != right):
+            fail("exclusions must be unique and disjoint")
+        if any(not any(x.startswith(member + "/") for member in members) for x in excluded):
+            fail("exclusions must be strict descendants of selected cells")
+        for member in members:
+            for previous, previous_excluded in cells:
+                if member == previous:
+                    fail("cell selectors must not repeat across groups")
+                if member.startswith(previous + "/") and not any(member == x or member.startswith(x + "/") for x in previous_excluded):
+                    fail("descendant group is not excluded from its ancestor selection")
+                if previous.startswith(member + "/") and not any(previous == x or previous.startswith(x + "/") for x in excluded):
+                    fail("descendant group is not excluded from its ancestor selection")
+            cells.append((member, excluded))
         if not isinstance(regions, list) or not regions or any(not isinstance(x, str) or not SITE_RE.fullmatch(x) for x in regions):
             fail("site selectors must be nonempty exact site names")
         if len(set(regions)) != len(regions) or sites.intersection(regions):
@@ -79,7 +101,11 @@ def emit_data(data):
     for group in data["groups"]:
         cells = " ".join(tcl_word(x) for x in group["cells"])
         sites = " ".join(tcl_word(x) for x in group["sites"])
-        groups.append(f"[list {tcl_word(group['name'])} [list {cells}] [list {sites}]]")
+        exclusion_field = ""
+        if data["api"] == "coyote-nix.placement-hints/v4":
+            excluded = " ".join(tcl_word(x) for x in group.get("excludeCells", []))
+            exclusion_field = f" [list {excluded}]"
+        groups.append(f"[list {tcl_word(group['name'])} [list {cells}] [list {sites}]{exclusion_field}]")
     required = int(data.get("requirePlacement", False))
     unplaced_static = int(data.get("allowUnplacedStatic", False))
     return (f"set ::coyote_placement_hint_required {required}\n"

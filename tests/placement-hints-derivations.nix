@@ -71,11 +71,35 @@ let
       };
     }
   );
+  partitionedHints = {
+    groups = [
+      {
+        name = "core";
+        cells = [ "inst_shell/qshell" ];
+        excludeCells = [ "inst_shell/qshell/output_queues[0].inst_output_queue" ];
+        sites = [ "SLICE_X11Y21" ];
+      }
+    ]
+    ++ hintsA.groups;
+  };
+  partitioned = mkCoyoteShellPackage (checkedArgs // { placementHints = partitionedHints; });
+  invalidExclusion = mkCoyoteShellPackage (
+    checkedArgs
+    // {
+      placementHints.groups = map (
+        group: if group.name == "core" then group // { excludeCells = [ "unrelated/cell" ]; } else group
+      ) partitionedHints.groups;
+    }
+  );
   baseStages = base.coyoteTwoStage.stages;
   aStages = a.coyoteTwoStage.stages;
   bStages = b.coyoteTwoStage.stages;
   drv = stage: stage.drvPath;
 in
+assert partitioned.coyoteTwoStage.physical.placementHints.api == "coyote-nix.placement-hints/v4";
+assert !(builtins.tryEval invalidExclusion.coyoteTwoStage.physical.placementHints.id).success;
+assert drv partitioned.coyoteTwoStage.stages.opt == drv baseStages.opt;
+assert drv partitioned.coyoteTwoStage.stages.place != drv baseStages.place;
 assert !(builtins.tryEval invalidName.coyoteTwoStage.physical.placementHints.id).success;
 assert !(builtins.tryEval invalidRequirement.coyoteTwoStage.physical.placementHints.id).success;
 assert required.coyoteTwoStage.physical.placementHints.api == "coyote-nix.placement-hints/v2";

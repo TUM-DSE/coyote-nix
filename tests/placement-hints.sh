@@ -76,6 +76,27 @@ static = dict(required, api="coyote-nix.placement-hints/v3", allowUnplacedStatic
 p = w / "static.json"; p.write_text(json.dumps(static))
 assert m.load_manifest(p)["allowUnplacedStatic"] is True
 assert "set ::coyote_placement_hint_unplaced_static 1" in m.emit_data(static)
+partitioned = {
+    "api": "coyote-nix.placement-hints/v4", "requirePlacement": True,
+    "allowUnplacedStatic": False, "groups": [
+        {"name": "parent", "cells": ["x/y"], "excludeCells": ["x/y/child"], "sites": ["SLICE_X1Y1"]},
+        {"name": "child", "cells": ["x/y/child"], "sites": ["SLICE_X2Y2"]},
+    ]}
+p = w / "partitioned.json"; p.write_text(json.dumps(partitioned))
+assert m.load_manifest(p) == partitioned
+for change in (
+    lambda x: x["groups"][0].update(excludeCells=[]),
+    lambda x: x["groups"][0].update(excludeCells=["unrelated"]),
+    lambda x: x["groups"][0].update(excludeCells=["x/y"]),
+    lambda x: x["groups"][0].update(excludeCells=["x/y/child", "x/y/child"]),
+    lambda x: x["groups"][0].update(excludeCells=["x/y/child", "x/y/child/nested"]),
+    lambda x: x["groups"][1].update(cells=["x/y"]),
+):
+    candidate = json.loads(json.dumps(partitioned)); change(candidate)
+    p = w / "bad-partition.json"; p.write_text(json.dumps(candidate))
+    try: m.load_manifest(p)
+    except SystemExit: pass
+    else: raise SystemExit("invalid subtree partition unexpectedly accepted")
 for mutate in (
     lambda x: x.update(groups=[]),
     lambda x: x.update(requirePlacement=True),

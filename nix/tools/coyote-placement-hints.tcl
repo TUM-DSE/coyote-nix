@@ -72,7 +72,20 @@ proc coyote_apply_placement_hints {} {
     set all_selector_names {}
     set all_hint_sites [dict create]
     foreach group $::coyote_placement_hint_groups {
-        lassign $group group_name selectors site_names
+        if {[llength $group] ni {3 4}} { error "invalid placement group tuple" }
+        lassign $group group_name selectors site_names excluded_names
+        foreach excluded $excluded_names {
+            if {![dict exists $cell_by_name $excluded]} {
+                error "placement exclusion must resolve to exactly one cell: $excluded"
+            }
+            set beneath_selector 0
+            foreach selector $selectors {
+                if {$excluded ne $selector && [coyote_hint_is_below $excluded $selector]} {
+                    set beneath_selector 1
+                }
+            }
+            if {!$beneath_selector} { error "placement exclusion is not a strict descendant: $excluded" }
+        }
         set pblock_name "coyote_hint_${group_name}"
         if {[lsearch -exact $pblock_names $pblock_name] >= 0} {
             error "placement hint pblock already exists: $pblock_name"
@@ -88,7 +101,11 @@ proc coyote_apply_placement_hints {} {
             set expanded_names {}
             foreach primitive_name $primitive_names {
                 if {[coyote_hint_is_below $primitive_name $name]} {
-                    lappend expanded_names $primitive_name
+                    set excluded_leaf 0
+                    foreach excluded $excluded_names {
+                        if {[coyote_hint_is_below $primitive_name $excluded]} { set excluded_leaf 1; break }
+                    }
+                    if {!$excluded_leaf} { lappend expanded_names $primitive_name }
                 }
             }
             if {[llength $expanded_names] == 0} {
@@ -103,10 +120,10 @@ proc coyote_apply_placement_hints {} {
                 dict set all_selected_names $expanded_name 1
                 lappend cells [dict get $cell_by_name $expanded_name]
             }
-            foreach selected $all_selector_names {
-                if {[coyote_hint_is_below $name $selected] || [coyote_hint_is_below $selected $name]} {
-                    error "placement selectors overlap hierarchically: $name and $selected"
-                }
+            # Ancestor/child selectors may partition membership only through
+            # explicit exclusions. The expanded-leaf check remains authoritative.
+            if {[lsearch -exact $all_selector_names $name] >= 0} {
+                error "placement selector is repeated: $name"
             }
             lappend all_selector_names $name
             lappend resolved_names $name

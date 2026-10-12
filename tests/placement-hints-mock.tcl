@@ -130,4 +130,26 @@ expect_static_reject $static_group "unplaced static clock resource"
 dict set ::props inst_static/logic/ff,PRIMITIVE_GROUP LUT
 dict set ::props inst_static/logic,IS_LOC_FIXED 1
 expect_static_reject $static_group "fixed static ancestor"
+# Explicit exclusions partition real leaf membership, not safety permissions.
+lappend ::cells inst_shell/qshell/core_ff inst_shell/fixed_parent/free_ff
+dict set ::props inst_shell/qshell/core_ff,IS_PRIMITIVE 1
+dict set ::props inst_shell/fixed_parent/free_ff,IS_PRIMITIVE 1
+set queue {inst_shell/qshell/output_queues[0].inst_output_queue}
+set ::pblocks {}
+set ::coyote_placement_hint_groups [list \
+    [list core [list inst_shell/qshell] [list SLICE_X10Y20] [list $queue]] \
+    [list queue [list $queue] [list SLICE_X11Y21]]]
+coyote_apply_placement_hints
+if {[dict get $::pblock_cells coyote_hint_core] ne "inst_shell/qshell/core_ff" ||
+    [dict get $::pblock_cells coyote_hint_queue] ne [list "$queue/ff0"]} {
+    error "subtree exclusion did not partition leaf ownership"
+}
+set ::pblocks {}
+expect_reject [list [list missing [list inst_shell/qshell] [list SLICE_X10Y20] [list inst_shell/qshell/missing]]] "missing exclusion"
+expect_reject [list [list foreign [list inst_shell/qshell] [list SLICE_X10Y20] [list inst_static/frozen/u1]]] "foreign exclusion"
+expect_reject [list [list empty [list $queue] [list SLICE_X10Y20] [list $queue/ff0]]] "empty remaining membership"
+expect_reject [list [list fixed [list inst_shell/fixed_parent] [list SLICE_X10Y20] [list inst_shell/fixed_parent/leaf]]] "excluded fixed descendant remains protected"
+expect_reject [list [list rp [list inst_shell] [list SLICE_X10Y20] [list inst_shell/inst_dynamic/inst_user_wrapper_0 inst_shell/fixed_parent]]] "excluded RP remains protected"
+expect_static_reject [list [list root [list inst_static] [list SLICE_X10Y20] [list inst_static/frozen/u1]]] "excluded static children do not authorize static root"
+if {[llength $::pblocks] != 0} { error "rejected exclusion request mutated placement" }
 puts "placement hint Tcl admission behavior passed"

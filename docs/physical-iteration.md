@@ -41,6 +41,16 @@ This is schema syntax, **not** a usable floorplan recommendation. Supply exact h
 
 The V80 source-static full-shell flow can opt into `placementHints.allowUnplacedStatic = true` (manifest API v3). This permits named descendants of `inst_static` only when every selected primitive is still unplaced. It does not permit the static insertion root itself, clock resources, cells with an existing location, fixed cells/ancestors, RP overlap, or existing Pblock membership/site collisions. A placed or locked static reference remains protected even if a fixed-location flag is unset. This option is for initial placement of synthesized static fabric, not relocation of an implemented static image.
 
+A group can supply `excludeCells = [ "exact/selected/hierarchy/child" ];`
+to partition a selected hierarchy (manifest API v4). Exclusions must be exact,
+nonoverlapping strict descendants of that group's selected cells. Another group
+may then select the excluded subtree at disjoint sites. Native admission verifies
+that all exclusions exist, remaining membership is nonempty, and expanded
+primitive membership does not overlap. Exclusions affect membership only: the
+original selected hierarchy and its ancestors/descendants still undergo all
+static-root, clock, fixed-cell, RP and existing-Pblock protection checks. They
+cannot be used to hide protected resources inside an otherwise forbidden root.
+
 The place-stage admission checks reject missing/overlapping selectors, protected static/RP/fixed cells, existing Pblock ownership and site collisions before applying groups. A changed hint changes the place recipe and all downstream derivations; synthesis, implementation inputs, link and opt remain reusable. The stage manifest retains the hint input and its identity. This initial interface is for independently staged **V80 shell placement**, not U280 or app-only implementation.
 
 Keep the hint declaration outside the fileset passed as `hwSource`. Keeping an experimental XDC in that fileset or in common CMake flags still invalidates synthesis. Existing hard geometry and synthesis timing constraints must stay in their normal inputs.
