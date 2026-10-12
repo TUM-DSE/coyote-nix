@@ -157,7 +157,12 @@ proc endpoint_clock_pins {endpoint} {
             continue
         }
         set pin_name [get_property NAME $pin]
-        set constant_value [get_property -quiet CONSTANT_VALUE $pin]
+        set logic_value [string tolower [get_property -quiet LOGIC_VALUE $pin]]
+        switch -- $logic_value {
+            zero - 0 { set constant_value "0" }
+            one - 1 { set constant_value "1" }
+            default { set constant_value "" }
+        }
         set clock_names {}
         foreach clock [get_clocks -quiet -of_objects $pin] {
             lappend clock_names [get_property NAME $clock]
@@ -236,6 +241,8 @@ if {[catch {
     set unconstrained_path [signoff_report_path \
         $report_dir $report_prefix unconstrained_endpoints $report_suffix]
     check_timing -verbose -file $unconstrained_path
+    # LOGIC_VALUE is timing-engine evidence, not a persisted netlist property.
+    update_timing
     write_endpoint_evidence $unconstrained_path [signoff_json_path \
         $report_dir $report_prefix unconstrained_endpoint_evidence $report_suffix]
     report_drc -name "${report_prefix}_strict_signoff${report_suffix}" \

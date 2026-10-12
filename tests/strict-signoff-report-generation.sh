@@ -80,6 +80,8 @@ proc get_cells {args} {
     }
     return {}
 }
+set timing_current 0
+proc update_timing {args} { set ::timing_current 1 }
 proc get_clocks {args} { return {} }
 proc get_property {args} {
     set property [lindex $args end-1]
@@ -89,9 +91,13 @@ proc get_property {args} {
         IS_CLOCK {
             return [expr {$object eq {fixture/disabled_counter_reg[0]/C}}]
         }
-        CONSTANT_VALUE {
-            if {$object eq {fixture/disabled_counter_reg[0]/C}} { return 0 }
-            return ""
+        LOGIC_VALUE {
+            if {!$::timing_current} { return {needs timing update***} }
+            if {$object eq {fixture/disabled_counter_reg[0]/C}} {
+                if {[info exists ::env(TEST_LOGIC_VALUE)]} { return $::env(TEST_LOGIC_VALUE) }
+                return zero
+            }
+            return unknown
         }
     }
     error "unsupported fake property: $property"
@@ -155,6 +161,17 @@ for phase in link place route validate; do
     and (.unconstrainedEndpoints[0].id | test("^[0-9a-f]{64}$"))
     and (if $routed == 1 then .routing.routableNets == 10 else .routing == null end)
   ' "$report_dir/shell_strict_signoff_c0.json" >/dev/null
+done
+
+# Only demonstrated binary constants may become constant-clock evidence.
+for value in zero one unknown 'needs timing update***'; do
+  expected=''
+  case "$value" in zero) expected=0 ;; one) expected=1 ;; esac
+  TEST_LOGIC_VALUE="$value" tclsh "$work/fake-vivado.tcl" "$report_tool" "$fixtures" \
+    link "$work/checkpoint.dcp" "$work/logic-value" shell '' 0
+  jq -e --arg expected "$expected" \
+    '.endpoints[0].clockPins[0].constantValue == $expected' \
+    "$work/logic-value/shell_unconstrained_endpoint_evidence.json" >/dev/null
 done
 
 printf 'strict signoff report generation contract: PASS\n'
