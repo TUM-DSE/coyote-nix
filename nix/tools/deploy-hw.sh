@@ -3,6 +3,26 @@ image_arg=""
 verbosity=0
 step_timeout_s=120
 program_timeout_s=3600
+hog_enabled=0
+hog_expiry=never
+hog_token=""
+hog_receipt=""
+hog_command=()
+
+# Armed before acquisition: even a failed acquire may have persisted its claim.
+# A token release is idempotent and cannot release a reused/pre-existing claim.
+cleanup_hog() {
+  local rc=$?
+  trap - EXIT INT TERM HUP
+  if [ "$rc" -ne 0 ] && [ -n "$hog_token" ]; then
+    echo "Deployment failed; releasing its new FPGA reservation." >&2
+    if ! "${hog_command[@]}" reservation release --token "$hog_token"; then
+      echo "ERROR: reservation cleanup failed. Recover with:" >&2
+      printf '  sudo %q reservation release --token %q\n' "$hog_binary" "$hog_token" >&2
+    fi
+  fi
+  exit "$rc"
+}
 
 log_v() {
   if [ "$verbosity" -ge 1 ]; then
@@ -81,6 +101,20 @@ run_step() {
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --hog)
+      hog_enabled=1
+      hog_expiry=never
+      shift
+      ;;
+    --hog=*)
+      hog_enabled=1
+      hog_expiry="${1#--hog=}"
+      if [ -z "$hog_expiry" ]; then
+        echo "ERROR: --hog= requires an expiry (for example --hog=4h)." >&2
+        exit 1
+      fi
+      shift
+      ;;
     --program-cmd)
       if [ $# -lt 2 ]; then
         echo "ERROR: --program-cmd requires a value" >&2
@@ -114,6 +148,7 @@ while [ $# -gt 0 ]; do
       shift 2
       ;;
     -h|--help)
+      echo "  --hog[=<expiry>]  Reserve this FPGA exclusively; default is no expiry. Keep on success, release new reservation on failure." >&2
       echo "Usage: deploy-hw [-v|--verbose] [-vv|--very-verbose] [--timeout <sec>] [--program-timeout <sec>] [--program-cmd '<cmd ...>'] image.bit|image.pdi" >&2
       exit 0
       ;;
@@ -216,6 +251,31 @@ if [ "${#program_cmd_argv[@]}" -eq 0 ] || [ -z "${program_cmd_argv[0]}" ]; then
   exit 1
 fi
 
+if [ "$hog_enabled" -eq 1 ]; then
+  hog_binary="$(command -v fpgahog)" || { echo "ERROR: --hog requires fpgahog." >&2; exit 1; }
+  hog_token="$(uuidgen)"
+  if [ "$EUID" -eq 0 ]; then
+    hog_command=("$hog_binary")
+  else
+    # Authenticate before acquisition; cleanup must never hang waiting for input.
+    sudo -v
+    hog_command=(sudo -n "$hog_binary")
+  fi
+  trap cleanup_hog EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  trap 'exit 129' HUP
+  if hog_receipt="$("${hog_command[@]}" reservation acquire --bdf "$FPGA_BDF" --token "$hog_token" --expiry "$hog_expiry")"; then
+    printf -v hog_release_binary '%q' "$hog_binary"
+    hog_receipt="${hog_receipt//sudo fpgahog/sudo $hog_release_binary}"
+    printf '%s\n' "$hog_receipt"
+  else
+    rc=$?
+    printf '%s\n' "$hog_receipt" >&2
+    exit "$rc"
+  fi
+fi
+
 log_v "Deploy config: platform=$platform driver platform=$target_platform"
 log_v "Image: $image"
 log_v "BDF: $FPGA_BDF"
@@ -229,4 +289,9 @@ run_step "[3/7] programming FPGA" "$program_timeout_s" "${program_cmd_argv[@]}" 
 run_step "[4/7] hot reset (post-program)" "$step_timeout_s" hot-reset
 run_step "[5/7] setting hugepages" "$step_timeout_s" set-hugepages
 run_step "[6/7] inserting driver" "$step_timeout_s" insert-driver "$driver_ko" "$image"
+if [ "$hog_enabled" -eq 1 ]; then
+  # Reloading the driver recreates device nodes; reapply and verify enforcement.
+  "${hog_command[@]}" reservation verify --bdf "$FPGA_BDF"
+  printf '%s\n' "$hog_receipt"
+fi
 echo "[7/7] complete."

@@ -37,6 +37,14 @@
     let
       baseLib = import ./lib;
       coyoteNixLib = baseLib // {
+        mkTools =
+          args:
+          baseLib.mkTools (
+            {
+              fpgahogPackage = fpgahog.packages.${args.pkgs.stdenv.hostPlatform.system}.default;
+            }
+            // args
+          );
         mkCoyoteDevShell =
           args:
           baseLib.mkCoyoteDevShell (
@@ -1029,6 +1037,7 @@
             }
             ''
               python3 ${./.}/tests/driver-deployment.py ${./.}
+              python3 ${./.}/tests/deploy-reservations.py ${./.}
               touch "$out"
             '';
 

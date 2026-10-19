@@ -4,6 +4,7 @@
   xilinxShareRoot,
   platforms ? pkgs.lib.platforms.linux,
   extraRuntimeInputs ? [ ],
+  fpgahogPackage ? null,
 }:
 let
   common = ../nix/tools/coyote-common.sh;
@@ -116,6 +117,7 @@ rec {
   deploy-hw = mkTool {
     name = "deploy-hw";
     description = "Unload driver, program hardware, reset, set hugepages, and insert driver.";
+    runtimeInputs = [ pkgs.util-linux ] ++ pkgs.lib.optional (fpgahogPackage != null) fpgahogPackage;
     body = builtins.readFile ../nix/tools/deploy-hw.sh;
   };
 

@@ -13,6 +13,27 @@ repository's default development shell and shells created by the flake's
 `lib.mkCoyoteDevShell`. This only makes `fpgahog` available; entering a shell
 never claims hardware or changes device permissions. Claims remain explicit.
 
+`deploy-hw --hog image.pdi` acquires an exclusive reservation for `FPGA_BDF`
+with no expiry; `--hog=4h` (or `--hog='<future date>'`) sets an expiry. Acquisition
+is atomic and uses the FPGA inventory configured in `fpgahog`, not a guessed
+board alias. Conflicts identify the owner and stop before hardware operations.
+After successful deployment the reservation remains and a release command is
+printed. Existing exclusive reservations belonging to the caller are reused
+without changing their expiry.
+
+On failure, including handled INT/TERM/HUP signals, deployment releases only
+its newly created reservation. It never releases a reused reservation. After
+driver insertion it reapplies and verifies enforcement. Missing configured
+nodes/cables or failed enforcement fail the deployment. Without `--hog`, the
+existing deployment behavior is unchanged.
+
+Reservation operations use `sudo` unless already root. Authentication is
+requested before acquisition; cleanup is non-interactive. If privileges expire
+or cleanup otherwise fails, an explicit recovery command is printed. SIGKILL,
+power loss, or a host crash cannot run shell cleanup; use the printed release
+command (or the reservation token in `fpgahog status --verbose`) to recover.
+This opt-in flag does not prevent root from bypassing reservations.
+
 Consumers receive the tool after updating their `coyote-nix` input pin. The
 builder accepts `fpgahogPackage` to override the package, or `null` to omit it.
 Direct source imports of `lib/mkCoyoteDevShell.nix` remain dependency-free and

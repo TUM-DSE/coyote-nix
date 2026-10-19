@@ -136,11 +136,11 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1792410279,
-        "narHash": "sha256-jukebrX38uDgW/q84KknQ5JepyhASbtMZTP1XtsOKus=",
+        "lastModified": 1792418464,
+        "narHash": "sha256-BNsuKBKcSA5EfkzzKvRRJKAte33Jlaq55r/av5u14Dw=",
         "owner": "taugoust",
         "repo": "fpgahog",
-        "rev": "cc428f9161bc680013ba93b2da348ec7aae1a3ce",
+        "rev": "5b43a4657c88aa4b04c2f54dad58970eeccedec4",
         "type": "github"
       },
       "original": {
