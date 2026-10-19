@@ -145,6 +145,7 @@
       },
       "original": {
         "owner": "taugoust",
+        "ref": "main",
         "repo": "fpgahog",
         "type": "github"
       }
