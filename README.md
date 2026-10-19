@@ -6,6 +6,18 @@ This repository provides generic Coyote/Xilinx/Nix mechanics that can be shared 
 
 `coyote-nix` does not provide preconfigured Vivado/Vitis packages by itself. A consuming project must provide a Xilinx installation path via `xilinxShareRoot` when constructing tools or hardware builds.
 
+## FPGA ownership tool
+
+The flake pins `github:taugoust/fpgahog` and includes its runtime package in the
+repository's default development shell and shells created by the flake's
+`lib.mkCoyoteDevShell`. This only makes `fpgahog` available; entering a shell
+never claims hardware or changes device permissions. Claims remain explicit.
+
+Consumers receive the tool after updating their `coyote-nix` input pin. The
+builder accepts `fpgahogPackage` to override the package, or `null` to omit it.
+Direct source imports of `lib/mkCoyoteDevShell.nix` remain dependency-free and
+must supply that argument explicitly if the tool is wanted.
+
 ## Coyote compatibility pin
 
 The flake pins the exact Coyote revision used by its checks and exposes it as `lib.defaultCoyote`. Consumers should normally follow this tested source instead of selecting Coyote and `coyote-nix` independently:

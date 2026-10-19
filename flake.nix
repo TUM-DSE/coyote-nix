@@ -4,6 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
+    fpgahog.url = "github:taugoust/fpgahog";
     coyote = {
       url = "github:taugoust/Coyote/develop";
       flake = false;
@@ -26,6 +27,7 @@
     {
       nixpkgs,
       flake-utils,
+      fpgahog,
       coyote,
       coyoteDriver,
       coyoteDeltaBase,
@@ -35,6 +37,14 @@
     let
       baseLib = import ./lib;
       coyoteNixLib = baseLib // {
+        mkCoyoteDevShell =
+          args:
+          baseLib.mkCoyoteDevShell (
+            {
+              fpgahogPackage = fpgahog.packages.${args.pkgs.stdenv.hostPlatform.system}.default;
+            }
+            // args
+          );
         defaultCoyote = coyote;
         defaultCoyoteRevision = coyote.rev;
         defaultDriverSource = coyoteDriver;
@@ -2090,6 +2100,7 @@
           packages = with pkgs; [
             shellcheck
             nixfmt-rfc-style
+            fpgahog.packages.${system}.default
           ];
         };
 

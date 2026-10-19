@@ -3,6 +3,7 @@
   tools,
   coyoteRoot,
   packages ? [ ],
+  fpgahogPackage ? null,
   shellHook ? "",
   withXilinx ? false,
   board ? null,
@@ -105,7 +106,11 @@ let
   '';
 in
 pkgs.mkShell {
-  packages = basePackages ++ packages ++ pkgs.lib.optionals withXilinx tools.all;
+  packages =
+    basePackages
+    ++ packages
+    ++ pkgs.lib.optional (fpgahogPackage != null) fpgahogPackage
+    ++ pkgs.lib.optionals withXilinx tools.all;
   shellHook =
     platformHook
     + "\n"
