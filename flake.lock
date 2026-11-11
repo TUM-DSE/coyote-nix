@@ -142,11 +142,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1794424720,
-        "narHash": "sha256-8YqHBa5F5WRSx5L9RcvViZNuCdwj0T9DdDroRCkgVwc=",
+        "lastModified": 1794425030,
+        "narHash": "sha256-UVjaU0TtUCaPCBWe6gyL6zGAmlmVjde7T4Z/DmUUUvM=",
         "owner": "TUM-DSE",
         "repo": "fpga-nix",
-        "rev": "38c87def077d7cbce4400480a7dc2f8bcf824b14",
+        "rev": "5db0c15e724729dd04e18914d41452a08e0650e9",
         "type": "github"
       },
       "original": {
