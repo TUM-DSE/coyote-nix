@@ -67,6 +67,7 @@ let
   };
 
   inherit (userProjectStageHelpers)
+    collectHlsCsynthReports
     copyPreviousStageSetup
     finalBitgenCommand
     installCheckpointReports
@@ -447,16 +448,19 @@ let
           "checkpoints/shell/shell_synthed.dcp"
           "checkpoints/config_0/user_synthed_c0_0.dcp"
         ];
-        extraInstallPhase = installCheckpointReports {
-          checkpointDirs = [
-            "shell"
-            "config_0"
-          ];
-          reportDirs = [
-            "shell"
-            "config_0"
-          ];
-        };
+        extraInstallPhase =
+          collectHlsCsynthReports { }
+          + installCheckpointReports {
+            checkpointDirs = [
+              "shell"
+              "config_0"
+            ];
+            reportDirs = [
+              "shell"
+              "config_0"
+              "hls"
+            ];
+          };
         description = "Coyote ${board.platform} shell synthesis stage";
       };
 
@@ -602,10 +606,12 @@ let
         ++ lib.optionals includeStaticCheckpoint [
           "checkpoints/static/static_synthed.dcp"
         ];
-        extraInstallPhase = installCheckpointReports {
-          checkpointDirs = synthesisCheckpointDirs;
-          reportDirs = synthesisCheckpointDirs;
-        };
+        extraInstallPhase =
+          collectHlsCsynthReports { }
+          + installCheckpointReports {
+            checkpointDirs = synthesisCheckpointDirs;
+            reportDirs = synthesisCheckpointDirs ++ [ "hls" ];
+          };
         description = "Coyote ${board.platform} synthesis stage";
       };
       synth = board.synthesisPackage or generatedSynth;
