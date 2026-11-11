@@ -6,6 +6,10 @@
   fpgahogPackage ? null,
   shellHook ? "",
   withXilinx ? false,
+  # The site's xilinx-shell package, for example doctor-cluster-xilinx's
+  # xilinxShell. Without it, the Xilinx wrappers need a xilinx-shell on the
+  # host PATH, which only hosts with the site's Xilinx module provide.
+  xilinxShell ? null,
   board ? null,
   coyotePlatform ? null,
   fdevName ? null,
@@ -84,6 +88,9 @@ let
   simMode = if sim ? mode then sim.mode else "behavioral";
 
   platformHook = ''
+    ${maybeExport "COYOTE_NIX_XILINX_SHELL" (
+      if xilinxShell != null then "${xilinxShell}/bin/xilinx-shell" else null
+    )}
     ${maybeExport "COYOTE_NIX_PLATFORM" resolvedCoyotePlatform}
     ${maybeExport "FDEV_NAME" resolvedFdevName}
     ${maybeExport "TARGET_PLATFORM" resolvedTargetPlatform}
@@ -110,6 +117,7 @@ pkgs.mkShell {
     basePackages
     ++ packages
     ++ pkgs.lib.optional (fpgahogPackage != null) fpgahogPackage
+    ++ pkgs.lib.optional (withXilinx && xilinxShell != null) xilinxShell
     ++ pkgs.lib.optionals withXilinx tools.all;
   shellHook =
     platformHook
