@@ -4,7 +4,10 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
-    fpgahog.url = "github:taugoust/fpgahog/main";
+    fpgahog = {
+      url = "github:taugoust/fpgahog/main";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     coyote = {
       url = "github:taugoust/Coyote/develop";
       flake = false;
