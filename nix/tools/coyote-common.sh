@@ -127,6 +127,10 @@ require_cmd() {
 }
 
 coyote_nix_hw_server_port() {
+  if [ -n "${FPGA_NIX_HW_SERVER_PORT:-}" ]; then
+    printf '%s\n' "$FPGA_NIX_HW_SERVER_PORT"
+    return 0
+  fi
   if [ -n "${COYOTE_NIX_HW_SERVER_PORT:-}" ]; then
     printf '%s\n' "$COYOTE_NIX_HW_SERVER_PORT"
     return 0
@@ -140,30 +144,6 @@ coyote_nix_hw_server_port() {
     v80|*v80*|versal|*versal*) printf '%s\n' 3122 ;;
     *) printf '%s\n' 3121 ;;
   esac
-}
-
-coyote_nix_prepare_hw_server_log() {
-  local log_path="$1"
-  local fallback_path="${2:-}"
-
-  mkdir -p "$(dirname "$log_path")" 2>/dev/null || true
-  if : >>"$log_path" 2>/dev/null; then
-    chmod a+rw "$log_path" 2>/dev/null || true
-    printf '%s\n' "$log_path"
-    return 0
-  fi
-
-  if [ -n "$fallback_path" ] && [ "$fallback_path" != "$log_path" ]; then
-    mkdir -p "$(dirname "$fallback_path")"
-    : >>"$fallback_path"
-    chmod a+rw "$fallback_path" 2>/dev/null || true
-    echo "hw_server: log $log_path is not writable; using $fallback_path" >&2
-    printf '%s\n' "$fallback_path"
-    return 0
-  fi
-
-  echo "ERROR: hw_server log is not writable: $log_path" >&2
-  return 1
 }
 
 resolve_project_root() {

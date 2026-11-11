@@ -2,18 +2,19 @@
   pkgs,
   coyoteRoot,
   xilinxShareRoot,
+  # The fpga-nix library. The coyote-nix flake supplies it; direct importers of
+  # ./lib must pass it themselves.
+  fpgaNixLib ? throw "coyote-nix: mkTools requires fpgaNixLib (fpga-nix.lib)",
   platforms ? pkgs.lib.platforms.linux,
   extraRuntimeInputs ? [ ],
   fpgahogPackage ? null,
 }:
 let
   common = ../nix/tools/coyote-common.sh;
-  xilinxWrapperLib = pkgs.writeText "xilinx-wrapper-lib.sh" (
-    builtins.replaceStrings
-      [ "@NCURSES6_LIB@" "@XILINX_SHARE_ROOT@" ]
-      [ "${pkgs.ncurses6}/lib/libtinfo.so.6" (toString xilinxShareRoot) ]
-      (builtins.readFile ../nix/tools/xilinx-wrapper-lib.sh)
-  );
+
+  # Vendor tool wrappers and host tools come from fpga-nix.
+  xilinx = fpgaNixLib.mkXilinxTools { inherit pkgs xilinxShareRoot platforms; };
+  host = fpgaNixLib.mkHostTools { inherit pkgs platforms; };
 
   coyoteRootValue = toString coyoteRoot;
 
@@ -70,36 +71,12 @@ let
       };
     };
 
-  mkXilinxWrapper =
-    {
-      name,
-      description,
-      script,
-    }:
-    pkgs.writeShellApplication {
-      inherit name;
-      inheritPath = true;
-      runtimeInputs =
-        (with pkgs; [
-          bash
-          coreutils
-          gawk
-          gnumake
-          inetutils
-        ])
-        ++ extraRuntimeInputs;
-      text = builtins.replaceStrings [ "@XILINX_WRAPPER_LIB@" ] [ "${xilinxWrapperLib}" ] (
-        builtins.readFile script
-      );
-      meta = {
-        description = description;
-        mainProgram = name;
-        platforms = platforms;
-      };
-    };
 in
 rec {
-  inherit xilinxWrapperLib mkTool mkXilinxWrapper;
+  inherit mkTool;
+  inherit (xilinx) wrapperLib;
+  # Older name of wrapperLib.
+  xilinxWrapperLib = xilinx.wrapperLib;
 
   checkXilinxEnv = mkTool {
     name = "check-xilinx-env";
@@ -110,7 +87,7 @@ rec {
   program-cli = mkTool {
     name = "program-cli";
     description = "Program an explicit FPGA image via Vivado batch.";
-    runtimeInputs = [ pkgs.util-linux ];
+    runtimeInputs = [ xilinx.program-fpga ];
     body = builtins.readFile ../nix/tools/program-cli.sh;
   };
 
@@ -155,22 +132,12 @@ rec {
     body = builtins.readFile ../nix/tools/unload-driver.sh;
   };
 
-  hot-reset = mkTool {
-    name = "hot-reset";
-    description = "Run a PCIe secondary-bus hot reset on the FPGA's upstream bridge: hot-reset [bdf].";
-    body = builtins.readFile ../nix/tools/hot-reset.sh;
-  };
+  inherit (host) hot-reset set-hugepages;
 
   insert-driver = mkTool {
     name = "insert-driver";
     description = "Insert Coyote driver with optional network args: insert-driver [ko_path] [image_hint].";
     body = builtins.readFile ../nix/tools/insert-driver.sh;
-  };
-
-  set-hugepages = mkTool {
-    name = "set-hugepages";
-    description = "Set vm.nr_hugepages (default 1024): set-hugepages [count].";
-    body = builtins.readFile ../nix/tools/set-hugepages.sh;
   };
 
   gen-verible-filelist = mkTool {
@@ -179,49 +146,7 @@ rec {
     body = builtins.readFile ../nix/tools/gen-verible-filelist.sh;
   };
 
-  vivado =
-    let
-      vivado-wrapper = mkXilinxWrapper {
-        name = "vivado";
-        description = "Run Vivado inside xilinx-shell.";
-        script = ../nix/tools/vivado-wrapper.sh;
-      };
-      mkVivadoCompanionWrapper =
-        name:
-        mkXilinxWrapper {
-          inherit name;
-          description = "Run ${name} inside xilinx-shell.";
-          script = ../nix/tools/vivado-companion-wrapper.sh;
-        };
-    in
-    pkgs.symlinkJoin {
-      name = "vivado";
-      paths = [
-        vivado-wrapper
-        (mkVivadoCompanionWrapper "xsc")
-        (mkVivadoCompanionWrapper "xvlog")
-        (mkVivadoCompanionWrapper "xvhdl")
-        (mkVivadoCompanionWrapper "xelab")
-        (mkVivadoCompanionWrapper "xsim")
-      ];
-      meta = {
-        description = "Run Vivado and companion simulation tools inside xilinx-shell.";
-        mainProgram = "vivado";
-        platforms = platforms;
-      };
-    };
-
-  hw_server = mkXilinxWrapper {
-    name = "hw_server";
-    description = "Run hw_server inside xilinx-shell.";
-    script = ../nix/tools/hw_server-wrapper.sh;
-  };
-
-  vitis_hls = mkXilinxWrapper {
-    name = "vitis_hls";
-    description = "Run Vitis HLS inside xilinx-shell.";
-    script = ../nix/tools/vitis_hls-wrapper.sh;
-  };
+  inherit (xilinx) vivado hw_server vitis_hls;
 
   r5-elf-check =
     let
@@ -245,67 +170,11 @@ rec {
     '';
   };
 
-  armr5 =
-    let
-      names = [
-        "armr5-none-eabi-addr2line"
-        "armr5-none-eabi-ar"
-        "armr5-none-eabi-as"
-        "armr5-none-eabi-c++filt"
-        "armr5-none-eabi-gcc"
-        "armr5-none-eabi-gcc-ar"
-        "armr5-none-eabi-gcc-nm"
-        "armr5-none-eabi-gcc-ranlib"
-        "armr5-none-eabi-ld"
-        "armr5-none-eabi-nm"
-        "armr5-none-eabi-objcopy"
-        "armr5-none-eabi-objdump"
-        "armr5-none-eabi-ranlib"
-        "armr5-none-eabi-readelf"
-        "armr5-none-eabi-size"
-        "armr5-none-eabi-strings"
-        "armr5-none-eabi-strip"
-      ];
-      wrapper =
-        name:
-        mkXilinxWrapper {
-          inherit name;
-          description = "Run ${name} from the selected Vitis installation inside xilinx-shell.";
-          script = ../nix/tools/xilinx-embedded-wrapper.sh;
-        };
-    in
-    pkgs.symlinkJoin {
-      name = "xilinx-armr5-tools";
-      paths = map wrapper names;
-      meta = {
-        description = "Version-coherent Arm R5 compiler and binutils from Vitis";
-        platforms = platforms;
-      };
-    };
-
-  bootgen = mkXilinxWrapper {
-    name = "bootgen";
-    description = "Run Bootgen from the selected Vitis installation inside xilinx-shell.";
-    script = ../nix/tools/xilinx-embedded-wrapper.sh;
-  };
-
-  xsdb = mkXilinxWrapper {
-    name = "xsdb";
-    description = "Run XSDB from the selected Vitis installation inside xilinx-shell.";
-    script = ../nix/tools/xilinx-embedded-wrapper.sh;
-  };
-
-  embedded = pkgs.symlinkJoin {
-    name = "xilinx-embedded-tools";
-    paths = [
-      armr5
-      bootgen
-    ];
-    meta = {
-      description = "Version-coherent Arm R5 and Bootgen tools from Vitis";
-      platforms = platforms;
-    };
-  };
+  # fpga-nix ships Bootgen, XSDB and the Arm R5 toolchain as one package.
+  armr5 = xilinx.embedded;
+  bootgen = xilinx.embedded;
+  xsdb = xilinx.embedded;
+  embedded = xilinx.embedded;
 
   all = [
     checkXilinxEnv

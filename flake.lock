@@ -129,6 +129,32 @@
         "type": "github"
       }
     },
+    "fpga-nix": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "fpgahog": [
+          "fpgahog"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1794419993,
+        "narHash": "sha256-uod/qFw+OcjyZnYoxBtxy9eWjdr+05Yl/4X4qjCbBbc=",
+        "owner": "TUM-DSE",
+        "repo": "fpga-nix",
+        "rev": "6c8531decfbc2734fe2790554751fdcba37f5324",
+        "type": "github"
+      },
+      "original": {
+        "owner": "TUM-DSE",
+        "repo": "fpga-nix",
+        "type": "github"
+      }
+    },
     "fpgahog": {
       "inputs": {
         "fenix": "fenix",
@@ -175,6 +201,7 @@
         "coyoteDeltaCandidate": "coyoteDeltaCandidate",
         "coyoteDriver": "coyoteDriver",
         "flake-utils": "flake-utils",
+        "fpga-nix": "fpga-nix",
         "fpgahog": "fpgahog",
         "nixpkgs": "nixpkgs"
       }

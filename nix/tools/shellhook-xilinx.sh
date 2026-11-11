@@ -2,14 +2,13 @@
 source "@XILINX_WRAPPER_LIB@"
 
 export COYOTE_NIX_IN_XILINX_DEVSHELL=1
-coyote_nix_export_wrapper_env
 
-coyote_nix_export_gmake_compat
+# Apply the same license, ncurses and gmake setup the fpga-nix wrappers use.
+eval "$(fpga_nix_xilinx_env_prelude)"
 
-if version="$(coyote_nix_pick_xilinx_version 2>/dev/null || true)"; then
-  if [ -n "$version" ]; then
-    export COYOTE_NIX_XILINX_VERSION_ACTIVE="$version"
-  fi
+if version="$(fpga_nix_xilinx_version 2>/dev/null)" &&
+  fpga_nix_xilinx_find -d Vivado "$version" "" >/dev/null; then
+  export COYOTE_NIX_XILINX_VERSION_ACTIVE="$version"
 fi
 
 for tool in vivado hw_server; do

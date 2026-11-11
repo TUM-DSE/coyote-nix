@@ -104,6 +104,18 @@ let
     export XDB_SIM_MODE="''${XDB_SIM_MODE:-${simMode}}"
     ${maybeExport "XDB_SIM_SESSION" (if sim ? session then sim.session else null)}
   '';
+  # fpga-nix's hw_server defaults to port 3121. Keep Coyote's platform default
+  # (3122 for Versal) when neither the site nor the user chose a port. This runs
+  # after the caller's hook, which may set or clear the site's port.
+  hwServerPortHook = ''
+    coyote_nix_port="''${FPGA_NIX_HW_SERVER_PORT:-''${COYOTE_NIX_HW_SERVER_PORT:-}}"
+    if [ -z "$coyote_nix_port''${HW_SERVER_PORT:-}" ]; then
+      case "''${FDEV_NAME:-''${COYOTE_NIX_PLATFORM:-}}" in
+        v80|*v80*|versal|*versal*) export COYOTE_NIX_HW_SERVER_PORT=3122 ;;
+      esac
+    fi
+    unset coyote_nix_port
+  '';
 in
 pkgs.mkShell {
   packages =
@@ -117,5 +129,6 @@ pkgs.mkShell {
     + pkgs.lib.optionalString withXilinx (shellHookXilinx + "\n")
     + shellHookCommon
     + "\n"
-    + shellHook;
+    + shellHook
+    + pkgs.lib.optionalString withXilinx ("\n" + hwServerPortHook);
 }

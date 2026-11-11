@@ -8,6 +8,12 @@
       url = "github:taugoust/fpgahog/main";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    fpga-nix = {
+      url = "github:TUM-DSE/fpga-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+      inputs.fpgahog.follows = "fpgahog";
+    };
     coyote = {
       url = "github:taugoust/Coyote/develop";
       flake = false;
@@ -31,6 +37,7 @@
       nixpkgs,
       flake-utils,
       fpgahog,
+      fpga-nix,
       coyote,
       coyoteDriver,
       coyoteDeltaBase,
@@ -44,6 +51,7 @@
           args:
           baseLib.mkTools (
             {
+              fpgaNixLib = fpga-nix.lib;
               fpgahogPackage = fpgahog.packages.${args.pkgs.stdenv.hostPlatform.system}.default;
             }
             // args
@@ -1044,24 +1052,16 @@
               touch "$out"
             '';
 
-        checks.program-server-ownership =
-          pkgs.runCommand "program-server-ownership-check"
-            {
-              nativeBuildInputs = [
-                pkgs.python3
-                pkgs.bash
-                pkgs.coreutils
-                pkgs.gnugrep
-                pkgs.gnused
-                pkgs.gawk
-                pkgs.procps
-                pkgs.util-linux
-              ];
-            }
-            ''
-              python3 ${./.}/tests/program-server-ownership.py ${./.}
-              touch "$out"
-            '';
+        checks.program-cli-delegation =
+          let
+            programCli = pkgs.writeText "program-cli-under-test.sh" (
+              builtins.readFile ./nix/tools/coyote-common.sh + builtins.readFile ./nix/tools/program-cli.sh
+            );
+          in
+          pkgs.runCommand "program-cli-delegation-check" { } ''
+            bash ${./tests/program-cli-delegation.sh} ${programCli}
+            touch "$out"
+          '';
 
         checks.subdivision-reference = import ./tests/subdivision-reference.nix {
           inherit pkgs;
@@ -1167,11 +1167,6 @@
           touch $out
         '';
 
-        checks.hot-reset-multifunction = pkgs.runCommand "hot-reset-multifunction-check" { } ''
-          bash ${./tests/hot-reset-multifunction.sh} ${./nix/tools/hot-reset.sh}
-          touch $out
-        '';
-
         checks.u280-app-elaboration-contract =
           pkgs.runCommand "u280-app-elaboration-contract"
             {
@@ -1250,7 +1245,6 @@
             'bootgen -arch versal'
           test "$(${embeddedTestTools.xsdb}/bin/xsdb -eval 'puts {hello world}')" = \
             'xsdb -eval puts {hello world}'
-          bash ${./tests/xilinx-embedded-wrappers.sh} ${./.}
           if COYOTE_NIX_XILINX_VERSION=2024.2 \
             ${embeddedTestTools.embedded}/bin/bootgen -help >/dev/null 2>&1; then
             echo "ERROR: wrapper accepted an absent Vitis version" >&2
@@ -1349,14 +1343,6 @@
             ''
               cd ${./.}
               bash tests/resident-service-metadata.sh
-              touch $out
-            '';
-
-        checks.xilinx-wrapper-gmake-compat =
-          pkgs.runCommand "xilinx-wrapper-gmake-compat" { nativeBuildInputs = [ pkgs.bash ]; }
-            ''
-              cd ${./.}
-              bash tests/xilinx-wrapper-gmake-compat.sh
               touch $out
             '';
 

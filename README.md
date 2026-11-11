@@ -6,6 +6,19 @@ This repository provides generic Coyote/Xilinx/Nix mechanics that can be shared 
 
 `coyote-nix` does not provide preconfigured Vivado/Vitis packages by itself. A consuming project must provide a Xilinx installation path via `xilinxShareRoot` when constructing tools or hardware builds.
 
+## fpga-nix
+
+coyote-nix builds on [fpga-nix](https://github.com/TUM-DSE/fpga-nix), the
+vendor-neutral base layer. The Xilinx tool wrappers (`vivado`, `hw_server`,
+`vitis_hls`, Bootgen, XSDB, the Arm R5 toolchain), JTAG programming,
+`hot-reset` and `set-hugepages` come from fpga-nix. `mkTools` still exposes them
+under the same attribute names, and `program-cli` is a Coyote layer over
+fpga-nix's `program-fpga`.
+
+The flake supplies `fpga-nix.lib` to `mkTools`. Direct importers of `./lib` must
+pass it as `fpgaNixLib`. Environment variables use fpga-nix's `FPGA_NIX_*`
+names, and the older `COYOTE_NIX_*` names keep working.
+
 ## FPGA ownership tool
 
 The flake pins `github:taugoust/fpgahog` and includes its runtime package in the
@@ -54,8 +67,9 @@ A consumer may point `coyote` elsewhere when it intentionally needs another sour
 
 Provided here:
 
-- Xilinx tool wrappers (`vivado`, `hw_server`, `vitis_hls`)
-- common Coyote shell tools (`program-cli`, `deploy-hw`, `reconfigure-app`, driver lifecycle helpers, hot reset, hugepages)
+- Xilinx tool wrappers (`vivado`, `hw_server`, `vitis_hls`), re-exported from fpga-nix
+- common Coyote shell tools (`program-cli`, `deploy-hw`, `reconfigure-app`, driver lifecycle
+  helpers), plus `hot-reset` and hugepages from fpga-nix
 - generic Coyote hardware stage derivation builder
 - verified, policy-scoped Coyote user-project source deltas with fail-closed protected-static gates
 - generic U280/V80 Coyote board-flow builders
@@ -381,7 +395,11 @@ FPGA_BITSTREAM=path/to/image.bit deploy-hw
 
 A consuming project that has an unambiguous default image should provide its own wrapper that passes that image path to these generic tools.
 
-`hw_server` and `program-cli` use platform-specific default ports so UltraScale+ and Versal sessions can coexist: `3121` for U280/UltraScale+ and `3122` for V80/Versal. Override with `COYOTE_NIX_HW_SERVER_PORT` or `HW_SERVER_PORT` for multiple cards of the same platform.
+`program-cli`, and `hw_server` inside Coyote dev shells, use platform-specific default
+ports so UltraScale+ and Versal sessions can coexist: `3121` for U280/UltraScale+ and `3122`
+for V80/Versal. Override with `FPGA_NIX_HW_SERVER_PORT` (or the older
+`COYOTE_NIX_HW_SERVER_PORT`, or `HW_SERVER_PORT`) for multiple cards of the same platform.
+Outside a Coyote dev shell, fpga-nix's `hw_server` defaults to `3121`.
 
 `hw_server` logs default to `$HW_SERVER_LOG`, then `$XDG_RUNTIME_DIR/hw_server-<port>.log`, then `/tmp/hw_server-$UID-<port>.log`. The wrappers pre-create logs with world-writable permissions where possible, and fall back to the per-user `/tmp` path if the requested log is not writable.
 
