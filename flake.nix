@@ -1859,7 +1859,7 @@
               export COYOTE_NIX_XILINX_SHARE_ROOT="$TMPDIR/xilinx"
               export COYOTE_NIX_XILINX_VERSION=fixture
               bash ${./tests/stage-execution-evidence.sh} \
-                ${./nix/tools/run-coyote-hw-stage-build.sh}
+                ${evalTools.coyoteStageRunner}
               touch "$out"
             '';
 
@@ -1887,7 +1887,7 @@
               export COYOTE_NIX_XILINX_SHARE_ROOT="$TMPDIR/xilinx"
               export COYOTE_NIX_XILINX_VERSION=fixture
               bash ${./tests/timing-policy-propagation.sh} \
-                ${./nix/tools/run-coyote-hw-stage-build.sh}
+                ${evalTools.coyoteStageRunner}
               touch "$out"
             '';
 

@@ -75,6 +75,13 @@ in
 rec {
   inherit mkTool;
   inherit (xilinx) wrapperLib;
+
+  # Coyote's hardware stage runner, on top of fpga-nix's stage runtime.
+  coyoteStageRunner = pkgs.writeText "run-coyote-hw-stage-build.sh" (
+    builtins.replaceStrings [ "@FPGA_NIX_STAGE_LIB@" ] [ "${fpgaNixLib.stageLib}" ] (
+      builtins.readFile ../nix/tools/run-coyote-hw-stage-build.sh
+    )
+  );
   # Older name of wrapperLib.
   xilinxWrapperLib = xilinx.wrapperLib;
 

@@ -18,6 +18,11 @@ expected_paths="$5"
 shift 5
 cmake_extra_flags=("$@")
 
+# Generic stage runtime from fpga-nix: tool root check, measured commands,
+# execution telemetry and the expected artifact check.
+# shellcheck source=/dev/null
+source "@FPGA_NIX_STAGE_LIB@"
+
 normalize_cmake_boolean() {
   local value=${1^^}
 
@@ -205,47 +210,10 @@ run_shell_fragment() {
 }
 
 run_measured_build_commands() {
-  local command_status scratch_bytes time_file
+  local status=0
 
-  mkdir -p "$build_dir/logs" "$build_dir/metadata"
-  time_file="$build_dir/metadata/gnu-time.txt"
-  : > "$build_dir/logs/command.stdout.log"
-  : > "$build_dir/logs/command.stderr.log"
-
-  set +e
-  "$COYOTE_NIX_TIME" \
-    --output="$time_file" \
-    --format='wallSeconds=%e\nuserCpuSeconds=%U\nsystemCpuSeconds=%S\nmaxRssKiB=%M\nexitCode=%x' \
-    bash -euo pipefail "$build_commands" \
-    > >(tee "$build_dir/logs/command.stdout.log") \
-    2> >(tee "$build_dir/logs/command.stderr.log" >&2)
-  command_status=$?
-  wait
-  set -e
-
-  scratch_bytes="$(du -sb "$build_dir" | cut -f1)"
-  jq -Rn \
-    --arg scope build-commands \
-    --argjson requestedCores "${COYOTE_NIX_HW_CORES}" \
-    --argjson scratchBytes "$scratch_bytes" \
-    --argjson observedExitCode "$command_status" \
-    --rawfile measured "$time_file" \
-    '
-      ($measured | split("\n") | map(select(length > 0) | split("=") | {(.[0]): .[1]}) | add) as $m
-      | {
-          schemaVersion: 1,
-          kind: "coyote-stage-execution",
-          measurementScope: $scope,
-          status: (if $observedExitCode == 0 then "completed" else "failed" end),
-          exitCode: $observedExitCode,
-          wallSeconds: $m.wallSeconds,
-          userCpuSeconds: $m.userCpuSeconds,
-          systemCpuSeconds: $m.systemCpuSeconds,
-          maxRssKiB: ($m.maxRssKiB | tonumber),
-          requestedCores: $requestedCores,
-          scratchBytesAfterCommand: $scratchBytes
-        }
-    ' > "$build_dir/metadata/execution.json"
+  fpga_nix_stage_run_measured "$build_dir" "$build_commands" \
+    coyote-stage-execution "${COYOTE_NIX_HW_CORES}" "$build_dir" || status=$?
 
   if [ -f "$build_dir/metadata/primary-tool.json" ]; then
     jq --slurpfile primary "$build_dir/metadata/primary-tool.json" \
@@ -255,9 +223,7 @@ run_measured_build_commands() {
     mv "$build_dir/metadata/execution.json.tmp" "$build_dir/metadata/execution.json"
   fi
 
-  if [ "$command_status" -ne 0 ]; then
-    return "$command_status"
-  fi
+  return "$status"
 }
 
 check_timing_constraints() {
@@ -268,18 +234,16 @@ check_timing_constraints() {
   fi
 }
 
-check_expected_artifacts() {
-  local relpath
+check_tool_roots() {
+  local roots=()
 
-  while IFS= read -r relpath; do
-    [ -n "$relpath" ] || continue
-    if [ ! -e "$build_dir/$relpath" ]; then
-      echo "ERROR: missing expected build artifact: $build_dir/$relpath" >&2
-      exit 1
-    fi
-  done < "$expected_paths"
+  # Colon-separated vendor installation roots the stage needs, for example the
+  # Xilinx share root. Set by the stage derivation; empty in unit tests.
+  IFS=: read -r -a roots <<<"${FPGA_NIX_STAGE_TOOL_ROOTS:-}"
+  fpga_nix_stage_check_tool_roots "${roots[@]}" || exit 1
 }
 
+check_tool_roots
 resolve_timing_check_policy
 setup_build_environment
 configure_build
@@ -290,4 +254,4 @@ run_measured_build_commands
 if [ "${COYOTE_NIX_CHECK_TIMING_LOG:-1}" = 1 ]; then
   check_timing_constraints
 fi
-check_expected_artifacts
+fpga_nix_stage_check_expected_paths "$build_dir" "$expected_paths" || exit 1

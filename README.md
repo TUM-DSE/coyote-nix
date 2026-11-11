@@ -115,6 +115,13 @@ coyote-nix.lib.mkApp
 
 `mkCoyoteHwStagePackage` runs one Coyote hardware stage: configure with CMake, execute caller-provided build commands, check expected artifacts, and install caller-selected outputs. Its environment declares the Python/Jinja renderer and JSON tooling used by Coyote generation and package metadata.
 
+The stage runs on fpga-nix's stage runtime, which records the execution telemetry and checks
+the expected artifacts. The Xilinx installation lives outside the Nix store, so the build
+sandbox must be able to see `xilinxShareRoot`. Add it to `extra-sandbox-paths` in the host's
+Nix configuration, or set `nixConfig.extra-sandbox-paths` in the consuming flake (Nix only
+applies that for trusted users who accept the flake configuration). A stage fails before
+configuring when the root is not visible.
+
 `mkCoyoteSourceChecks { pkgs; coyoteRoot; }` returns reusable Nix checks for Coyote's generic resident-service control source contract: control-enabled/stream-only/disabled generation on U280 and V80, AXI-Lite splitter simulation, and host API compilation.
 
 ```nix
