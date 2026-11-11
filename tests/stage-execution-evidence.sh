@@ -67,4 +67,19 @@ if grep -F 'must not run' "$work/pipeline-failure/logs/command.stdout.log" >/dev
   exit 1
 fi
 
+# A tool root that the sandbox cannot see stops the stage before configuring.
+printf 'touch ran\n' > "$work/missing-root-commands.sh"
+if FPGA_NIX_STAGE_TOOL_ROOTS="/nonexistent/xilinx:$work/src" bash "$runner" \
+    "$work/src" "$work/missing-root" "$work/pre.sh" "$work/missing-root-commands.sh" \
+    "$work/expected.txt" 2> "$work/missing-root.err"; then
+  echo 'runner accepted a tool root missing from the sandbox' >&2
+  exit 1
+fi
+grep -F 'vendor tool root /nonexistent/xilinx is not visible' "$work/missing-root.err" >/dev/null
+if grep -F "$work/src is not visible" "$work/missing-root.err" >/dev/null; then
+  echo 'runner rejected a visible tool root' >&2
+  exit 1
+fi
+test ! -e "$work/missing-root"
+
 printf 'stage execution evidence contract: PASS\n'

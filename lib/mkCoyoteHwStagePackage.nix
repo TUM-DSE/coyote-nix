@@ -68,9 +68,9 @@ pkgs.stdenvNoCC.mkDerivation (
     COYOTE_NIX_HW_CORES = toString cores;
     COYOTE_NIX_CHECK_TIMING_LOG = if checkTimingLog then "1" else "0";
     COYOTE_NIX_TIME = "${pkgs.time}/bin/time";
-    __impureHostDeps = [
-      (toString xilinxShareRoot)
-    ];
+    # The Xilinx installation lives outside the store. The runner fails early
+    # with an explanation when it is not visible in the build sandbox.
+    FPGA_NIX_STAGE_TOOL_ROOTS = toString xilinxShareRoot;
     dontConfigure = true;
     dontFixup = true;
 

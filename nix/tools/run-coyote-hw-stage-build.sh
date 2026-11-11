@@ -268,6 +268,31 @@ check_timing_constraints() {
   fi
 }
 
+# Vendor tools live outside the Nix store. On Linux the sandbox only sees them
+# when they are listed in extra-sandbox-paths, so fail early with an
+# explanation instead of in a vendor tool. FPGA_NIX_STAGE_TOOL_ROOTS is a
+# colon-separated list set by the stage derivation.
+check_tool_roots() {
+  local root missing=0
+  local roots=()
+
+  IFS=: read -r -a roots <<<"${FPGA_NIX_STAGE_TOOL_ROOTS:-}"
+  for root in "${roots[@]}"; do
+    [ -n "$root" ] || continue
+    if [ ! -d "$root" ]; then
+      echo "ERROR: vendor tool root $root is not visible inside the build sandbox." >&2
+      missing=1
+    fi
+  done
+
+  if [ "$missing" = 1 ]; then
+    echo "Add it to extra-sandbox-paths in the Nix configuration, or set" \
+      "nixConfig.extra-sandbox-paths in the consuming flake (this only takes" \
+      "effect for trusted users who accept the flake configuration)." >&2
+    exit 1
+  fi
+}
+
 check_expected_artifacts() {
   local relpath
 
@@ -280,6 +305,7 @@ check_expected_artifacts() {
   done < "$expected_paths"
 }
 
+check_tool_roots
 resolve_timing_check_policy
 setup_build_environment
 configure_build
