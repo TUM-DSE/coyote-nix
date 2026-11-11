@@ -1228,6 +1228,25 @@
               touch "$out"
             '';
 
+        checks.dev-shell-xilinx-shell =
+          let
+            siteXilinxShell = pkgs.writeShellScriptBin "xilinx-shell" "exit 0";
+            shell = coyoteNixLib.mkCoyoteDevShell {
+              inherit pkgs;
+              tools = evalTools;
+              coyoteRoot = ./.;
+              withXilinx = true;
+              xilinxShell = siteXilinxShell;
+            };
+          in
+          pkgs.runCommand "dev-shell-xilinx-shell" { } ''
+            grep -F ${pkgs.lib.escapeShellArg "COYOTE_NIX_XILINX_SHELL=${siteXilinxShell}/bin/xilinx-shell"} ${pkgs.writeText "shell-hook" shell.shellHook}
+            ${pkgs.lib.optionalString (
+              !(builtins.elem siteXilinxShell shell.nativeBuildInputs)
+            ) "echo 'xilinx-shell is missing from the dev shell packages' >&2; exit 1"}
+            touch "$out"
+          '';
+
         checks.shellcheck = pkgs.runCommand "shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; } ''
           cd ${./.}
           shellcheck -s bash nix/tools/*.sh tests/*.sh
