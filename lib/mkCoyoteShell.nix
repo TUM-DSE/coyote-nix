@@ -21,8 +21,7 @@
   # "prebuilt" uses the static layer that ships with Coyote. "source" builds
   # it with the site's Vivado (U280 only).
   static ? "prebuilt",
-  # vFPGA floorplan (FPLAN_PATH). null selects coyote-nix's default, which
-  # exists for one vFPGA.
+  # vFPGA floorplan (FPLAN_PATH). null selects coyote-nix's default.
   floorplan ? null,
   # Coyote's BUILD_OPT: slower, more thorough place and route.
   optimize ? false,
@@ -51,7 +50,19 @@ let
     else
       board;
 
-  normalized = serviceLib.normalize checkedBoard services;
+  requested = serviceLib.normalize checkedBoard services;
+  # coyote-nix's staged implementation builds one configuration with one
+  # vFPGA. Coyote would build the others too, but nothing would implement
+  # them, so a larger shell would lack their bitstreams.
+  normalized =
+    if requested.vfpgas != 1 || requested.configurations != 1 then
+      fail (
+        "shells with several vFPGAs or configurations are not supported yet; "
+        + "requested ${toString requested.vfpgas} vFPGAs and "
+        + "${toString requested.configurations} configurations"
+      )
+    else
+      requested;
 
   serviceFlagNames = lib.attrNames (serviceLib.settings normalized);
   reservedFlag =
@@ -77,16 +88,7 @@ let
     u280 = ./floorplans/u280-1vfpga.xdc;
     v80 = "${coyoteRoot}/examples/10_app_reconfiguration/hw/floorplans/example_fplan_v80.xdc";
   };
-  requestedFloorplan =
-    if floorplan != null then
-      floorplan
-    else if normalized.vfpgas == 1 then
-      defaultFloorplans.${checkedBoard}
-    else
-      fail (
-        "no default floorplan for ${toString normalized.vfpgas} vFPGAs on the ${checkedBoard}; "
-        + "pass floorplan"
-      );
+  requestedFloorplan = if floorplan != null then floorplan else defaultFloorplans.${checkedBoard};
   # Interpolating a path copies it to the store, so the build can read it.
   effectiveFloorplan =
     let

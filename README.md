@@ -37,12 +37,10 @@ shell = coyote-nix.lib.mkCoyoteShell {
     rdma = false;              # EN_RDMA
     tcp = false;               # EN_TCP
     sniffer = false;           # EN_SNIFFER, delivering to vFPGA 0
-    vfpgas = 1;                # N_REGIONS
-    configurations = 1;        # N_CONFIG
   };
   # Optional:
   static = "prebuilt";         # Coyote's static layer; "source" builds it (U280)
-  floorplan = null;            # vFPGA floorplan; default exists for 1 vFPGA
+  floorplan = null;            # vFPGA floorplan; null uses the default
   optimize = false;            # BUILD_OPT
   cmakeFlags = [ ];            # other Coyote settings, such as clocks
 };
@@ -64,13 +62,18 @@ app = coyote-nix.lib.mkCoyoteApp {
   Coyote imports them and overrides what its `CMakeLists.txt` sets. An
   application still has to drive or tie off exactly the interfaces its shell's
   services create.
-- **Validation:** unknown services, more than 15 vFPGAs, networking on the
-  V80, service settings passed through `cmakeFlags`, and several vFPGAs
-  without a floorplan fail during evaluation.
+- **Validation:** unknown services, networking on the V80 and service
+  settings passed through `cmakeFlags` fail during evaluation.
+- **One vFPGA:** shells have one vFPGA with one configuration, because
+  coyote-nix's staged implementation builds no more. Requesting `vfpgas` or
+  `configurations` above 1 fails during evaluation.
+- **V80 routing:** Vivado 2025.1 segfaults when routing V80 designs with a
+  reconfigurable partition on several threads, so V80 shell and application
+  routing uses one thread.
 - **Boards:** the V80 shell disables shell reconfiguration (`EN_SHELL_PBLOCK=0`),
   because Versal does not support nested reconfiguration.
 - **Floorplans:** the U280 default comes from QShell; the V80 default is the
-  one from Coyote's `10_app_reconfiguration` example. Both describe one vFPGA.
+  one from Coyote's `10_app_reconfiguration` example.
 
 The flake's versions default to the pinned Coyote and build the tools for the
 given site. The `./lib` versions also need `tools` and `coyoteRoot`.
@@ -108,8 +111,9 @@ Boards follow Coyote's support table:
 - `app_reconfiguration` is V80 only. It hardcodes the U55C, and Coyote ships
   floorplans only for the U55C and the V80, so coyote-nix switches it to the
   V80 settings.
-- `multitenancy` needs four vFPGAs, for which no floorplan exists, so it is
-  built in one piece through the board flow and has `.hw` instead of `.app`
+- `multitenancy` (four vFPGAs) and `app_reconfiguration` (two
+  configurations) need shells that `mkCoyoteShell` cannot build yet. They are
+  built in one piece through the board flow and have `.hw` instead of `.app`
   and `.shell`.
 - `reconfigure_shell` and `gpu_p2p` have no hardware of their own.
   `gpu_p2p` builds against nixpkgs' ROCm for `gfx90a`.

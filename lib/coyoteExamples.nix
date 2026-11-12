@@ -25,9 +25,8 @@ in
     boards = bothBoards;
     services.hostStreams = 2;
   };
-  # Four vFPGAs need a four-region floorplan, which neither coyote-nix nor
-  # Coyote has for these boards. Built in one piece instead, without
-  # application reconfiguration.
+  # mkCoyoteShell builds shells with one vFPGA, so this example is built in
+  # one piece.
   multitenancy = {
     directory = "03_multitenancy";
     boards = bothBoards;
@@ -73,8 +72,8 @@ in
   };
   # The example hardcodes the U55C and its floorplan. Coyote ships floorplans
   # only for the U55C and the V80, so switch it to the V80 settings, as the
-  # example's README instructs. The V80 floorplan is also mkCoyoteShell's
-  # default for one vFPGA.
+  # example's README instructs. Its two configurations need a shell that
+  # mkCoyoteShell cannot build yet, so it is built in one piece.
   app_reconfiguration = {
     directory = "10_app_reconfiguration";
     boards = [ "v80" ];
@@ -82,6 +81,7 @@ in
       hostStreams = 2;
       configurations = 2;
     };
+    monolithic = true;
     hwPatch.v80 = ''
       sed -i \
         -e 's|^set(FDEV_NAME "u55c")$|# &|' \

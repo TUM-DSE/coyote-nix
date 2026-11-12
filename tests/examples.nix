@@ -65,7 +65,6 @@ let
       "strm1"
       "strm1-mem1-opt"
       "strm2"
-      "strm2-cfg2"
       "strm4"
     ];
   };
@@ -112,15 +111,6 @@ let
     lib.attrValues (removeAttrs u280 [ "shells" ])
   );
   sniffer = u280.packet_sniffer.shell;
-  reconfiguration = v80.app_reconfiguration.shell;
-  multiRegion = mkShell {
-    board = "u280";
-    services = {
-      vfpgas = 2;
-      sniffer = true;
-    };
-    floorplan = ./fixtures/two-region-floorplan.xdc;
-  };
 in
 assert names "u280" == expected.u280;
 assert names "v80" == expected.v80;
@@ -141,6 +131,7 @@ assert
   } == u280.hls_vadd.shell;
 assert !(u280.reconfigure_shell ? app);
 assert u280.multitenancy ? hw && !(u280.multitenancy ? shell);
+assert v80.app_reconfiguration ? hw && !(v80.app_reconfiguration ? shell);
 # Site validation.
 assert rejectedSite { boards = { }; };
 assert rejectedSiteBoard {
@@ -160,11 +151,17 @@ assert fails (mkShell {
   board = "v80";
   services.rdma = true;
 });
+# Shells are staged with one vFPGA and one configuration.
 assert fails
   (mkShell {
     board = "u280";
     services.vfpgas = 2;
-  }).coyoteShell.floorplan;
+  }).coyoteShell.services;
+assert fails
+  (mkShell {
+    board = "v80";
+    services.configurations = 2;
+  }).coyoteShell.services;
 assert failsDrv (mkShell {
   board = "u280";
   cmakeFlags = [ "-DEN_MEM=1" ];
@@ -192,20 +189,15 @@ pkgs.runCommand "coyote-nix-examples"
       test -f ${example.sw}/lib/libcoyote.so
     '') cpuSoftware}
 
-    # Generated shell projects: one placeholder per region, loaded into every
-    # configuration, with ports matching the services.
-    grep -q 'VFPGA_C0_0 "placeholder/region_0"' ${reconfiguration.hwSource}/CMakeLists.txt
-    grep -q 'VFPGA_C1_0 "placeholder/region_0"' ${reconfiguration.hwSource}/CMakeLists.txt
-    grep -q 'VFPGA_C0_1 "placeholder/region_1"' ${multiRegion.hwSource}/CMakeLists.txt
+    # Generated shell project: the placeholder, with ports matching the
+    # services.
+    grep -q 'VFPGA_C0_0 "placeholder/region_0"' ${sniffer.hwSource}/CMakeLists.txt
     placeholder=${sniffer.hwSource}/placeholder/region_0/vfpga_top.svh
     grep -q 'gen_card_loopback' "$placeholder"
     grep -q 'gen_rdma_tie_off' "$placeholder"
     grep -q 'filter_config.tie_off_m' "$placeholder"
     grep -q 'rq_wr.tie_off_s' "$placeholder"
     ! grep -q 'gen_host_loopback' "$placeholder"
-    # Only the sniffer's vFPGA 0 has the sniffer ports.
-    grep -q 'filter_config' ${multiRegion.hwSource}/placeholder/region_0/vfpga_top.svh
-    ! grep -q 'filter_config' ${multiRegion.hwSource}/placeholder/region_1/vfpga_top.svh
 
     touch "$out"
   ''
