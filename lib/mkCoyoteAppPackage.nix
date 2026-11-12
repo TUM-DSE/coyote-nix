@@ -360,7 +360,9 @@ let
         inherit phase outcome strategy;
         unit = "config_0";
         context = implementationContext;
-        resources = stageResources;
+        resources = stageResources // {
+          cores = routeCores phase stageResources.cores;
+        };
         artifacts = declaredArtifacts ++ telemetryArtifacts;
         predecessorPath = if predecessorPath == null then null else toString predecessorPath;
         outcomePath = outcomePath;

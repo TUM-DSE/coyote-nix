@@ -277,7 +277,7 @@ let
       inherit phase strategy outcome unit;
       artifacts = artifacts ++ telemetryArtifacts;
       context = implementationContext;
-      resources.cores = checkedImplementationCores;
+      resources.cores = routeCores phase checkedImplementationCores;
       predecessorPath = if predecessorPath == null then null else toString predecessorPath;
       outcomePath = outcomePath;
       telemetry = if phase == "inputs" then null else {
