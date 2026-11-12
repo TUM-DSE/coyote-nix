@@ -182,6 +182,11 @@ let
       implementationTopology
     else
       throw "coyote-nix: immutable physical staging currently supports exactly one configuration and one region";
+  # Vivado 2025.1's router segfaults while building its netlist for V80
+  # designs with a reconfigurable partition when it uses several threads
+  # (route_design, Phase 1, rt::HARTNetlistBldrBase::buildNetlist). One
+  # thread routes the same checkpoint cleanly, so routing on the V80 uses one.
+  routeCores = phase: cores: if boardProfile.board == "v80" && phase == "route" then 1 else cores;
   implementationCores = implementation.resources.cores or 8;
   checkedImplementationCores =
     if builtins.isInt implementationCores && implementationCores > 0 then
@@ -1035,7 +1040,7 @@ let
       pname = "${pname}-${stageName}";
       board = boardProfile;
       inherit xilinxVersion;
-      cores = stageResources.cores;
+      cores = routeCores phase stageResources.cores;
       checkTimingLog = false;
       cmakeFlags =
         appImplementationBaseFlags
