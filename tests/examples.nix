@@ -1,5 +1,6 @@
-# Evaluate every example against a fixture site without building hardware,
-# and build the host programs, which need no vendor tools.
+# Evaluate shells, applications and every example against a fixture site
+# without building hardware. Build the generated shell sources and the CPU
+# host programs, which need no vendor tools.
 {
   pkgs,
   coyoteNixLib,
@@ -19,9 +20,13 @@ let
   };
   examples = coyoteNixLib.mkCoyoteExamples { inherit pkgs site; };
 
-  names = board: lib.concatStringsSep " " (lib.attrNames examples.${board});
+  mkShell = args: coyoteNixLib.mkCoyoteShell ({ inherit pkgs site; } // args);
+  fails = value: !(builtins.tryEval (builtins.deepSeq value value)).success;
+  failsDrv = drv: !(builtins.tryEval drv.drvPath).success;
+
+  names = board: lib.attrNames examples.${board};
   expected = {
-    u280 = lib.concatStringsSep " " [
+    u280 = [
       "gpu_p2p"
       "hello_world"
       "hls_vadd"
@@ -31,10 +36,11 @@ let
       "perf_fpga"
       "perf_rdma"
       "reconfigure_shell"
+      "shells"
       "spinal_hdl"
       "user_interrupts"
     ];
-    v80 = lib.concatStringsSep " " [
+    v80 = [
       "app_reconfiguration"
       "gpu_p2p"
       "hello_world"
@@ -43,47 +49,137 @@ let
       "multithreading"
       "perf_fpga"
       "reconfigure_shell"
+      "shells"
       "spinal_hdl"
       "user_interrupts"
+    ];
+    u280Shells = [
+      "mem1-rdma-sniffer-opt"
+      "strm1"
+      "strm1-mem1-opt"
+      "strm2"
+      "strm2-rdma-opt"
+      "strm4"
+    ];
+    v80Shells = [
+      "strm1"
+      "strm1-mem1-opt"
+      "strm2"
+      "strm2-cfg2"
+      "strm4"
     ];
   };
 
   drvPathOf = drv: builtins.unsafeDiscardOutputDependency drv.drvPath;
-  # Evaluates every example and every hardware stage.
+  # Evaluates every example, shell, application and stage.
   allDrvPaths = lib.concatMap (
     board:
     lib.concatMap (
       example:
-      [
-        (drvPathOf example)
-        (drvPathOf example.sw)
-      ]
+      [ (drvPathOf example) ]
+      ++ map drvPathOf (
+        lib.filter lib.isDerivation [
+          (example.sw or null)
+          (example.app or null)
+          (example.hw or null)
+        ]
+      )
       ++ map drvPathOf (lib.attrValues (example.stages or { }))
-    ) (lib.attrValues examples.${board})
+    ) (lib.attrValues (removeAttrs examples.${board} [ "shells" ]))
+    ++ map drvPathOf (lib.attrValues examples.${board}.shells)
   ) (lib.attrNames examples);
 
-  examplesFor = badSite: coyoteNixLib.mkCoyoteExamples {
-    inherit pkgs;
-    site = badSite;
-  };
-  rejected = badSite: !(builtins.tryEval (examplesFor badSite)).success;
-  rejectedBoard = badSite: !(builtins.tryEval (examplesFor badSite).u280).success;
+  rejectedSite =
+    badSite:
+    fails (
+      coyoteNixLib.mkCoyoteExamples {
+        inherit pkgs;
+        site = badSite;
+      }
+    );
+  rejectedSiteBoard =
+    badSite:
+    fails
+      (coyoteNixLib.mkCoyoteExamples {
+        inherit pkgs;
+        site = badSite;
+      }).u280;
 
-  # The GPU example needs ROCm, which is large; the eval check covers it.
-  cpuSoftware = lib.filterAttrs (name: _: name != "gpu_p2p") examples.u280;
-  v80Patched = examples.v80.app_reconfiguration.stages.synth;
+  u280 = examples.u280;
+  v80 = examples.v80;
+  # The CPU host programs; the GPU example needs ROCm, which is large.
+  cpuSoftware = lib.filter (example: example ? sw && example.sw.meta.mainProgram != "gpu_p2p") (
+    lib.attrValues (removeAttrs u280 [ "shells" ])
+  );
+  sniffer = u280.packet_sniffer.shell;
+  reconfiguration = v80.app_reconfiguration.shell;
+  multiRegion = mkShell {
+    board = "u280";
+    services = {
+      vfpgas = 2;
+      sniffer = true;
+    };
+    floorplan = ./fixtures/two-region-floorplan.xdc;
+  };
 in
 assert names "u280" == expected.u280;
 assert names "v80" == expected.v80;
+assert lib.attrNames u280.shells == expected.u280Shells;
+assert lib.attrNames v80.shells == expected.v80Shells;
 assert !(examples ? agilex7);
-assert examples.u280.hello_world.sw == examples.v80.hello_world.sw;
-assert !(examples.u280.reconfigure_shell ? hw);
-assert rejected { boards = { }; };
-assert rejectedBoard {
+# Software is shared across boards, shells across examples.
+assert u280.hello_world.sw == v80.hello_world.sw;
+assert u280.hls_vadd.shell == u280.spinal_hdl.shell;
+assert u280.user_interrupts.shell == u280.perf_fpga.shell;
+assert u280.hello_world.app.shell == u280.hello_world.shell;
+assert u280.hello_world.shell.coyoteShell.services.cardMemory == 1;
+# Requesting the same shell directly gives the same derivation.
+assert
+  mkShell {
+    board = "u280";
+    services.hostStreams = 2;
+  } == u280.hls_vadd.shell;
+assert !(u280.reconfigure_shell ? app);
+assert u280.multitenancy ? hw && !(u280.multitenancy ? shell);
+# Site validation.
+assert rejectedSite { boards = { }; };
+assert rejectedSiteBoard {
   xilinxShareRoot = "/x";
   boards.u280 = { };
 };
-assert lib.hasSuffix "/examples/10_app_reconfiguration/hw" (toString v80Patched.src);
+# Service and shell validation.
+assert fails (mkShell {
+  board = "u280";
+  services.unknown = 1;
+});
+assert fails (mkShell {
+  board = "u280";
+  services.vfpgas = 16;
+});
+assert fails (mkShell {
+  board = "v80";
+  services.rdma = true;
+});
+assert fails
+  (mkShell {
+    board = "u280";
+    services.vfpgas = 2;
+  }).coyoteShell.floorplan;
+assert failsDrv (mkShell {
+  board = "u280";
+  cmakeFlags = [ "-DEN_MEM=1" ];
+});
+assert failsDrv (mkShell {
+  board = "v80";
+  static = "source";
+});
+# Non-default choices show up in the name as a hash suffix.
+assert
+  builtins.match "strm1-[0-9a-f]{8}"
+    (mkShell {
+      board = "u280";
+      static = "source";
+    }).coyoteShell.name != null;
 pkgs.runCommand "coyote-nix-examples"
   {
     drvPaths = lib.concatStringsSep "\n" allDrvPaths;
@@ -91,12 +187,25 @@ pkgs.runCommand "coyote-nix-examples"
   }
   ''
     test "$(wc -l < "$drvPathsPath")" -gt 40
-    ${lib.concatMapStrings (sw: ''
-      test -x ${sw.sw}/bin/${sw.sw.meta.mainProgram}
-      test -f ${sw.sw}/lib/libcoyote.so
-    '') (lib.attrValues cpuSoftware)}
-    # The V80 variant of the reconfiguration example selects the V80 floorplan.
-    grep -qx 'set(FDEV_NAME "v80")' ${v80Patched.src}/CMakeLists.txt
-    test -f ${v80Patched.src}/../../../cmake/FindCoyoteHW.cmake
+    ${lib.concatMapStrings (example: ''
+      test -x ${example.sw}/bin/${example.sw.meta.mainProgram}
+      test -f ${example.sw}/lib/libcoyote.so
+    '') cpuSoftware}
+
+    # Generated shell projects: one placeholder per region, loaded into every
+    # configuration, with ports matching the services.
+    grep -q 'VFPGA_C0_0 "placeholder/region_0"' ${reconfiguration.hwSource}/CMakeLists.txt
+    grep -q 'VFPGA_C1_0 "placeholder/region_0"' ${reconfiguration.hwSource}/CMakeLists.txt
+    grep -q 'VFPGA_C0_1 "placeholder/region_1"' ${multiRegion.hwSource}/CMakeLists.txt
+    placeholder=${sniffer.hwSource}/placeholder/region_0/vfpga_top.svh
+    grep -q 'gen_card_loopback' "$placeholder"
+    grep -q 'gen_rdma_tie_off' "$placeholder"
+    grep -q 'filter_config.tie_off_m' "$placeholder"
+    grep -q 'rq_wr.tie_off_s' "$placeholder"
+    ! grep -q 'gen_host_loopback' "$placeholder"
+    # Only the sniffer's vFPGA 0 has the sniffer ports.
+    grep -q 'filter_config' ${multiRegion.hwSource}/placeholder/region_0/vfpga_top.svh
+    ! grep -q 'filter_config' ${multiRegion.hwSource}/placeholder/region_1/vfpga_top.svh
+
     touch "$out"
   ''

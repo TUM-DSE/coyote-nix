@@ -50,6 +50,22 @@
     }:
     let
       baseLib = import ./lib;
+      withSiteDefaults =
+        function: args:
+        let
+          coyoteRoot = args.coyoteRoot or coyote;
+        in
+        function (
+          {
+            inherit coyoteRoot;
+            tools = coyoteNixLib.mkTools {
+              inherit (args) pkgs;
+              inherit coyoteRoot;
+              inherit (args.site) xilinxShareRoot;
+            };
+          }
+          // args
+        );
       coyoteNixLib = baseLib // {
         mkTools =
           args:
@@ -68,23 +84,10 @@
             }
             // args
           );
-        # Defaults to the pinned Coyote and tools built for the given site.
-        mkCoyoteExamples =
-          args:
-          let
-            coyoteRoot = args.coyoteRoot or coyote;
-          in
-          baseLib.mkCoyoteExamples (
-            {
-              inherit coyoteRoot;
-              tools = coyoteNixLib.mkTools {
-                inherit (args) pkgs;
-                inherit coyoteRoot;
-                inherit (args.site) xilinxShareRoot;
-              };
-            }
-            // args
-          );
+        # These default to the pinned Coyote and to tools built for the given
+        # site.
+        mkCoyoteShell = withSiteDefaults baseLib.mkCoyoteShell;
+        mkCoyoteExamples = withSiteDefaults baseLib.mkCoyoteExamples;
         defaultCoyote = coyote;
         defaultCoyoteRevision = coyote.rev;
         defaultDriverSource = coyoteDriver;

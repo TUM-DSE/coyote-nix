@@ -15,6 +15,8 @@
   provenance ? { },
   implementation ? { },
   enableElaboration ? false,
+  # Tools for the application's own generators, added to every stage.
+  nativeBuildInputs ? [ ],
 }:
 
 let
@@ -83,6 +85,7 @@ let
     coyoteRoot = effectiveUserProjectCoyoteRoot;
     baseCoyoteRoot = checkedBaseCoyoteRoot;
     coyoteSourceDelta = checkedUserProjectDelta;
+    extraNativeBuildInputs = nativeBuildInputs;
   };
 
   inherit (stageHelpers)

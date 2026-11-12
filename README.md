@@ -2,7 +2,7 @@
 
 Reusable Nix tooling for Coyote FPGA development.
 
-This repository provides generic Coyote/Xilinx/Nix mechanics that can be shared by Coyote-based projects. It does not encode a deployment site's Xilinx installation path or vendor tool version policy; consuming projects must pass those values in from their site configuration.
+This repository provides generic Coyote/Xilinx/Nix mechanics that can be shared by Coyote-based projects. Its library does not encode a deployment site's Xilinx installation path or vendor tool version policy; consuming projects must pass those values in from their site configuration. Only the ready-made [examples](#coyote-examples) use a site by default, through the flake's `site` input.
 
 `coyote-nix` does not provide preconfigured Vivado/Vitis packages by itself. A consuming project must provide a Xilinx installation path via `xilinxShareRoot` when constructing tools or hardware builds.
 
@@ -18,6 +18,132 @@ fpga-nix's `program-fpga`.
 The flake supplies `fpga-nix.lib` to `mkTools`. Direct importers of `./lib` must
 pass it as `fpgaNixLib`. Environment variables use fpga-nix's `FPGA_NIX_*`
 names, and the older `COYOTE_NIX_*` names keep working.
+
+## Shells and applications
+
+`mkCoyoteShell` builds a Coyote shell, the static layer plus the dynamic layer
+with a chosen set of services. `mkCoyoteApp` builds an application for it,
+which yields only the vFPGA partial bitstreams. The shell is built once; each
+further application costs only its own, much shorter build.
+
+```nix
+shell = coyote-nix.lib.mkCoyoteShell {
+  inherit pkgs;
+  site = doctor-cluster-xilinx.lib.mkXilinxContext { inherit pkgs system; };
+  board = "u280";              # or "v80"
+  services = {
+    hostStreams = 2;           # EN_STRM, N_STRM_AXI (0 = off); default 1
+    cardMemory = 1;            # EN_MEM, N_CARD_AXI (0 = off); default 0
+    rdma = false;              # EN_RDMA
+    tcp = false;               # EN_TCP
+    sniffer = false;           # EN_SNIFFER, delivering to vFPGA 0
+    vfpgas = 1;                # N_REGIONS
+    configurations = 1;        # N_CONFIG
+  };
+  # Optional:
+  static = "prebuilt";         # Coyote's static layer; "source" builds it (U280)
+  floorplan = null;            # vFPGA floorplan; default exists for 1 vFPGA
+  optimize = false;            # BUILD_OPT
+  cmakeFlags = [ ];            # other Coyote settings, such as clocks
+};
+
+app = coyote-nix.lib.mkCoyoteApp {
+  inherit shell;
+  name = "my-app";
+  src = ./hw;                  # CMakeLists.txt and vfpga_top.svh sources
+};
+```
+
+- **Loading:** program the shell's full bitstream once, then load
+  applications into its vFPGAs. The shell's bitstream holds a placeholder
+  application that loops host and card streams back.
+- **Sharing:** the shell's build depends only on the board, the services, the
+  options, the Coyote source and the site, so equal requests from different
+  projects are the same derivation.
+- **Settings:** an application takes all shell settings from the shell;
+  Coyote imports them and overrides what its `CMakeLists.txt` sets. An
+  application still has to drive or tie off exactly the interfaces its shell's
+  services create.
+- **Validation:** unknown services, more than 15 vFPGAs, networking on the
+  V80, service settings passed through `cmakeFlags`, and several vFPGAs
+  without a floorplan fail during evaluation.
+- **Boards:** the V80 shell disables shell reconfiguration (`EN_SHELL_PBLOCK=0`),
+  because Versal does not support nested reconfiguration.
+- **Floorplans:** the U280 default comes from QShell; the V80 default is the
+  one from Coyote's `10_app_reconfiguration` example. Both describe one vFPGA.
+
+The flake's versions default to the pinned Coyote and build the tools for the
+given site. The `./lib` versions also need `tools` and `coyoteRoot`.
+
+## Coyote examples
+
+The flake builds Coyote's examples (`examples/` in the pinned Coyote) for the
+boards of its `site` input, which defaults to
+[doctor-cluster-xilinx](https://github.com/TUM-DSE/doctor-cluster-xilinx):
+
+```sh
+nix build .#examples.u280.hello_world        # host program, app and shell
+nix build .#examples.u280.hello_world.app    # application only
+nix build .#examples.u280.hello_world.shell  # the shell it needs
+nix build .#examples.u280.hello_world.sw     # host program only
+nix build .#examples.u280.shells.strm2       # a shell by name
+```
+
+The names drop Coyote's numbering: `hello_world`, `hls_vadd`,
+`multitenancy`, `user_interrupts`, `reconfigure_shell`, `gpu_p2p`,
+`perf_fpga`, `multithreading`, `perf_rdma`, `app_reconfiguration`,
+`packet_sniffer` and `spinal_hdl`. The host program is `bin/<name>`.
+Hardware builds need the Xilinx installation in the sandbox
+(`extra-sandbox-paths`), like every other hardware build.
+
+Each example declares the services it needs in `lib/coyoteExamples.nix`;
+evaluation fails when they no longer match the example's `CMakeLists.txt`.
+Examples with equal services share a shell, which `shells.<name>` lists under
+a name derived from the services, such as `strm2` or `strm1-mem1-opt`.
+
+Boards follow Coyote's support table:
+
+- `perf_rdma` and `packet_sniffer` are U280 only, since Coyote has no
+  networking on the V80.
+- `app_reconfiguration` is V80 only. It hardcodes the U55C, and Coyote ships
+  floorplans only for the U55C and the V80, so coyote-nix switches it to the
+  V80 settings.
+- `multitenancy` needs four vFPGAs, for which no floorplan exists, so it is
+  built in one piece through the board flow and has `.hw` instead of `.app`
+  and `.shell`.
+- `reconfigure_shell` and `gpu_p2p` have no hardware of their own.
+  `gpu_p2p` builds against nixpkgs' ROCm for `gfx90a`.
+
+`spinal_hdl` compiles its SpinalHDL kernel with sbt, which downloads its
+dependencies. coyote-nix generates the kernel's Verilog beforehand in a
+fixed-output derivation, so a changed kernel needs a new hash in
+`lib/coyoteExamples.nix`.
+
+### Another site
+
+A site is a flake whose `lib.mkXilinxContext { pkgs, system }` returns:
+
+```nix
+{
+  xilinxShareRoot = "/opt/xilinx";      # required
+  xilinxShell = <derivation>;            # optional FHS shell for the tools
+  boards.u280.xilinxVersion = "2023.2";  # one entry per board
+  boards.v80.xilinxVersion = "2025.1";
+}
+```
+
+Boards without a coyote-nix profile are ignored. Point coyote-nix at it with:
+
+```nix
+inputs.coyote-nix.inputs.site.follows = "my-site";
+```
+
+`follows` replaces the default, so doctor-cluster-xilinx, which needs SSH
+access to doctor-cluster-config, is not fetched.
+
+From Nix, `coyote-nix.lib.mkCoyoteExamples { pkgs; site; }` takes the
+`mkXilinxContext` result directly, and optionally `coyoteRoot` for another
+Coyote checkout and `examples` to build a subset.
 
 ## FPGA ownership tool
 
@@ -108,6 +234,10 @@ coyote-nix.lib.mkCoyoteDriverPackages
 coyote-nix.lib.mkCoyoteDriverChecks
 coyote-nix.lib.mkCoyoteDevShell
 coyote-nix.lib.mkCoyoteSourceChecks
+coyote-nix.lib.mkCoyoteShell
+coyote-nix.lib.mkCoyoteApp
+coyote-nix.lib.mkCoyoteExamples
+coyote-nix.lib.mkCoyoteExampleSoftware
 coyote-nix.lib.mkApp
 ```
 

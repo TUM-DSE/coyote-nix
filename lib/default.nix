@@ -13,6 +13,8 @@
   mkCoyoteSourceChecks = import ./mkCoyoteSourceChecks.nix;
   mkCoyoteR5FirmwarePackage = import ./mkCoyoteR5FirmwarePackage.nix;
   mkCoyoteR5BootPackage = import ./mkCoyoteR5BootPackage.nix;
+  mkCoyoteShell = import ./mkCoyoteShell.nix;
+  mkCoyoteApp = import ./mkCoyoteApp.nix;
   mkCoyoteExamples = import ./mkCoyoteExamples.nix;
   mkCoyoteExampleSoftware = import ./mkCoyoteExampleSoftware.nix;
   coyoteExamples = import ./coyoteExamples.nix;
