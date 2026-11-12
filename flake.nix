@@ -18,6 +18,9 @@
       url = "github:taugoust/Coyote/develop";
       flake = false;
     };
+    # The site whose Xilinx installation and boards the examples are built
+    # for. Override it with `inputs.coyote-nix.inputs.site.follows`.
+    site.url = "github:TUM-DSE/doctor-cluster-xilinx";
     coyoteDriver = {
       url = "github:taugoust/Coyote/develop";
       flake = false;
@@ -42,6 +45,7 @@
       coyoteDriver,
       coyoteDeltaBase,
       coyoteDeltaCandidate,
+      site,
       ...
     }:
     let
@@ -61,6 +65,23 @@
           baseLib.mkCoyoteDevShell (
             {
               fpgahogPackage = fpgahog.packages.${args.pkgs.stdenv.hostPlatform.system}.default;
+            }
+            // args
+          );
+        # Defaults to the pinned Coyote and tools built for the given site.
+        mkCoyoteExamples =
+          args:
+          let
+            coyoteRoot = args.coyoteRoot or coyote;
+          in
+          baseLib.mkCoyoteExamples (
+            {
+              inherit coyoteRoot;
+              tools = coyoteNixLib.mkTools {
+                inherit (args) pkgs;
+                inherit coyoteRoot;
+                inherit (args.site) xilinxShareRoot;
+              };
             }
             // args
           );
@@ -1088,6 +1109,18 @@
           ];
 
         checks.driver-package-variants = import ./tests/driver-package-variants.nix { inherit pkgs; };
+
+        checks.examples = import ./tests/examples.nix { inherit pkgs coyoteNixLib; };
+
+        # Coyote's examples for the site input's boards:
+        #   nix build .#examples.u280.hello_world      host program and bitstream
+        #   nix build .#examples.u280.hello_world.hw   bitstream only
+        legacyPackages = pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          examples = coyoteNixLib.mkCoyoteExamples {
+            inherit pkgs;
+            site = site.lib.mkXilinxContext { inherit pkgs system; };
+          };
+        };
 
         checks.coyote-driver-build = coyoteNixLib.mkCoyoteDriverPackage {
           inherit pkgs;

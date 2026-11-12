@@ -9,6 +9,8 @@
   xilinxShell ? null,
   version ? "0.1.0",
   requiresVitisHls ? true,
+  # Added to every stage's nativeBuildInputs.
+  extraNativeBuildInputs ? [ ],
 }:
 
 let
@@ -59,6 +61,7 @@ rec {
         + preConfigureSetup;
       nativeBuildInputs =
         nativeBuildInputs
+        ++ extraNativeBuildInputs
         ++ lib.optionals (coyoteSourceDelta != null) [
           pkgs.git
           pkgs.python3

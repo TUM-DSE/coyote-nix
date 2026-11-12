@@ -13,6 +13,9 @@
   mkCoyoteSourceChecks = import ./mkCoyoteSourceChecks.nix;
   mkCoyoteR5FirmwarePackage = import ./mkCoyoteR5FirmwarePackage.nix;
   mkCoyoteR5BootPackage = import ./mkCoyoteR5BootPackage.nix;
+  mkCoyoteExamples = import ./mkCoyoteExamples.nix;
+  mkCoyoteExampleSoftware = import ./mkCoyoteExampleSoftware.nix;
+  coyoteExamples = import ./coyoteExamples.nix;
 
   mkApp = drv: bin: {
     type = "app";

@@ -7,6 +7,8 @@
   xilinxShareRoot,
   xilinxShell ? null,
   requiresVitisHls ? true,
+  # Tools for the hardware's own generators, added to every stage.
+  nativeBuildInputs ? [ ],
   pnamePrefix,
   version ? "0.1.0",
   projectName ? pnamePrefix,
@@ -50,6 +52,7 @@ let
       version
       requiresVitisHls
       ;
+    extraNativeBuildInputs = nativeBuildInputs;
   };
   userProjectStageHelpers = import ./coyoteHwStageHelpers.nix {
     inherit
@@ -61,6 +64,7 @@ let
       version
       requiresVitisHls
       ;
+    extraNativeBuildInputs = nativeBuildInputs;
     coyoteRoot = effectiveUserProjectCoyoteRoot;
     baseCoyoteRoot = coyoteRoot;
     coyoteSourceDelta = checkedUserProjectDelta;
