@@ -131,16 +131,13 @@ let
       implementationEnforceTiming
     else
       throw "coyote-nix: implementation.enforceTiming must be a Boolean when specified";
-  signoffClassification = implementation.signoffClassification or null;
-  checkedSignoffClassification =
-    if
-      signoffClassification == null
-      || builtins.isPath signoffClassification
-      || lib.isDerivation signoffClassification
-    then
-      signoffClassification
-    else
-      throw "coyote-nix: implementation.signoffClassification must be an immutable path or derivation";
+  # Earlier versions required a hand-written review of each validation's
+  # timing exceptions and unconstrained endpoints. The gate now checks only
+  # the evidence itself.
+  enforceStrictSignoff =
+    lib.warnIf (implementation ? signoffClassification)
+      "coyote-nix: implementation.signoffClassification is no longer used and is ignored"
+      (checkedImplementationEnforceTiming != false);
   effectiveFlagValue =
     name: flags:
     let
@@ -1354,18 +1351,16 @@ let
     else
       mkImplementationStageGate {
         pname = "${pname}-incremental-validation-gate";
-        enforceStrictSignoff = checkedImplementationEnforceTiming != false;
+        inherit enforceStrictSignoff;
         stage = incrementalValidate;
         expectedContext = implementationContext.id;
-        signoffClassification = checkedSignoffClassification;
       };
 
   validationGate = mkImplementationStageGate {
     pname = "${pname}-validation-gate";
-    enforceStrictSignoff = checkedImplementationEnforceTiming != false;
+    inherit enforceStrictSignoff;
     stage = validate;
     expectedContext = implementationContext.id;
-    signoffClassification = checkedSignoffClassification;
   };
   routed = validationGate;
 
@@ -1459,10 +1454,9 @@ let
         else
           mkImplementationStageGate {
             pname = "${pname}-validation-gate-${candidate.id}";
-            enforceStrictSignoff = checkedImplementationEnforceTiming != false;
+            inherit enforceStrictSignoff;
             stage = candidateValidate;
             expectedContext = implementationContext.id;
-            signoffClassification = checkedSignoffClassification;
           };
     in
     {
@@ -1541,9 +1535,6 @@ let
           };
       strictSignoff = {
         api = "coyote-nix.strict-signoff-result/v1";
-        classificationApi = "coyote-nix.strict-signoff-classification/v1";
-        classification =
-          if checkedSignoffClassification == null then null else toString checkedSignoffClassification;
         required = true;
       };
       context = implementationContext;

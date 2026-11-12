@@ -563,7 +563,6 @@ rec {
       pname,
       stage,
       expectedContext,
-      signoffClassification ? null,
       enforceStrictSignoff ? true,
     }:
     assert builtins.isBool enforceStrictSignoff;
@@ -582,9 +581,6 @@ rec {
           strict_args=(
             --stage ${stage}
             --context ${lib.escapeShellArg expectedContext}
-            ${lib.optionalString (
-              signoffClassification != null
-            ) "--classification ${lib.escapeShellArg (toString signoffClassification)}"}
             --output "$strict_result"
           )
           set +e

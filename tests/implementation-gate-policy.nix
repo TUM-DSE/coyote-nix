@@ -57,7 +57,7 @@ for phase in ["inputs", "link", "place", "route", "validate"]:
 PY
   export stage="$work/validate"
   if out="$TMPDIR/strict" bash -eu ${strict} > strict.log 2>&1; then
-    echo 'strict gate accepted missing classification' >&2; exit 1
+    echo 'strict gate accepted a stage without signoff evidence' >&2; exit 1
   fi
   cat strict.log
   grep -q 'strict physical signoff rejected validation evidence' strict.log

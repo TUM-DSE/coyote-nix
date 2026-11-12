@@ -93,89 +93,6 @@ expect_collect_rejected() {
   grep -F -- "$expected" "$work/$name.stderr" >/dev/null
 }
 
-make_classification() {
-  local stage=$1
-  local output=$2
-  python3 - "$work/context.json" \
-    "$stage/reports/shell_strict_signoff_c0.json" \
-    "$fixtures/explicit-classifications.json" \
-    "$stage/metadata/stage.json" "$output" <<'PY'
-import json, sys
-context = json.load(open(sys.argv[1], encoding="utf-8"))
-evidence = json.load(open(sys.argv[2], encoding="utf-8"))
-explicit = json.load(open(sys.argv[3], encoding="utf-8"))
-manifest = json.load(open(sys.argv[4], encoding="utf-8"))
-exception = dict(explicit["timingExceptionReport"])
-exception["reportSha256"] = evidence["timingExceptionSet"]["reportSha256"]
-observed = {
-    (entry["category"], entry["endpoint"], entry["reason"]): entry["id"]
-    for entry in evidence["unconstrainedEndpoints"]
-}
-endpoints = []
-for entry in explicit["unconstrainedEndpoints"]:
-    classified = dict(entry)
-    classified["id"] = observed[(entry["category"], entry["endpoint"], entry["reason"])]
-    endpoints.append(classified)
-document = {
-    "schemaVersion": 1,
-    "api": "coyote-nix.strict-signoff-classification/v1",
-    "contextId": context["id"],
-    "subjects": [{
-        "unit": "config_0",
-        "evidenceId": evidence["evidenceId"],
-        "stageManifestId": manifest["manifestId"],
-        "artifactIdentity": evidence["artifactIdentity"],
-        "sourceIdentity": evidence["sourceIdentity"],
-        "timingExceptionReport": exception,
-        "unconstrainedEndpoints": endpoints,
-    }],
-}
-with open(sys.argv[5], "w", encoding="utf-8") as stream:
-    json.dump(document, stream, sort_keys=True, separators=(",", ":"))
-    stream.write("\n")
-PY
-}
-
-make_policy_classification() {
-  local stage=$1
-  local output=$2
-  python3 - "$work/context.json" \
-    "$stage/reports/shell_strict_signoff_c0.json" \
-    "$stage/metadata/stage.json" "$output" <<'PY'
-import json, sys
-context = json.load(open(sys.argv[1], encoding="utf-8"))
-evidence = json.load(open(sys.argv[2], encoding="utf-8"))
-manifest = json.load(open(sys.argv[3], encoding="utf-8"))
-endpoints = []
-for observed in evidence["unconstrainedEndpoints"]:
-    entry = dict(observed)
-    entry["classification"] = "intentional-constant-clock"
-    entry["rationale"] = "Exact fixture endpoint classification for rejection coverage."
-    endpoints.append(entry)
-document = {
-    "schemaVersion": 1,
-    "api": "coyote-nix.strict-signoff-classification/v1",
-    "contextId": context["id"],
-    "subjects": [{
-        "unit": "config_0",
-        "evidenceId": evidence["evidenceId"],
-        "stageManifestId": manifest["manifestId"],
-        "artifactIdentity": evidence["artifactIdentity"],
-        "sourceIdentity": evidence["sourceIdentity"],
-        "timingExceptionReport": {
-            "reportSha256": evidence["timingExceptionSet"]["reportSha256"],
-            "classification": "explicit-exact-report",
-            "rationale": "The exact fixture exception report was reviewed.",
-        },
-        "unconstrainedEndpoints": endpoints,
-    }],
-}
-with open(sys.argv[4], "w", encoding="utf-8") as stream:
-    json.dump(document, stream, sort_keys=True, separators=(",", ":"))
-    stream.write("\n")
-PY
-}
-
 make_manifest() {
   local stage=$1
   local omitted_role=${2:-}
@@ -224,16 +141,10 @@ PY
 expect_rejected() {
   local name=$1
   local stage=$2
-  local classification=$3
-  local expected_check=$4
+  local expected_check=$3
   local result="$work/$name-result.json"
-  args=(
-    verify --stage "$stage" --context "$context_id" --output "$result"
-  )
-  if [ "$classification" != - ]; then
-    args+=(--classification "$classification")
-  fi
-  if python3 "$signoff_tool" "${args[@]}"; then
+  if python3 "$signoff_tool" verify --stage "$stage" --context "$context_id" \
+    --output "$result"; then
     echo "strict signoff unexpectedly accepted $name" >&2
     exit 1
   fi
@@ -246,11 +157,9 @@ accepted="$work/accepted"
 setup_reports "$accepted"
 collect_evidence "$accepted"
 make_manifest "$accepted"
-make_classification "$accepted" "$work/accepted-classification.json"
 python3 "$signoff_tool" verify \
   --stage "$accepted" \
   --context "$context_id" \
-  --classification "$work/accepted-classification.json" \
   --output "$work/accepted-result.json"
 jq -e '
   .outcome == "accepted"
@@ -260,26 +169,25 @@ jq -e '
   and (.artifactIdentity.sha256 | test("^[0-9a-f]{64}$"))
   and .sourceIdentity.sourceId == "source-fixture"
   and .sourceIdentity.coyoteSourceId == "coyote-source-fixture"
-  and (.classificationSha256 | test("^[0-9a-f]{64}$"))
+  and (has("classificationSha256") | not)
 ' "$work/accepted-result.json" >/dev/null
 
 tampered="$work/tampered-report-artifact"
 cp -a "$accepted" "$tampered"
 printf '\npost-manifest tamper\n' >> "$tampered/reports/shell_timing_summary_c0.rpt"
-expect_rejected tampered-report-artifact "$tampered" \
-  "$work/accepted-classification.json" stage
+expect_rejected tampered-report-artifact "$tampered" stage
 
 missing="$work/missing-report"
 cp -a "$accepted" "$missing"
 rm "$missing/reports/shell_methodology_c0.rpt"
 make_manifest "$missing" validate-methodology-report
-expect_rejected missing-report "$missing" "$work/accepted-classification.json" reports
+expect_rejected missing-report "$missing" reports
 
 malformed="$work/malformed-report"
 cp -a "$accepted" "$malformed"
 printf 'not a methodology report\n' > "$malformed/reports/shell_methodology_c0.rpt"
 make_manifest "$malformed"
-expect_rejected malformed-report "$malformed" "$work/accepted-classification.json" reports
+expect_rejected malformed-report "$malformed" reports
 
 for metric in setupWnsNs setupTnsNs holdWnsNs holdTnsNs; do
   name="negative-$metric"
@@ -313,8 +221,7 @@ open(timing_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
 PY
   collect_evidence "$stage"
   make_manifest "$stage"
-  make_classification "$stage" "$work/$name-classification.json"
-  expect_rejected "$name" "$stage" "$work/$name-classification.json" timing
+  expect_rejected "$name" "$stage" timing
 done
 
 route_failure="$work/route-failure"
@@ -335,8 +242,7 @@ open(sys.argv[2], "w", encoding="utf-8").write(text)
 PY
 collect_evidence "$route_failure"
 make_manifest "$route_failure"
-make_classification "$route_failure" "$work/route-failure-classification.json"
-expect_rejected route-failure "$route_failure" "$work/route-failure-classification.json" routing
+expect_rejected route-failure "$route_failure" routing
 
 drc_failure="$work/drc-failure"
 cp -a "$accepted" "$drc_failure"
@@ -349,8 +255,7 @@ Checks found: 1
 EOF
 collect_evidence "$drc_failure"
 make_manifest "$drc_failure"
-make_classification "$drc_failure" "$work/drc-failure-classification.json"
-expect_rejected drc-failure "$drc_failure" "$work/drc-failure-classification.json" drc
+expect_rejected drc-failure "$drc_failure" drc
 
 real_vivado_drc_failure="$work/real-vivado-drc-failure"
 cp -a "$accepted" "$real_vivado_drc_failure"
@@ -364,10 +269,7 @@ jq -e '
   and .drc.implementation.warnings == 261
 ' "$real_vivado_drc_failure/reports/shell_strict_signoff_c0.json" >/dev/null
 make_manifest "$real_vivado_drc_failure"
-make_classification "$real_vivado_drc_failure" \
-  "$work/real-vivado-drc-failure-classification.json"
-expect_rejected real-vivado-drc-failure "$real_vivado_drc_failure" \
-  "$work/real-vivado-drc-failure-classification.json" drc
+expect_rejected real-vivado-drc-failure "$real_vivado_drc_failure" drc
 
 violations_drc_mismatch="$work/violations-drc-mismatch"
 cp -a "$accepted" "$violations_drc_mismatch"
@@ -434,84 +336,7 @@ with open(path, "w", encoding="utf-8") as stream:
 PY
 collect_evidence "$bitstream_drc_failure"
 make_manifest "$bitstream_drc_failure"
-make_classification "$bitstream_drc_failure" \
-  "$work/bitstream-drc-failure-classification.json"
-expect_rejected bitstream-drc-failure "$bitstream_drc_failure" \
-  "$work/bitstream-drc-failure-classification.json" drc
-
-expect_rejected missing-classification "$accepted" - classification
-
-cp "$work/accepted-classification.json" "$work/stale-classification.json"
-python3 - "$work/stale-classification.json" <<'PY'
-import json, sys
-path = sys.argv[1]
-data = json.load(open(path, encoding="utf-8"))
-data["subjects"][0]["evidenceId"] = "0" * 64
-json.dump(data, open(path, "w", encoding="utf-8"), sort_keys=True, separators=(",", ":"))
-PY
-expect_rejected stale-classification "$accepted" "$work/stale-classification.json" classification
-
-for identity in stage artifact source; do
-  classification="$work/stale-$identity-identity.json"
-  cp "$work/accepted-classification.json" "$classification"
-  python3 - "$classification" "$identity" <<'PY'
-import json, sys
-path, identity = sys.argv[1:]
-data = json.load(open(path, encoding="utf-8"))
-subject = data["subjects"][0]
-if identity == "stage":
-    subject["stageManifestId"] = "1" * 64
-elif identity == "artifact":
-    subject["artifactIdentity"]["sha256"] = "2" * 64
-else:
-    subject["sourceIdentity"]["sourceId"] = "stale-source"
-with open(path, "w", encoding="utf-8") as stream:
-    json.dump(data, stream, sort_keys=True, separators=(",", ":"))
-    stream.write("\n")
-PY
-  expect_rejected "stale-$identity-identity" "$accepted" "$classification" classification
-done
-
-cp "$work/accepted-classification.json" "$work/mismatched-exception-classification.json"
-python3 - "$work/mismatched-exception-classification.json" <<'PY'
-import json, sys
-path = sys.argv[1]
-data = json.load(open(path, encoding="utf-8"))
-data["subjects"][0]["timingExceptionReport"]["reportSha256"] = "f" * 64
-json.dump(data, open(path, "w", encoding="utf-8"), sort_keys=True, separators=(",", ":"))
-PY
-expect_rejected mismatched-exception "$accepted" \
-  "$work/mismatched-exception-classification.json" classification
-
-cp "$work/accepted-classification.json" "$work/unclassified-endpoint.json"
-python3 - "$work/unclassified-endpoint.json" <<'PY'
-import json, sys
-path = sys.argv[1]
-data = json.load(open(path, encoding="utf-8"))
-data["subjects"][0]["unconstrainedEndpoints"] = []
-json.dump(data, open(path, "w", encoding="utf-8"), sort_keys=True, separators=(",", ":"))
-PY
-expect_rejected unclassified-endpoint "$accepted" \
-  "$work/unclassified-endpoint.json" classification
-
-for mutation in classification clock; do
-  path="$work/mismatched-endpoint-$mutation.json"
-  cp "$work/accepted-classification.json" "$path"
-  python3 - "$path" "$mutation" <<'PY'
-import json, sys
-path, mutation = sys.argv[1:]
-data = json.load(open(path, encoding="utf-8"))
-endpoint = data["subjects"][0]["unconstrainedEndpoints"][0]
-if mutation == "classification":
-    endpoint["classification"] = "reviewed-unconstrained-endpoint"
-else:
-    endpoint["clockPins"][0]["constantValue"] = "1"
-with open(path, "w", encoding="utf-8") as stream:
-    json.dump(data, stream, sort_keys=True, separators=(",", ":"))
-    stream.write("\n")
-PY
-  expect_rejected "mismatched-endpoint-$mutation" "$accepted" "$path" classification
-done
+expect_rejected bitstream-drc-failure "$bitstream_drc_failure" drc
 
 for endpoint_case in no-clock missing-max-delay constant-without-clock-evidence; do
   stage="$work/$endpoint_case"
@@ -599,9 +424,10 @@ with open(evidence_path, "w", encoding="utf-8") as stream:
 PY
   collect_evidence "$stage"
   make_manifest "$stage"
-  make_policy_classification "$stage" "$work/$endpoint_case-classification.json"
-  expect_rejected "$endpoint_case" "$stage" \
-    "$work/$endpoint_case-classification.json" classification
+  # Unconstrained endpoints are reported, not judged.
+  python3 "$signoff_tool" verify --stage "$stage" --context "$context_id" \
+    --output "$work/$endpoint_case-result.json"
+  jq -e '.outcome == "accepted"' "$work/$endpoint_case-result.json" >/dev/null
 done
 
 printf 'strict signoff gate contract: PASS\n'

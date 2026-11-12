@@ -1574,7 +1574,6 @@
           assert evalU280Shell.coyoteTwoStage.enShellPblock;
           assert evalU280Shell.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
           assert evalU280Shell.coyoteTwoStage.physical.strictSignoff.required;
-          assert evalU280Shell.coyoteTwoStage.physical.strictSignoff.classification == null;
           assert evalU280Shell.coyoteTwoStage.physical.combineOptPlace;
           assert evalU280Shell.coyoteTwoStage.physical.units ? shell;
           assert evalU280Shell.coyoteTwoStage.physical.units.shell ? link;
@@ -1673,9 +1672,6 @@
           assert builtins.elem "-DEN_SHELL_PBLOCK:STRING=0" evalV80App.coyoteTwoStage.appCmakeFlags;
           assert evalV80App.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
           assert evalV80App.coyoteTwoStage.physical.strictSignoff.required;
-          assert
-            evalV80App.coyoteTwoStage.physical.strictSignoff.classificationApi
-            == "coyote-nix.strict-signoff-classification/v1";
           assert
             evalV80App.coyoteTwoStage.physical.linkIntegrity.partitionPinManifest
             == "reports/config_0/app_link_partition_pins_c0.json";

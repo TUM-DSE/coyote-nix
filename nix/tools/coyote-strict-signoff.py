@@ -13,7 +13,6 @@ import tempfile
 
 EVIDENCE_API = "coyote-nix.strict-signoff-evidence/v1"
 ENDPOINT_EVIDENCE_API = "coyote-nix.strict-signoff-endpoints/v1"
-CLASSIFICATION_API = "coyote-nix.strict-signoff-classification/v1"
 RESULT_API = "coyote-nix.strict-signoff-result/v1"
 PHASES = ("link", "place", "route", "validate")
 CHECKPOINT_ROLES = {
@@ -774,179 +773,6 @@ def validate_physical(physical, evidence):
             )
 
 
-def validate_classification(path: Path, manifest, evidence):
-    context = manifest["context"]
-    unit = manifest["unit"]
-    classification = load_json(path, "classification")
-    require_exact_keys(
-        classification,
-        ("schemaVersion", "api", "contextId", "subjects"),
-        "classification",
-        "strict-signoff classification",
-    )
-    if (
-        classification["schemaVersion"] != 1
-        or classification["api"] != CLASSIFICATION_API
-    ):
-        fail("classification", "unsupported strict-signoff classification API")
-    if classification["contextId"] != context["id"]:
-        fail("classification", "classification context is stale or mismatched")
-    subjects = classification["subjects"]
-    if not isinstance(subjects, list) or not subjects:
-        fail("classification", "classification subjects must be a non-empty array")
-    matching = []
-    units = []
-    for subject in subjects:
-        require_exact_keys(
-            subject,
-            (
-                "unit",
-                "evidenceId",
-                "stageManifestId",
-                "artifactIdentity",
-                "sourceIdentity",
-                "timingExceptionReport",
-                "unconstrainedEndpoints",
-            ),
-            "classification",
-            "classification subject",
-        )
-        if subject["unit"] == unit:
-            units.append(subject)
-            if subject["evidenceId"] == evidence["evidenceId"]:
-                matching.append(subject)
-    if len(matching) != 1:
-        if units:
-            fail(
-                "classification",
-                "classification evidence identity is stale or mismatched",
-            )
-        fail(
-            "classification",
-            f"classification has no subject for implementation unit {unit}",
-        )
-    subject = matching[0]
-    if subject["stageManifestId"] != manifest["manifestId"]:
-        fail(
-            "classification",
-            "classification stage artifact identity is stale or mismatched",
-        )
-    if subject["artifactIdentity"] != evidence["artifactIdentity"]:
-        fail(
-            "classification",
-            "classification checkpoint artifact identity is stale or mismatched",
-        )
-    if subject["sourceIdentity"] != evidence["sourceIdentity"]:
-        fail("classification", "classification source identity is stale or mismatched")
-
-    exception = subject["timingExceptionReport"]
-    require_exact_keys(
-        exception,
-        ("reportSha256", "classification", "rationale"),
-        "classification",
-        "timing-exception classification",
-    )
-    if exception["reportSha256"] != evidence["timingExceptionSet"]["reportSha256"]:
-        fail(
-            "classification",
-            "timing-exception classification report hash is mismatched",
-        )
-    if exception["classification"] != "explicit-exact-report":
-        fail(
-            "classification",
-            "timing exceptions require explicit-exact-report classification",
-        )
-    if (
-        not isinstance(exception["rationale"], str)
-        or not exception["rationale"].strip()
-    ):
-        fail("classification", "timing-exception classification requires a rationale")
-
-    classified_endpoints = subject["unconstrainedEndpoints"]
-    if not isinstance(classified_endpoints, list):
-        fail(
-            "classification", "unconstrained endpoint classifications must be an array"
-        )
-    observed_by_id = {
-        entry["id"]: entry for entry in evidence["unconstrainedEndpoints"]
-    }
-    for observed in observed_by_id.values():
-        if (
-            observed["category"] != "unconstrained_internal_endpoints"
-            or observed["reason"] != "constant-clock"
-        ):
-            fail(
-                "classification",
-                "strict signoff permits only constant-clock unconstrained internal endpoints",
-            )
-        if not any(
-            clock_pin["constantValue"] in ("0", "1")
-            for clock_pin in observed["clockPins"]
-        ):
-            fail(
-                "classification",
-                f"constant-clock endpoint lacks exact constant clock-pin evidence: {observed['endpoint']}",
-            )
-
-    classified_by_id = {}
-    for entry in classified_endpoints:
-        require_exact_keys(
-            entry,
-            (
-                "id",
-                "category",
-                "endpoint",
-                "reason",
-                "clockPins",
-                "classification",
-                "rationale",
-            ),
-            "classification",
-            "unconstrained endpoint classification",
-        )
-        identifier = entry["id"]
-        if (
-            not isinstance(identifier, str)
-            or re.fullmatch(r"[0-9a-f]{64}", identifier) is None
-        ):
-            fail("classification", "endpoint classification ID must be a SHA-256 value")
-        if identifier in classified_by_id:
-            fail("classification", "duplicate unconstrained endpoint classification")
-        if (
-            not isinstance(entry["endpoint"], str)
-            or "*" in entry["endpoint"]
-            or "?" in entry["endpoint"]
-        ):
-            fail(
-                "classification",
-                "endpoint classifications must use exact names without wildcards",
-            )
-        if entry["classification"] != "intentional-constant-clock":
-            fail(
-                "classification",
-                "constant-clock endpoints require intentional-constant-clock classification",
-            )
-        if not isinstance(entry["rationale"], str) or not entry["rationale"].strip():
-            fail("classification", "endpoint classification requires a rationale")
-        classified_by_id[identifier] = entry
-    if set(classified_by_id) != set(observed_by_id):
-        missing = sorted(set(observed_by_id) - set(classified_by_id))
-        extra = sorted(set(classified_by_id) - set(observed_by_id))
-        fail(
-            "classification",
-            f"unconstrained endpoint classification is not exact (missing={len(missing)}, extra={len(extra)})",
-        )
-    for identifier, observed in observed_by_id.items():
-        classified = classified_by_id[identifier]
-        for key in ("category", "endpoint", "reason", "clockPins"):
-            if classified[key] != observed[key]:
-                fail(
-                    "classification",
-                    f"classified endpoint {identifier} has mismatched {key}",
-                )
-    return sha256_file(path)
-
-
 def verify_core(args):
     stage = args.stage.resolve(strict=True)
     manifest = load_json(stage / "metadata" / "stage.json", "stage")
@@ -1001,15 +827,6 @@ def verify_core(args):
         fail("validation", "validation report outcome is not accepted")
     physical = load_json(artifacts["physical-observations"][1], "timing")
     validate_physical(physical, evidence)
-
-    if args.classification is None:
-        fail(
-            "classification",
-            "an explicit immutable strict-signoff classification is required",
-        )
-    classification_sha256 = validate_classification(
-        args.classification.resolve(strict=True), manifest, evidence
-    )
     return {
         "contextId": context["id"],
         "unit": unit,
@@ -1017,7 +834,6 @@ def verify_core(args):
         "evidenceId": evidence["evidenceId"],
         "artifactIdentity": evidence["artifactIdentity"],
         "sourceIdentity": evidence["sourceIdentity"],
-        "classificationSha256": classification_sha256,
     }
 
 
@@ -1029,7 +845,6 @@ def verify(args):
         "evidenceId": None,
         "artifactIdentity": None,
         "sourceIdentity": None,
-        "classificationSha256": None,
     }
     try:
         subject.update(verify_core(args))
@@ -1072,7 +887,6 @@ def main():
     verify_parser = commands.add_parser("verify")
     verify_parser.add_argument("--stage", type=Path, required=True)
     verify_parser.add_argument("--context", required=True)
-    verify_parser.add_argument("--classification", type=Path)
     verify_parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:

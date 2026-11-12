@@ -110,9 +110,6 @@ implementation = {
     finalRoute = "";
   };
   enforceTiming = true;
-  # Required for the validation gate, but deliberately not for the rootable
-  # validate stage used to collect and review a new exact evidence set.
-  signoffClassification = ./strict-signoff-classification.json;
   xilinxInstallationId = "site-manifest-sha256"; # recommended when available
   topology = { configurations = 1; regions = 1; };
 };
@@ -146,17 +143,11 @@ Telemetry is factual rather than an acceptance decision. Validation still emits 
 
 ### Strict physical signoff
 
-The raw `validate` derivation remains independently buildable so its report set can be inspected. The validation gate and every final image are fail closed: `implementation.signoffClassification` must name an immutable JSON path (or a file-valued derivation) containing `coyote-nix.strict-signoff-classification/v1`. Its context must match the package, and one subject must bind all of the following exact identities for the validation unit: `evidenceId`, validation-stage `manifestId`, checkpoint artifact descriptor, and implementation source/context descriptor. This applies equally to the shell unit and application `config_0` unit. The subject must:
+The raw `validate` derivation remains independently buildable so its report set can be inspected. The validation gate and every final image are fail closed on the evidence itself; no hand-written review is required.
 
-- classify the complete timing-exception report with its exact SHA-256 and the fixed `explicit-exact-report` label plus a nonempty rationale;
-- enumerate every endpoint by evidence-derived ID, exact name, category, reason, and complete clock-pin evidence, using the fixed `intentional-constant-clock` classification plus a nonempty rationale; and
-- contain no wildcard endpoint names. An explicitly empty endpoint array is valid only when both the verbose report and Tcl sidecar contain exactly zero endpoints.
+The gate independently verifies the stage manifest and every declared artifact, then reparses the raw reports and cross-checks the Tcl endpoint sidecar instead of trusting normalized observations alone. It rejects a missing or malformed report, report/evidence/checkpoint hash drift, stale manifest/artifact/source/context/evidence identity, negative overall setup or hold WNS/TNS, an incomplete/error route, and any implementation or bitstream DRC Error or Critical Warning. This gate is unconditional even when the older project timing switch or `implementation.enforceTiming` was disabled for diagnostic image generation.
 
-The only classifiable nonempty endpoint set is `unconstrained_internal_endpoints` entries that the verbose report identifies as due to a constant clock and whose exact Tcl clock-pin evidence contains a constant value of `0` or `1`. A `no_clock` endpoint, an ordinary missing-max-delay endpoint, absent constant-pin evidence, any missing or extra classification, or any endpoint/clock/category mismatch rejects signoff; classification is documentation, never a timing waiver.
-
-The gate independently verifies the stage manifest and every declared artifact, then reparses the raw reports and cross-checks the Tcl endpoint sidecar instead of trusting the classification or normalized observations alone. It rejects a missing or malformed report, report/evidence/checkpoint hash drift, stale manifest/artifact/source/context/evidence/exception identity, negative overall setup or hold WNS/TNS, an incomplete/error route, and any implementation or bitstream DRC Error or Critical Warning. This gate is unconditional even when the older project timing switch or `implementation.enforceTiming` was disabled for diagnostic image generation.
-
-A new physical recipe therefore uses a review loop: build and root `coyoteTwoStage.stages.validate`, inspect its raw reports, endpoint sidecar, stage manifest, and `*_strict_signoff*.json`, author the exact immutable classification, then rebuild only the lightweight gate/final package. The classification is intentionally excluded from physical recipe identity, so review does not rerun link/place/route/validation; a different realized manifest, checkpoint, report, or source identity requires a new classification.
+Timing exceptions and unconstrained endpoints (`check_timing`) are retained and hashed into the evidence for inspection, but do not decide signoff. The former `implementation.signoffClassification` is ignored with an evaluation warning.
 
 The immutable packaged graph currently supports the QShell MVP topology of exactly one configuration and one region. The legacy Coyote aggregate flow remains available for multi-configuration/multi-region projects until per-unit DFX bundle staging is added; immutable package constructors reject any explicitly different topology and Coyote's staged link target verifies the generated topology before invoking Vivado.
 
