@@ -3,9 +3,11 @@
 #
 # The shell's vFPGA regions hold a generated placeholder app, so the build
 # depends only on the board, the services, the Coyote source and the site:
-# equal requests give the same derivation. The result is the shell from
-# mkCoyoteShellPackage. Its bitstream is a full image (static, shell and
-# placeholder), and passthru.coyoteShell describes it.
+# equal requests give the same derivation. After linking, the placeholder is
+# replaced by a grey box, so every interface the shell offers gets a
+# partition pin. The result is the shell from mkCoyoteShellPackage. Its
+# bitstream is a full image (static, shell and an inert app region whose
+# outputs are 0), and passthru.coyoteShell describes it.
 {
   pkgs,
   # From coyote-nix's mkTools for coyoteRoot and the site's Xilinx root.
@@ -215,6 +217,7 @@ let
     board = checkedBoard;
     requiresVitisHls = false;
     inherit strict;
+    greyboxApplications = true;
     pname = "coyote-shell-${checkedBoard}-${name}";
     cmakeFlags = settingsFlags ++ checkedCmakeFlags;
     provenance = {

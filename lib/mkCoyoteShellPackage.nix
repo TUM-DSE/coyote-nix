@@ -21,6 +21,11 @@
   # records the result.
   strict ? false,
   subdivisionReference ? null,
+  # Replace the seed application with a grey box (every port buffered by a
+  # LUT) right after linking, so that Vivado places a partition pin for every
+  # port the static region uses, not only for those the seed app happens to
+  # use. Applications linked later can then use all of them.
+  greyboxApplications ? false,
 }:
 
 let
@@ -782,6 +787,18 @@ let
       ''}
     '';
   };
+  greyboxScript = pkgs.writeText "coyote-greybox-applications.tcl" ''
+    set dcp checkpoints/config_0/shell_linked_c0.dcp
+    open_checkpoint $dcp
+    set cells [get_cells -quiet inst_shell/inst_dynamic/inst_user_wrapper_*]
+    if {[llength $cells] == 0} { error "no application partitions to grey-box" }
+    foreach cell $cells {
+      update_design -cell $cell -black_box
+      update_design -cell $cell -buffer_ports
+    }
+    write_checkpoint -force $dcp
+  '';
+  greyboxCommand = "vivado -mode batch -nojournal -log greybox-applications.log -source ${greyboxScript}";
   dynamicLink = mkStage {
     pname = "${pname}-config-0-link";
     board = boardProfile; inherit xilinxVersion; cores = checkedImplementationCores;
@@ -790,7 +807,7 @@ let
       previousStage = dynamicInputs;
       paths = synthesizedCheckpoints ++ lib.optionals hasSubdivisionParent [ "checkpoints/shell_routed.dcp" ];
     };
-    buildCommands = [ "make dynamic_link" ];
+    buildCommands = [ "make dynamic_link" ] ++ lib.optional greyboxApplications greyboxCommand;
     expectedPaths = [ "checkpoints/dynamic_link_complete" "checkpoints/config_0/shell_linked_c0.dcp" ];
     extraInstallPhase = ''
       mkdir -p "$out/checkpoints/config_0"
