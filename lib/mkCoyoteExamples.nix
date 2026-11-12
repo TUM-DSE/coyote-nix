@@ -23,6 +23,9 @@
   # Restrict to these example names; null builds all of them.
   examples ? null,
   amdGpuTargets ? [ "gfx90a" ],
+  # Fail hardware builds whose validation fails, instead of building
+  # bitstreams that record the failure in metadata/validation.json.
+  strict ? false,
   version ? "0.1.0",
 }:
 let
@@ -220,6 +223,7 @@ let
         services
         optimize
         version
+        strict
         ;
       site = checkedSite;
     };
@@ -230,7 +234,12 @@ let
       sw = software.${name};
       shell = mkShellFor board (checkServices board name example) (example.optimize or false);
       app = import ./mkCoyoteApp.nix {
-        inherit shell name version;
+        inherit
+          shell
+          name
+          version
+          strict
+          ;
         src = mkHwSource { inherit name example board; };
         nativeBuildInputs = generatorTools example;
       };
@@ -264,7 +273,7 @@ let
         nativeBuildInputs = generatorTools example;
         pnamePrefix = "coyote-example-${name}";
         projectName = projectNameOf example;
-        inherit version;
+        inherit version strict;
         boards.${board} = {
           inherit (checkedSiteBoards.${board}) xilinxVersion;
         }

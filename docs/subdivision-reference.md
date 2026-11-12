@@ -22,7 +22,7 @@ and not an incremental implementation reference. The old outer implementation
 is replaced by the new logical shell and new seed synthesis in the existing
 nested linking flow. Fresh outer link/place/route/validation are absent from
 the final dependency graph. Nested implementation, route validation, DRC,
-timing policy, strict-signoff gates and export remain unchanged. `metadata/shell.json` provenance and
+validation policy and export remain unchanged. `metadata/shell.json` provenance and
 `coyoteTwoStage.physical.subdivisionReference` record the artifact identities.
 
 SHA256 equality proves integrity and static byte identity, **not DFX boundary

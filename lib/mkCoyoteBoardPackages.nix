@@ -13,6 +13,9 @@
   version ? "0.1.0",
   projectName ? pnamePrefix,
   boards,
+  # Fail a build whose Vivado log reports unmet timing constraints. Otherwise
+  # the bitstreams are built anyway.
+  strict ? false,
 }:
 
 let
@@ -53,6 +56,7 @@ let
       requiresVitisHls
       ;
     extraNativeBuildInputs = nativeBuildInputs;
+    inherit strict;
   };
   userProjectStageHelpers = import ./coyoteHwStageHelpers.nix {
     inherit
@@ -65,6 +69,7 @@ let
       requiresVitisHls
       ;
     extraNativeBuildInputs = nativeBuildInputs;
+    inherit strict;
     coyoteRoot = effectiveUserProjectCoyoteRoot;
     baseCoyoteRoot = coyoteRoot;
     coyoteSourceDelta = checkedUserProjectDelta;
@@ -189,9 +194,7 @@ let
             checkpointSha256
             coyoteSourceId
             fixedRouteNets
-            manifestId
             ;
-          reportHashesFromManifest = true;
           staticLock = {
             level = "routing";
             protectedScope = "outside:inst_shell";
@@ -205,11 +208,8 @@ let
       }
       ''
         python3 ${../nix/tools/import-u280-static-checkpoint.py} \
-          --implementation-stage-tool ${../nix/tools/coyote-implementation-stage.py} \
           ${lib.escapeShellArg (toString contract.stage)} "$out" \
-          --manifest-id ${lib.escapeShellArg contract.manifestId} \
           --checkpoint-sha256 ${lib.escapeShellArg contract.checkpointSha256} \
-          --coyote-source-id ${lib.escapeShellArg contract.coyoteSourceId} \
           --fixed-route-nets ${toString contract.fixedRouteNets} \
           --board ${lib.escapeShellArg board.board} \
           --architecture ${lib.escapeShellArg board.fpgaArchitecture} \
@@ -232,26 +232,20 @@ let
         else if !builtins.isAttrs requestedStaticCheckpoint then
           throw "coyote-nix: U280 staticCheckpoint must be an attribute set"
         else if
-          builtins.attrNames requestedStaticCheckpoint != [
+          builtins.attrNames (removeAttrs requestedStaticCheckpoint [ "manifestId" ]) != [
             "checkpointSha256"
             "coyoteSourceId"
             "fixedRouteNets"
-            "manifestId"
             "stage"
           ]
         then
-          throw "coyote-nix: U280 staticCheckpoint requires exactly stage, manifestId, checkpointSha256, coyoteSourceId, and fixedRouteNets"
+          throw "coyote-nix: U280 staticCheckpoint requires exactly stage, checkpointSha256, coyoteSourceId, and fixedRouteNets"
         else if
           !(
             builtins.isPath requestedStaticCheckpoint.stage || lib.isDerivation requestedStaticCheckpoint.stage
           )
         then
           throw "coyote-nix: U280 staticCheckpoint.stage must be an immutable Nix path or derivation"
-        else if
-          !builtins.isString requestedStaticCheckpoint.manifestId
-          || builtins.match "[0-9a-f]{64}" requestedStaticCheckpoint.manifestId == null
-        then
-          throw "coyote-nix: U280 staticCheckpoint.manifestId must be a lowercase SHA-256 digest"
         else if
           !builtins.isString requestedStaticCheckpoint.checkpointSha256
           || builtins.match "[0-9a-f]{64}" requestedStaticCheckpoint.checkpointSha256 == null
@@ -272,7 +266,9 @@ let
         then
           throw "coyote-nix: U280 staticCheckpoint.fixedRouteNets must be a positive integer"
         else
-          requestedStaticCheckpoint;
+          lib.warnIf (requestedStaticCheckpoint ? manifestId)
+            "coyote-nix: U280 staticCheckpoint.manifestId is no longer used and is ignored"
+            (removeAttrs requestedStaticCheckpoint [ "manifestId" ]);
       intermediateRouteCheckpoints = lib.optionals (!(board.skipIntermediateRouteCheckpoints or false)) [
         "checkpoints/shell_opted.dcp"
         "checkpoints/shell_placed.dcp"
@@ -386,7 +382,7 @@ let
             referenceCheckpoint = "${static}/checkpoints/static_routed_locked_u280.dcp";
             inherit candidateCheckpoint;
             referenceContract = "${static}/metadata/static-checkpoint.json";
-            referenceContractId = importedStaticCheckpoint.manifestId;
+            referenceContractId = importedStaticCheckpoint.checkpointSha256;
             expectedReferenceCheckpointSha256 = importedStaticCheckpoint.checkpointSha256;
             partitionPaths = [ "inst_shell" ];
             reportDirectory = "reports/source-delta-${phase}";

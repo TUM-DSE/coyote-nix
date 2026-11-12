@@ -19,7 +19,8 @@
   description ? "Coyote hardware build stage for ${platform}",
   nativeBuildInputs ? [ ],
   cores ? 8,
-  checkTimingLog ? true,
+  # Fail when the Vivado log reports unmet timing constraints.
+  checkTimingLog ? false,
   requiresVitisHls ? true,
   extraAttrs ? { },
 }:

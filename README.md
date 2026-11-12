@@ -42,6 +42,7 @@ shell = coyote-nix.lib.mkCoyoteShell {
   static = "prebuilt";         # Coyote's static layer; "source" builds it (U280)
   floorplan = null;            # vFPGA floorplan; null uses the default
   optimize = false;            # BUILD_OPT
+  strict = false;              # fail on failed routing, DRC or timing
   cmakeFlags = [ ];            # other Coyote settings, such as clocks
 };
 
@@ -64,6 +65,10 @@ app = coyote-nix.lib.mkCoyoteApp {
   services create.
 - **Validation:** unknown services, networking on the V80 and service
   settings passed through `cmakeFlags` fail during evaluation.
+- **Failed timing:** a shell or application whose routing, DRC or timing
+  fails is still built, with the reasons in `metadata/validation.json` and a
+  warning in the build log. `strict = true` (also on `mkCoyoteApp` and
+  `mkCoyoteExamples`) fails the build instead.
 - **One vFPGA:** shells have one vFPGA with one configuration, because
   coyote-nix's staged implementation builds no more. Requesting `vfpgas` or
   `configurations` above 1 fails during evaluation.
@@ -204,7 +209,8 @@ Provided here:
 - verified, policy-scoped Coyote user-project source deltas with fail-closed protected-static gates
 - generic U280/V80 Coyote board-flow builders
 - reusable U280/V80 two-stage PR shell-export and app-only builders
-- immutable, independently rootable link/opt/place/route/validate/image stages with manifest-checked handoffs and normalized runtime/resource/QoR telemetry
+- independently rootable link/opt/place/route/validate/image stages, so a failure keeps the work of earlier stages
+- non-strict builds by default: bitstreams are built even when validation (routing, DRC, timing) fails, and record the result in `metadata/validation.json`; `strict = true` fails instead
 - fast shell-only post-synthesis timing analysis with reusable checkpoints and a policy-only gate
 - rootable linked Vivado QoR/post-place timing-oracle reports with an optional rejecting implementation gate
 - generic Coyote kernel driver derivation and matrix builders
@@ -316,19 +322,18 @@ This produces public packages named by default:
 
 The U280 elaboration package runs production project generation and top-level RTL elaboration for every user unit without synthesis or implementation. U280 synthesis depends on this fail-closed source-closure gate. Later stage packages remain independently rootable.
 
-A U280 build may reuse the protected static portion of an accepted, immutable routed-shell validation stage. The import is deliberately fail closed: a loose `staticCheckpointDirectory` is rejected. Supply the exact stage identity, checkpoint hash, originating Coyote source identity, and fixed-route count instead:
+A U280 build may reuse the protected static portion of an earlier build's routed outer shell (its `coyoteTwoStage.physical.units.shell.validate` stage). A loose `staticCheckpointDirectory` is rejected. Supply the stage, checkpoint hash, originating Coyote source identity, and fixed-route count instead:
 
 ```nix
 boards.u280.staticCheckpoint = {
-  stage = validatedShellStage; # immutable validation-stage derivation, not a loose pathname
-  manifestId = "<metadata/stage.json manifestId>";
-  checkpointSha256 = "<validated-checkpoint artifact sha256>";
+  stage = validatedShellStage; # derivation, not a loose pathname
+  checkpointSha256 = "<sha256 of checkpoints/shell_routed.dcp>";
   coyoteSourceId = builtins.hashString "sha256" (toString coyoteRoot);
-  fixedRouteNets = 151901; # exact value from the hashed route-status report
+  fixedRouteNets = 151901; # from reports/shell_route_status.rpt
 };
 ```
 
-The importer validates the complete implementation-stage manifest and all declared report hashes, requires an accepted timing/route/DRC-clean U280 shell built by the same Coyote source and Xilinx version, and checks the exact nonzero fixed-route count before normalizing the checkpoint. The resulting contract preserves the canonical `inst_shell` partition pins while treating placement and fixed routing outside that replacement cell as protected static state; application linking must reject drift rather than unlock it.
+The importer checks the checkpoint hash, complete error-free routing and the exact fixed-route count, and warns if the source failed validation. The resulting contract preserves the canonical `inst_shell` partition pins while treating placement and fixed routing outside that replacement cell as protected static state; application linking must reject drift rather than unlock it.
 
 For a U280 flow that implements one seed application together with the shell but only needs a full deployment image, set `finalEnablePr = false` on the board. Synthesis and routing retain their configured PR hierarchy; only the final bitstream invocation uses the routed aggregate checkpoint directly instead of expecting separately finalized `config_*` and recombined-shell checkpoints. Omitting the option preserves the generated Coyote bitgen mode.
 

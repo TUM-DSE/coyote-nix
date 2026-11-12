@@ -11,6 +11,9 @@
   requiresVitisHls ? true,
   # Added to every stage's nativeBuildInputs.
   extraNativeBuildInputs ? [ ],
+  # Default for stages' checkTimingLog: fail a stage whose Vivado log reports
+  # unmet timing constraints.
+  strict ? false,
 }:
 
 let
@@ -32,7 +35,7 @@ rec {
       description ? "Coyote hardware build stage for ${board.platform}",
       nativeBuildInputs ? [ ],
       cores ? 8,
-      checkTimingLog ? true,
+      checkTimingLog ? strict,
       extraAttrs ? { },
     }:
     mkCoyoteHwStagePackage {
@@ -374,125 +377,96 @@ rec {
       description = "Coyote ${board.platform} application RTL elaboration gate";
     };
 
-  implementationStageTool = ../nix/tools/coyote-implementation-stage.py;
-  incrementalReferenceTool = ../nix/tools/coyote-incremental-reference.py;
   placementDiagnosisTool = ../nix/tools/coyote-placement-diagnosis.py;
-  strictSignoffReportTool = ../nix/tools/coyote-signoff-reports.tcl;
-  strictSignoffTool = ../nix/tools/coyote-strict-signoff.py;
 
-  strictSignoffReportArtifacts =
+  # Copy files of an earlier stage into the build directory. Checkpoints get
+  # a common timestamp so make treats them as up to date.
+  importStageFiles =
     {
-      phase,
-      reportDirectory,
-      reportPrefix,
-      reportSuffix ? "",
+      previousStage,
+      paths,
+      destination ? "$build_dir",
     }:
-    let
-      reportPath = kind: "${reportDirectory}/${reportPrefix}_${kind}${reportSuffix}.rpt";
-    in
-    [
-      {
-        role = "${phase}-methodology-report";
-        path = reportPath "methodology";
-      }
-      {
-        role = "${phase}-timing-exception-report";
-        path = reportPath "timing_exceptions";
-      }
-      {
-        role = "${phase}-bus-skew-report";
-        path = reportPath "bus_skew";
-      }
-      {
-        role = "${phase}-clock-interaction-report";
-        path = reportPath "clock_interaction";
-      }
-      {
-        role = "${phase}-unconstrained-endpoint-report";
-        path = reportPath "unconstrained_endpoints";
-      }
-      {
-        role = "${phase}-unconstrained-endpoint-evidence";
-        path = "${reportDirectory}/${reportPrefix}_unconstrained_endpoint_evidence${reportSuffix}.json";
-      }
-      {
-        role = "${phase}-drc-report";
-        path = reportPath "drc";
-      }
-      {
-        role = "${phase}-timing-summary-report";
-        path = reportPath "timing_summary";
-      }
-      {
-        role = "${phase}-strict-signoff-evidence";
-        path = "${reportDirectory}/${reportPrefix}_strict_signoff${reportSuffix}.json";
-      }
-    ]
-    ++
-      lib.optionals
-        (builtins.elem phase [
-          "route"
-          "validate"
-        ])
-        [
-          {
-            role = "${phase}-route-status-report";
-            path = reportPath "route_status";
-          }
-        ];
-
-  strictSignoffReportCommand =
-    {
-      phase,
-      unit,
-      checkpointPath,
-      reportDirectory,
-      reportPrefix,
-      reportSuffix ? "",
-      contextFile,
-    }:
-    let
-      routeApplicable =
-        if
-          builtins.elem phase [
-            "route"
-            "validate"
-          ]
-        then
-          "1"
-        else
-          "0";
-      evidencePath = "${reportDirectory}/${reportPrefix}_strict_signoff${reportSuffix}.json";
-    in
     ''
-      vivado -mode tcl -source ${strictSignoffReportTool} -notrace -tclargs \
-        ${lib.escapeShellArg phase} "$build_dir/${checkpointPath}" \
-        "$build_dir/${reportDirectory}" ${lib.escapeShellArg reportPrefix} \
-        ${lib.escapeShellArg reportSuffix} ${routeApplicable}
-      ${pkgs.python3}/bin/python ${strictSignoffTool} collect \
-        --root "$build_dir" \
-        --phase ${lib.escapeShellArg phase} \
-        --unit ${lib.escapeShellArg unit} \
-        --context ${contextFile} \
-        --checkpoint "$build_dir/${checkpointPath}" \
-        --report-directory ${lib.escapeShellArg reportDirectory} \
-        --report-prefix ${lib.escapeShellArg reportPrefix} \
-        --report-suffix ${lib.escapeShellArg reportSuffix} \
-        --output "$build_dir/${evidencePath}"
+      ${lib.concatMapStringsSep "\n" (path: ''
+        install -D -m0644 ${previousStage}/${path} ${destination}/${path}
+      '') paths}
+      if [ -d ${destination}/checkpoints ]; then
+        chmod -R u+w ${destination}/checkpoints
+        touch ${destination}/.imported-stage-timestamp
+        find ${destination}/checkpoints -type f \
+          -exec touch -r ${destination}/.imported-stage-timestamp {} +
+      fi
     '';
+
+  # Coyote's validate phase writes validation.json with outcome "accepted" or
+  # "rejected" and its reasons (incomplete routing, bitstream DRC, timing).
+  # This derivation reports it. Only a strict build fails on "rejected";
+  # otherwise the result travels with the bitstream as metadata.
+  mkValidationResult =
+    {
+      pname,
+      stage,
+      validationPath,
+      strict ? false,
+    }:
+    assert builtins.isBool strict;
+    pkgs.runCommand pname { nativeBuildInputs = [ pkgs.jq ]; } ''
+      validation=${stage}/${validationPath}
+      outcome="$(jq -r '.outcome' "$validation")"
+      case "$outcome" in
+        accepted) ;;
+        rejected)
+          echo "${
+            if strict then "ERROR" else "WARNING"
+          }: implementation validation rejected ${stage}:" >&2
+          jq -r '.reasons[] | "  - " + .' "$validation" >&2
+          ${lib.optionalString strict "exit 1"}
+          ;;
+        *)
+          echo "ERROR: unknown validation outcome '$outcome' in $validation" >&2
+          exit 1
+          ;;
+      esac
+      mkdir -p "$out/metadata"
+      for directory in checkpoints reports logs; do
+        if [ -e ${stage}/"$directory" ]; then
+          ln -s ${stage}/"$directory" "$out/$directory"
+        fi
+      done
+      jq --argjson strict ${lib.boolToString strict} '. + { strict: $strict }' "$validation" \
+        > "$out/metadata/validation.json"
+      printf '%s\n' "$outcome" > "$out/metadata/outcome"
+    '';
+
+  # Shell code for a final stage: copy the validation result next to the
+  # bitstreams and repeat a rejection, so it is visible in every build log.
+  installValidationResult = validationResult: ''
+    mkdir -p "$out/metadata"
+    install -m0644 ${validationResult}/metadata/validation.json "$out/metadata/validation.json"
+    if [ "$(jq -r '.outcome' "$out/metadata/validation.json")" != accepted ]; then
+      echo "WARNING: these bitstreams come from a design that failed validation:" >&2
+      jq -r '.reasons[] | "  - " + .' "$out/metadata/validation.json" >&2
+    fi
+  '';
 
   mkPlacementDiagnosis =
     {
       pname,
       stage,
+      reportDirectory,
+      reportSuffix,
+      strategy,
       candidateId ? null,
     }:
+    let
+      strategyFile = pkgs.writeText "${pname}-strategy.json" (builtins.toJSON strategy);
+    in
     pkgs.runCommand pname { nativeBuildInputs = [ pkgs.python3 ]; } ''
-      ${pkgs.python3}/bin/python ${implementationStageTool} validate \
-        ${stage} --phase place
       mkdir -p "$out/metadata"
       ${pkgs.python3}/bin/python ${placementDiagnosisTool} normalize \
-        ${stage} "$out/metadata/diagnosis.json" \
+        ${stage} ${lib.escapeShellArg reportDirectory} ${lib.escapeShellArg reportSuffix} \
+        ${strategyFile} "$out/metadata/diagnosis.json" \
         ${lib.optionalString (candidateId != null) "--candidate-id ${lib.escapeShellArg candidateId}"}
       ln -s ${stage} "$out/place-stage"
     '';
@@ -523,96 +497,6 @@ rec {
         ln -s ${diagnosis} "$out/candidates/${toString index}"
       '') checkedDiagnoses}
     '';
-
-  writeImplementationStageManifest =
-    {
-      spec,
-      artifactRoot ? "$out",
-      outputDir ? "$out",
-    }:
-    ''
-      ${pkgs.python3}/bin/python ${implementationStageTool} write \
-        ${spec} ${artifactRoot} ${outputDir}
-    '';
-
-  importImplementationStageArtifacts =
-    {
-      previousStage,
-      destination ? "$build_dir",
-      roles ? [ ],
-      expectedPhase ? null,
-      expectedContext ? null,
-    }:
-    ''
-      ${pkgs.python3}/bin/python ${implementationStageTool} validate ${previousStage}${
-        lib.optionalString (expectedPhase != null) " --phase ${lib.escapeShellArg expectedPhase}"
-      }${lib.optionalString (expectedContext != null) " --context ${lib.escapeShellArg expectedContext}"}
-      ${pkgs.python3}/bin/python ${implementationStageTool} import \
-        ${previousStage} ${destination} \
-        ${lib.concatMapStringsSep " " lib.escapeShellArg roles}
-      if [ -d ${destination}/checkpoints ]; then
-        chmod -R u+w ${destination}/checkpoints
-        touch ${destination}/.imported-stage-timestamp
-        find ${destination}/checkpoints -type f \
-          -exec touch -r ${destination}/.imported-stage-timestamp {} +
-      fi
-    '';
-
-  mkImplementationStageGate =
-    {
-      pname,
-      stage,
-      expectedContext,
-      enforceStrictSignoff ? true,
-    }:
-    assert builtins.isBool enforceStrictSignoff;
-    pkgs.runCommand pname
-      {
-        nativeBuildInputs = [
-          pkgs.jq
-          pkgs.python3
-        ];
-      }
-      ''
-        ${pkgs.python3}/bin/python ${implementationStageTool} validate \
-          ${stage} --phase validate --context ${lib.escapeShellArg expectedContext}
-        ${lib.optionalString enforceStrictSignoff ''
-          strict_result="$TMPDIR/strict-signoff.json"
-          strict_args=(
-            --stage ${stage}
-            --context ${lib.escapeShellArg expectedContext}
-            --output "$strict_result"
-          )
-          set +e
-          ${pkgs.python3}/bin/python ${strictSignoffTool} verify "''${strict_args[@]}"
-          strict_status=$?
-          set -e
-          if [ "$strict_status" -ne 0 ]; then
-            echo "ERROR: strict physical signoff rejected validation evidence: ${stage}" >&2
-            ${pkgs.jq}/bin/jq . "$strict_result" >&2 || true
-            exit "$strict_status"
-          fi
-        ''}
-        outcome="$(${pkgs.jq}/bin/jq -r '.outcome' ${stage}/metadata/stage.json)"
-        if [ "$outcome" != accepted ]; then
-          echo "ERROR: implementation validation outcome is $outcome; evidence: ${stage}" >&2
-          ${pkgs.jq}/bin/jq -r '.artifacts[] | select(.role == "validation-result") | .path' \
-            ${stage}/metadata/stage.json >&2 || true
-          exit 1
-        fi
-        mkdir -p "$out/metadata"
-        for directory in checkpoints reports logs; do
-          if [ -e ${stage}/"$directory" ]; then
-            ln -s ${stage}/"$directory" "$out/$directory"
-          fi
-        done
-        cp ${stage}/metadata/stage.json "$out/metadata/validation-stage.json"
-        ${lib.optionalString enforceStrictSignoff ''cp "$strict_result" "$out/metadata/strict-signoff.json"''}
-        printf '%s\n' '${
-          builtins.toJSON { inherit enforceStrictSignoff; }
-        }' > "$out/metadata/validation-policy.json"
-        printf '%s\n' accepted > "$out/metadata/outcome"
-      '';
 
   copyPreviousStageSetup =
     previousStage:

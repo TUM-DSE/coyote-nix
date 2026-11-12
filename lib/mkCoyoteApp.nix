@@ -15,6 +15,8 @@
   # Whether the application contains HLS kernels.
   requiresVitisHls ? true,
   cmakeFlags ? [ ],
+  # Fail the build when validation fails; see mkCoyoteShell.
+  strict ? false,
   version ? "0.1.0",
 }:
 let
@@ -27,6 +29,7 @@ let
       requiresVitisHls
       cmakeFlags
       nativeBuildInputs
+      strict
       version
       ;
     inherit (site) xilinxShareRoot;

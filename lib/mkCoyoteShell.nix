@@ -25,6 +25,9 @@
   floorplan ? null,
   # Coyote's BUILD_OPT: slower, more thorough place and route.
   optimize ? false,
+  # Fail the build when validation (routing, DRC, timing) fails. Otherwise the
+  # bitstream is built anyway and metadata/validation.json has the result.
+  strict ? false,
   # Further Coyote settings, for example clocks. Service settings belong in
   # services.
   cmakeFlags ? [ ],
@@ -160,6 +163,7 @@ let
         inherit (site) xilinxShareRoot;
         hwSource = staticHwSource;
         requiresVitisHls = false;
+        inherit strict;
         pnamePrefix = prefix;
         boards.${checkedBoard} = {
           inherit xilinxVersion;
@@ -210,6 +214,7 @@ let
     inherit (site) xilinxShareRoot;
     board = checkedBoard;
     requiresVitisHls = false;
+    inherit strict;
     pname = "coyote-shell-${checkedBoard}-${name}";
     cmakeFlags = settingsFlags ++ checkedCmakeFlags;
     provenance = {

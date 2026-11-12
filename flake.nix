@@ -364,7 +364,6 @@
             xilinxVersion = "2023.2";
             staticCheckpoint = {
               stage = ./.;
-              manifestId = builtins.concatStringsSep "" (builtins.genList (_: "1") 64);
               checkpointSha256 = builtins.concatStringsSep "" (builtins.genList (_: "2") 64);
               coyoteSourceId = builtins.hashString "sha256" (toString ./.);
               fixedRouteNets = 7;
@@ -634,7 +633,6 @@
             xilinxVersion = "2023.2";
             staticCheckpoint = {
               stage = ./.;
-              manifestId = builtins.concatStringsSep "" (builtins.genList (_: "1") 64);
               checkpointSha256 = builtins.concatStringsSep "" (builtins.genList (_: "2") 64);
               coyoteSourceId = coyoteDeltaArguments.baseSourceId;
               fixedRouteNets = 7;
@@ -666,7 +664,6 @@
               xilinxVersion = "2023.2";
               staticCheckpoint = {
                 stage = ./.;
-                manifestId = builtins.concatStringsSep "" (builtins.genList (_: "1") 64);
                 checkpointSha256 = builtins.concatStringsSep "" (builtins.genList (_: "2") 64);
                 coyoteSourceId = builtins.hashString "sha256" (toString ./.);
                 fixedRouteNets = 7;
@@ -1413,8 +1410,7 @@
             ''
               cd ${./.}
               bash tests/u280-static-checkpoint-import.sh \
-                nix/tools/import-u280-static-checkpoint.py \
-                ${./nix/tools/coyote-implementation-stage.py}
+                nix/tools/import-u280-static-checkpoint.py
               touch "$out"
             '';
 
@@ -1431,11 +1427,9 @@
               part = "xcu280-fsvh2892-2L-e";
               toolVersion = "2023.2";
               sourceStage = toString ./.;
-              manifestId = builtins.concatStringsSep "" (builtins.genList (_: "1") 64);
               checkpointSha256 = builtins.concatStringsSep "" (builtins.genList (_: "2") 64);
               coyoteSourceId = builtins.hashString "sha256" (toString ./.);
               fixedRouteNets = 7;
-              reportHashesFromManifest = true;
               staticLock = {
                 level = "routing";
                 protectedScope = "outside:inst_shell";
@@ -1504,13 +1498,6 @@
             grep -F 'generated base.tcl has no canonical cfg(en_pr) assignment' \
               u280-final-build-phase >/dev/null
             grep -F 'import-u280-static-checkpoint.py' u280-static-import-build-phase >/dev/null
-            grep -E -- '--implementation-stage-tool /nix/store/[0-9a-z]{32}-coyote-implementation-stage\.py' \
-              u280-static-import-build-phase >/dev/null
-            if grep -F -- '--implementation-stage-tool /nix/store/coyote-implementation-stage.py' \
-              u280-static-import-build-phase; then
-              echo 'static importer referenced a bare implementation-stage store path' >&2
-              exit 1
-            fi
             grep -F -- '--fixed-route-nets' u280-static-import-build-phase >/dev/null
             grep -F -- '--reconfigurable-cell inst_shell' u280-static-import-build-phase >/dev/null
             touch $out
@@ -1572,8 +1559,7 @@
           assert evalU280Shell.coyoteTwoStage.timingOracle.policy.enforce;
           assert evalU280Shell.coyoteTwoStage.timingOracle.policy.rejectRqaBelow == 3;
           assert evalU280Shell.coyoteTwoStage.enShellPblock;
-          assert evalU280Shell.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
-          assert evalU280Shell.coyoteTwoStage.physical.strictSignoff.required;
+          assert !evalU280Shell.coyoteTwoStage.physical.strict;
           assert evalU280Shell.coyoteTwoStage.physical.combineOptPlace;
           assert evalU280Shell.coyoteTwoStage.physical.units ? shell;
           assert evalU280Shell.coyoteTwoStage.physical.units.shell ? link;
@@ -1670,8 +1656,7 @@
           assert !evalV80App.coyoteTwoStage.physical.combineOptPlace;
           assert evalV80App.coyoteTwoStage.shellPath == toString evalV80Shell;
           assert builtins.elem "-DEN_SHELL_PBLOCK:STRING=0" evalV80App.coyoteTwoStage.appCmakeFlags;
-          assert evalV80App.coyoteTwoStage.physical.api == "coyote-nix.implementation-stage/v2";
-          assert evalV80App.coyoteTwoStage.physical.strictSignoff.required;
+          assert !evalV80App.coyoteTwoStage.physical.strict;
           assert
             evalV80App.coyoteTwoStage.physical.linkIntegrity.partitionPinManifest
             == "reports/config_0/app_link_partition_pins_c0.json";
@@ -1823,56 +1808,7 @@
               touch "$out"
             '';
 
-        checks.implementation-stage-manifest-contract =
-          pkgs.runCommand "implementation-stage-manifest-contract"
-            {
-              nativeBuildInputs = [
-                pkgs.python3
-                pkgs.jq
-              ];
-            }
-            ''
-              bash ${./tests/implementation-stage-manifest.sh} \
-                ${./nix/tools/coyote-implementation-stage.py} \
-                ${./tests/fixtures} \
-                ${./nix/tools/coyote-incremental-reference.py}
-              touch "$out"
-            '';
-
-        checks.strict-signoff-report-generation =
-          pkgs.runCommand "strict-signoff-report-generation-contract"
-            {
-              nativeBuildInputs = [
-                pkgs.jq
-                pkgs.python3
-                pkgs.tcl
-              ];
-            }
-            ''
-              bash ${./tests/strict-signoff-report-generation.sh} \
-                ${./nix/tools/coyote-signoff-reports.tcl} \
-                ${./nix/tools/coyote-strict-signoff.py} \
-                ${./tests/fixtures/strict-signoff}
-              touch "$out"
-            '';
-
         checks.implementation-gate-policy = import ./tests/implementation-gate-policy.nix { inherit pkgs; };
-
-        checks.strict-signoff-gate =
-          pkgs.runCommand "strict-signoff-gate-contract"
-            {
-              nativeBuildInputs = [
-                pkgs.jq
-                pkgs.python3
-              ];
-            }
-            ''
-              bash ${./tests/strict-signoff-gate.sh} \
-                ${./nix/tools/coyote-strict-signoff.py} \
-                ${./nix/tools/coyote-implementation-stage.py} \
-                ${./tests/fixtures/strict-signoff}
-              touch "$out"
-            '';
 
         checks.placement-diagnosis-contract =
           pkgs.runCommand "placement-diagnosis-contract"
@@ -2130,13 +2066,12 @@
           for script in \
             ${phaseScript "u280-app-link-evidence-install.sh" evalU280App.coyoteTwoStage.stages.link.installPhase} \
             ${phaseScript "v80-app-link-evidence-install.sh" evalV80App.coyoteTwoStage.stages.link.installPhase}; do
-            grep -F 'coyote.app-link-integrity/v1' "$script" >/dev/null
-            grep -F 'coyote.app-link-partition-pins/v1' "$script" >/dev/null
-            grep -F 'routedLockedCheckpointSha256' "$script" >/dev/null
-            grep -F 'protectedStatic.placement.before == .protectedStatic.placement.after' "$script" >/dev/null
-            grep -F 'protectedStatic.routing.before == .protectedStatic.routing.after' "$script" >/dev/null
-            grep -F 'app_link_partition_pins_c0.json' "$script" >/dev/null
+            # Linking must leave the shell untouched, regardless of strict.
             grep -F 'app_link_integrity_c0.json' "$script" >/dev/null
+            grep -F 'routedLockedCheckpointSha256' "$script" >/dev/null
+            grep -F '.partitionPins.identical == true' "$script" >/dev/null
+            grep -F '.protectedStatic.placement.identical == true' "$script" >/dev/null
+            grep -F '.protectedStatic.routing.identical == true' "$script" >/dev/null
           done
           grep -F '${builtins.unsafeDiscardStringContext (toString evalU280App.coyoteTwoStage.stages.link)}/reports/config_0/. "$build_dir/reports/config_0/"' \
             ${phaseScript "u280-app-final-link-evidence.sh" evalU280App.buildPhase} >/dev/null

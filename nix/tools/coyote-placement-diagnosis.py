@@ -58,20 +58,6 @@ def safe_relative(raw):
     return path
 
 
-def artifact_path(stage, manifest, role):
-    matches = [entry for entry in manifest["artifacts"] if entry.get("role") == role]
-    if len(matches) != 1:
-        fail(f"stage requires exactly one {role} artifact")
-    relative = safe_relative(matches[0].get("path"))
-    path = stage.joinpath(*relative.parts)
-    if not path.is_file():
-        fail(f"missing {role} artifact: {relative}")
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if digest != matches[0].get("sha256"):
-        fail(f"tampered {role} artifact: {relative}")
-    return path, str(relative)
-
-
 def decimal_scaled(value, scale, field):
     if value is None:
         return None
@@ -114,14 +100,16 @@ def parse_congestion_level(path):
     return value
 
 
-def normalize(stage, output, candidate_id):
-    manifest = load(stage / "metadata/stage.json")
-    if manifest.get("api") != "coyote-nix.implementation-stage/v2" or manifest.get("phase") != "place":
-        fail("placement diagnosis requires a strict place-stage v2 manifest")
-    context = manifest.get("context")
-    if not isinstance(context, dict) or context.get("architecture") != "versal" or context.get("board") != "v80":
-        fail("placement diagnosis currently supports only V80 Versal stages")
-    strategy = manifest.get("strategy")
+def report_file(stage, report_dir, name):
+    relative = safe_relative(f"{report_dir}/{name}")
+    path = stage.joinpath(*relative.parts)
+    if not path.is_file():
+        fail(f"missing place-stage report: {relative}")
+    return path, str(relative)
+
+
+def normalize(stage, report_dir, suffix, strategy_path, output, candidate_id):
+    strategy = load(strategy_path)
     if not isinstance(strategy, dict):
         fail("place-stage strategy must be an object")
     declared_candidate = strategy.get("candidateId")
@@ -132,14 +120,14 @@ def normalize(stage, output, candidate_id):
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", candidate_id):
         fail("candidate identifier is not canonical")
 
-    evidence_path, evidence_relative = artifact_path(stage, manifest, "place-diagnosis-observations")
-    congestion_path, congestion_relative = artifact_path(stage, manifest, "place-congestion-report")
-    _, complexity_relative = artifact_path(stage, manifest, "place-complexity-report")
-    _, logic_levels_relative = artifact_path(stage, manifest, "place-logic-level-report")
-    _, high_fanout_relative = artifact_path(stage, manifest, "place-high-fanout-report")
-    telemetry_path, telemetry_relative = artifact_path(stage, manifest, "normalized-telemetry")
+    evidence_path, evidence_relative = report_file(stage, report_dir, f"shell_place_diagnosis{suffix}.json")
+    congestion_path, congestion_relative = report_file(stage, report_dir, f"shell_place_congestion{suffix}.rpt")
+    _, complexity_relative = report_file(stage, report_dir, f"shell_place_complexity{suffix}.rpt")
+    _, logic_levels_relative = report_file(stage, report_dir, f"shell_place_logic_levels{suffix}.rpt")
+    _, high_fanout_relative = report_file(stage, report_dir, f"shell_place_high_fanout{suffix}.rpt")
+    physical_path, physical_relative = report_file(stage, report_dir, f"shell_place_physical{suffix}.json")
     evidence = load(evidence_path)
-    telemetry = load(telemetry_path)
+    physical = load(physical_path)
 
     required_evidence = {
         "schemaVersion", "kind", "phase", "vivadoVersion", "vivadoFullVersion",
@@ -189,17 +177,17 @@ def normalize(stage, output, candidate_id):
         if values["netDelayFs"] is not None:
             net_fraction = values["netDelayFs"] * 1_000_000 // data_delay
 
-    rqa_metric = telemetry.get("metrics", {}).get("physical", {}).get("qor", {}).get("rqaScore")
-    if not isinstance(rqa_metric, dict) or rqa_metric.get("state") not in ("available", "unavailable"):
-        fail("normalized telemetry lacks an explicit RQA metric state")
+    rqa = (physical.get("qor") or {}).get("rqaScore")
+    if isinstance(rqa, str) and rqa.strip().isdigit():
+        rqa = int(rqa)
+    if not isinstance(rqa, int) or isinstance(rqa, bool) or not 1 <= rqa <= 5:
+        rqa = None
+    rqa_metric = metric(rqa, "score", "place-physical-observations", "not-reported")
     diagnosis = {
         "schemaVersion": 1,
         "api": DIAGNOSIS_API,
         "subject": {
             "candidateId": candidate_id,
-            "manifestId": manifest.get("manifestId"),
-            "recipeId": manifest.get("recipeId"),
-            "contextId": context.get("id"),
             "strategy": strategy,
         },
         "tool": {
@@ -222,7 +210,7 @@ def normalize(stage, output, candidate_id):
         },
         "evidence": {
             "observations": evidence_relative,
-            "telemetry": telemetry_relative,
+            "physical": physical_relative,
             "congestionReport": congestion_relative,
             "complexityReport": complexity_relative,
             "logicLevelReport": logic_levels_relative,
@@ -255,7 +243,6 @@ def recommend(policy_path, output, diagnosis_paths):
         fail("recommendation requires two or three placement candidates")
     entries = []
     seen = set()
-    contexts = set()
     for diagnosis in diagnoses:
         if diagnosis.get("api") != DIAGNOSIS_API:
             fail("recommendation input is not a placement diagnosis")
@@ -264,7 +251,6 @@ def recommend(policy_path, output, diagnosis_paths):
         if candidate in seen:
             fail(f"duplicate candidate identifier: {candidate}")
         seen.add(candidate)
-        contexts.add(subject.get("contextId"))
         metrics = diagnosis.get("metrics", {})
         worst = metrics.get("worstSetupPath", {})
         rqa = available(metrics.get("rqaScore"), 0)
@@ -283,14 +269,11 @@ def recommend(policy_path, output, diagnosis_paths):
             "score": sum(components.values()),
             "components": components,
         })
-    if len(contexts) != 1 or None in contexts:
-        fail("all recommendation candidates must share one context")
     entries.sort(key=lambda entry: (-entry["score"], entry["candidateId"]))
     recommendation = {
         "schemaVersion": 1,
         "api": RECOMMENDATION_API,
         "policy": policy,
-        "contextId": next(iter(contexts)),
         "ranking": entries,
         "recommendedRouteCandidates": [entry["candidateId"] for entry in entries[:maximum]],
         "advisoryOnly": True,
@@ -304,6 +287,9 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
     normalize_parser = subparsers.add_parser("normalize")
     normalize_parser.add_argument("stage", type=Path)
+    normalize_parser.add_argument("report_dir")
+    normalize_parser.add_argument("suffix")
+    normalize_parser.add_argument("strategy", type=Path)
     normalize_parser.add_argument("output", type=Path)
     normalize_parser.add_argument("--candidate-id")
     recommend_parser = subparsers.add_parser("recommend")
@@ -313,7 +299,7 @@ def main():
     args = parser.parse_args()
     try:
         if args.command == "normalize":
-            normalize(args.stage, args.output, args.candidate_id)
+            normalize(args.stage, args.report_dir, args.suffix, args.strategy, args.output, args.candidate_id)
         else:
             recommend(args.policy, args.output, args.diagnoses)
     except ValueError as error:

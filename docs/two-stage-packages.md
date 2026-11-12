@@ -92,9 +92,9 @@ A stable config-0/seed application and an application floorplan still have to be
 | U280 | optional shell synthesis analysis -> seed synthesis -> routed shell -> dynamic PR flow -> bitgen | `cyt_top.bit` | `shell_top.bin` | `config_*/vfpga_*.bin` |
 | V80 | optional shell synthesis analysis -> seed synthesis -> Versal dynamic PR flow -> bitgen | `cyt_top.pdi` | none (nested DFX is unsupported) | `config_*/vfpga_*.pdi` |
 
-The package graph uses immutable physical stages rather than Coyote's legacy aggregate `make shell`/`make app` targets. U280 first implements the outer shell and then configuration 0; V80 implements configuration 0 directly. Under U280's pinned Vivado 2023.2, optimization and placement intentionally remain one physical stage because Vivado crashes when serializing the linked nested-DFX design immediately after `opt_design`; the first physical checkpoint is therefore post-place. Other supported tool/board combinations retain separate opt and place stages. Bit generation remains a separate final image stage and retains the existing handling for Vivado failures after artifact creation.
+The package graph uses separate physical stages rather than Coyote's legacy aggregate `make shell`/`make app` targets. U280 first implements the outer shell and then configuration 0; V80 implements configuration 0 directly. Under U280's pinned Vivado 2023.2, optimization and placement intentionally remain one physical stage because Vivado crashes when serializing the linked nested-DFX design immediately after `opt_design`; the first physical checkpoint is therefore post-place. Other supported tool/board combinations retain separate opt and place stages. Bit generation remains a separate final image stage and retains the existing handling for Vivado failures after artifact creation.
 
-### Immutable physical stages
+### Physical stages
 
 Shell and application constructors accept an optional implementation recipe:
 
@@ -109,47 +109,36 @@ implementation = {
     postRoutePhysOpt = "AggressiveExplore";
     finalRoute = "";
   };
-  enforceTiming = true;
-  xilinxInstallationId = "site-manifest-sha256"; # recommended when available
+  enforceTiming = true; # whether failed timing counts as a validation failure
   topology = { configurations = 1; regions = 1; };
 };
 ```
 
-Omitted directives reproduce the effective legacy `BUILD_OPT` board defaults. Repeated legacy CMake policy flags are interpreted with CMake's last-assignment-wins behavior. Cores, phase directives, timing policy, source/constraint/static identity, Coyote source, board/part, Xilinx version/installation identity, and the exact predecessor manifest all participate in stage identity.
+Omitted directives reproduce the effective legacy `BUILD_OPT` board defaults. Repeated legacy CMake policy flags are interpreted with CMake's last-assignment-wins behavior. Each stage is an ordinary derivation of the previous stage's output, so changing a directive rebuilds only the stages from that phase on.
 
-An explicit `-DEN_TIMING_CHECK` stage flag is authoritative over a consumer's in-project default. The stage runner validates the configured cache value and propagates the normalized Boolean into Coyote's generated Tcl before any build command executes; when the flag is absent, the project's generated policy remains untouched. `OFF` keeps negative timing visible in the ordinary reports while allowing a fully routed, bitstream-DRC-clean checkpoint to be retained. It does not change clock constraints, suppress reports, or waive routing or DRC failures. Immutable validation additionally uses `implementation.enforceTiming`; callers that support both flows should set the two policies consistently.
+An explicit `-DEN_TIMING_CHECK` stage flag is authoritative over a consumer's in-project default. The stage runner validates the configured cache value and propagates the normalized Boolean into Coyote's generated Tcl before any build command executes; when the flag is absent, the project's generated policy remains untouched. `OFF` keeps negative timing visible in the ordinary reports while allowing a fully routed, bitstream-DRC-clean checkpoint to be retained. It does not change clock constraints, suppress reports, or waive routing or DRC failures. Staged validation counts failed timing unless `implementation.enforceTiming = false`.
 
 The physical contract is available under `coyoteTwoStage.physical` and the rootable derivations under `coyoteTwoStage.stages`:
 
 ```text
 inputs -> link -> opt -> place -> route -> validate -> validationGate -> [DFX finalize] -> image
+
 ```
 
-`place` includes pre-route physical optimization. `route` keeps post-route physical optimization and its mandatory final reroute atomic. `validate` reopens the route read-only, retains route/timing/DRC evidence, and emits `accepted` or `rejected`; the separate gate rejects only after that evidence is rootable. Shell DFX locking/recombination runs afterward as an explicit `finalize` stage, so a finalization failure cannot destroy the retained validation result. Image generation requires an accepted validation/finalization manifest.
+`place` includes pre-route physical optimization. `route` keeps post-route physical optimization and its mandatory final reroute atomic. Each stage copies only the checkpoint it starts from out of its predecessor, runs one Coyote `physical_stage` phase, and installs its output checkpoint with Coyote's reports (utilization, timing summary, QoR assessment for opt/place, route status for route/validate) and fpga-nix's execution measurements (`metadata/execution.json`).
 
-Each stage contains `metadata/stage.json` and `metadata/complete`. The manifest hashes every declared artifact and binds the exact phase, implementation unit, canonical context, predecessor manifest/outcome, strategy, and resources. Consumers validate and import only declared roles; undeclared files in a predecessor cannot leak into the next physical phase.
+### Validation
 
-New package graphs use the strict `coyote-nix.implementation-stage/v2` manifest ABI; the validator retains read-only compatibility with historical v1 artifacts. Every non-input v2 stage must contain:
+`validate` checks complete routing, bitstream DRC and, by default, timing, and writes the result to `validation.json` (`outcome` is `accepted` or `rejected`, with `reasons`). `validationGate` reports it:
 
-- `metadata/execution.json` and raw `metadata/gnu-time.txt` for build-command wall time, user/system CPU, peak RSS, requested cores, exit status, and post-command scratch size;
-- `logs/command.stdout.log` and `logs/command.stderr.log` for the exact measured command scope;
-- `metadata/telemetry.json`, using `coyote-nix.implementation-telemetry/v1`, with canonical integer units and explicit unavailable/not-applicable observations;
-- phase-local timing and utilization reports for opt/place/route/validate, route status for route/validate, and bitstream DRC for validation. Link, place, route, and validate stages additionally retain methodology, timing-exception, bus-skew, clock-interaction, verbose unconstrained-endpoint, implementation DRC, and timing reports; route status is added where routing is applicable. Tcl also retains a canonical endpoint sidecar containing each exact `check_timing` category and endpoint plus the owning cell's exact clock-pin names, propagated clock names, and constant values. Each stage hashes the raw reports, endpoint sidecar, implementation context/source identities, and exact phase checkpoint into a normalized `coyote-nix.strict-signoff-evidence/v1` inventory. Physical-stage RQA is retained where safe, but is explicitly unavailable for U280 under Vivado 2023.2 because `report_qor_assessment` can terminate that tool process after successful optimization; request the separate advisory timing oracle for RQA experiments rather than risking a canonical checkpoint;
-- `metadata/primary-tool.json` on image stages, preserving Vivado's original nonzero exit when the existing completion-marker exception accepts post-completion cleanup failure.
+- By default (`strict = false`) a rejection prints a warning and the build continues. Shell and application images are built anyway and carry the result in `metadata/validation.json`, where the final build log repeats it.
+- With `strict = true` on the shell or application constructor, a rejection fails `validationGate` and everything after it.
 
-`recipeId` hashes context, phase, unit, predecessor recipe, strategy, and requested resources but excludes measured runtime. `manifestId` identifies the exact realized evidence and therefore includes telemetry and logs. FPGA realization is not assumed bit-for-bit deterministic: a cache stores one evidence-bearing realization of the pinned recipe, while the recipe ID remains stable for comparisons. Later implementation phases consume authoritative checkpoint/image roles, not normalized metrics or future selection policy.
+`strict` also sets the default of every other stage's Vivado-log timing check, which matters for the in-one-piece board flow (`mkCoyoteBoardPackages`, which also takes `strict`).
 
-Telemetry is factual rather than an acceptance decision. Validation still emits accepted/rejected evidence and the separate validation gate applies policy. Finalize/image telemetry describes only those commands; predecessor timing is not relabeled as a new measurement. A normally failed Nix derivation cannot publish `$out`, so transient tool/license/OOM failures remain retryable and may have only `nix log`/`--keep-failed` evidence. A future immutable failed-attempt bundle requires an explicit non-substitutable diagnostic mode rather than converting ordinary failures into cached successes.
+An application's link stage always fails when linking changed the shell: Coyote's `app_link_integrity` report must show identical partition pins and identical static placement and routing for the exact shell. Such a partial bitstream would not fit the shell on the card, so this is not subject to `strict`.
 
-### Strict physical signoff
-
-The raw `validate` derivation remains independently buildable so its report set can be inspected. The validation gate and every final image are fail closed on the evidence itself; no hand-written review is required.
-
-The gate independently verifies the stage manifest and every declared artifact, then reparses the raw reports and cross-checks the Tcl endpoint sidecar instead of trusting normalized observations alone. It rejects a missing or malformed report, report/evidence/checkpoint hash drift, stale manifest/artifact/source/context/evidence identity, negative overall setup or hold WNS/TNS, an incomplete/error route, and any implementation or bitstream DRC Error or Critical Warning. This gate is unconditional even when the older project timing switch or `implementation.enforceTiming` was disabled for diagnostic image generation.
-
-Timing exceptions and unconstrained endpoints (`check_timing`) are retained and hashed into the evidence for inspection, but do not decide signoff. The former `implementation.signoffClassification` is ignored with an evaluation warning.
-
-The immutable packaged graph currently supports the QShell MVP topology of exactly one configuration and one region. The legacy Coyote aggregate flow remains available for multi-configuration/multi-region projects until per-unit DFX bundle staging is added; immutable package constructors reject any explicitly different topology and Coyote's staged link target verifies the generated topology before invoking Vivado.
+The staged graph currently supports exactly one configuration and one region. The legacy Coyote aggregate flow remains available for multi-configuration/multi-region projects; the staged constructors reject any explicitly different topology and Coyote's staged link target verifies the generated topology before invoking Vivado.
 
 ### Fast synthesized-shell analysis
 
@@ -339,21 +328,21 @@ implementation.placementPortfolio = {
 };
 ```
 
-Every candidate has an independently rootable place stage and normalized diagnosis under `coyoteTwoStage.stages.placementCandidates.<id>`. Place stages retain raw congestion, complexity, logic-level, high-fanout, timing, utilization, and RQA evidence. `diagnosis` converts supported observations into `coyote-nix.placement-diagnosis/v1` with canonical integer units and explicit unavailable states.
+Every candidate has an independently rootable place stage and normalized diagnosis under `coyoteTwoStage.stages.placementCandidates.<id>`. Place stages retain raw congestion, complexity, logic-level, high-fanout, timing, utilization, and RQA reports. `diagnosis` converts supported observations into `coyote-nix.placement-diagnosis/v1` with canonical integer units and explicit unavailable states.
 
-`placementRecommendation` ranks the complete candidate set under the separately versioned policy and emits an advisory-only recommendation. It never causes Nix to route a newly selected candidate. The user must copy at most two candidate IDs into `routeCandidates` and evaluate/build those explicit route/validate/gate outputs in a second step. Candidate count, identifiers, resource declarations, and selection bounds are rejected during evaluation. The ordinary canonical route and all final DRC/setup/hold/image gates remain unchanged.
+`placementRecommendation` ranks the complete candidate set under the separately versioned policy and emits an advisory-only recommendation. It never causes Nix to route a newly selected candidate. The user must copy at most two candidate IDs into `routeCandidates` and evaluate/build those explicit route/validate/gate outputs in a second step. Invalid candidate counts, identifiers, resource declarations, and selection bounds are rejected during evaluation. The ordinary route and image are unaffected.
 
 ### U280 incremental implementation
 
-U280 shell and application packages may use one explicitly selected prior accepted validation stage as an experimental Vivado incremental reference:
+U280 shell and application packages may use the validation stage of an earlier build as an experimental Vivado incremental reference:
 
 ```nix
 implementation.incrementalReference = previous.coyoteTwoStage.stages.validate;
 ```
 
-The reference must be an immutable Nix derivation. At build time coyote-nix validates its complete stage manifest, accepted outcome, checkpoint hash, U280 part, topology, flow, and exact Vivado installation identity. It then records `metadata/incremental-reference.json`, loads the declared checkpoint through `read_checkpoint -incremental`, and retains place/route incremental-reuse reports.
+The reference must be a derivation. Its routed configuration 0 checkpoint (`checkpoints/config_0/shell_routed_c0.dcp`) is loaded through `read_checkpoint -incremental`, and the place/route stages retain incremental-reuse reports.
 
-The resulting `coyoteTwoStage.stages.incremental.{opt,place,route,validate,gate}` branch is separate from the ordinary clean stages. It is an iteration experiment and has `signoffAuthority = false`; final shell/application images continue to consume only the clean validation path. The first physical pilot must verify checkpoint-state continuity and reuse reporting under the pinned Vivado 2023.2 U280 toolchain before runtime or QoR improvements are claimed.
+The resulting `coyoteTwoStage.stages.incremental.{opt,place,route,validate,gate}` branch is separate from the ordinary clean stages. It is an iteration experiment; final shell/application images continue to use only the clean path. The first physical pilot must verify checkpoint-state continuity and reuse reporting under the pinned Vivado 2023.2 U280 toolchain before runtime or QoR improvements are claimed.
 
 ### App output
 
