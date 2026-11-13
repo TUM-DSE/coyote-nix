@@ -37,6 +37,7 @@
 
   outputs =
     {
+      self,
       nixpkgs,
       flake-utils,
       fpgahog,
@@ -1115,11 +1116,45 @@
         # Coyote's examples for the site input's boards:
         #   nix build .#examples.u280.hello_world      host program and bitstream
         #   nix build .#examples.u280.hello_world.hw   bitstream only
-        legacyPackages = pkgs.lib.optionalAttrs (system == "x86_64-linux") {
-          examples = coyoteNixLib.mkCoyoteExamples {
-            inherit pkgs;
-            site = site.lib.mkXilinxContext { inherit pkgs system; };
-          };
+        #
+        # Building all of them takes hours, so they are not checks. Run
+        #   nix run .#test-examples -- [--coyote REF] [--jobs N] [--out DIR]
+        # to build every example and keep the results in a run directory.
+        legacyPackages = pkgs.lib.optionalAttrs (system == "x86_64-linux") (
+          let
+            exampleSite = site.lib.mkXilinxContext { inherit pkgs system; };
+            examples = coyoteNixLib.mkCoyoteExamples {
+              inherit pkgs;
+              site = exampleSite;
+            };
+          in
+          {
+            inherit examples;
+            # What test-examples builds: <board>/<example>/<piece> for each
+            # example's sw, shell, app or hw.
+            exampleTests = {
+              pieces = import ./nix/example-tests.nix {
+                inherit (pkgs) lib;
+                inherit examples;
+              };
+              sandboxPaths = [ exampleSite.xilinxShareRoot ];
+            };
+          }
+        );
+
+        apps.test-examples = {
+          type = "app";
+          meta.description = "Build all Coyote examples and keep the results";
+          program = pkgs.lib.getExe (
+            pkgs.writeShellApplication {
+              name = "test-examples";
+              runtimeInputs = [ pkgs.python3 ];
+              text = ''
+                export COYOTE_NIX_FLAKE="''${COYOTE_NIX_FLAKE:-path:${self}}"
+                exec python3 ${./nix/tools/test-examples.py} "$@"
+              '';
+            }
+          );
         };
 
         checks.coyote-driver-build = coyoteNixLib.mkCoyoteDriverPackage {
