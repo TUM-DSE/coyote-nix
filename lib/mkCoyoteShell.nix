@@ -56,6 +56,8 @@ let
       board;
 
   requested = serviceLib.normalize checkedBoard services;
+  # Coyote generates its network stack with Vitis HLS.
+  networking = requested.rdma || requested.tcp || requested.sniffer;
   # coyote-nix's staged implementation builds one configuration with one
   # vFPGA. Coyote would build the others too, but nothing would implement
   # them, so a larger shell would lack their bitstreams.
@@ -164,7 +166,7 @@ let
           ;
         inherit (site) xilinxShareRoot;
         hwSource = staticHwSource;
-        requiresVitisHls = false;
+        requiresVitisHls = networking;
         inherit strict;
         pnamePrefix = prefix;
         boards.${checkedBoard} = {
@@ -215,7 +217,7 @@ let
       ;
     inherit (site) xilinxShareRoot;
     board = checkedBoard;
-    requiresVitisHls = false;
+    requiresVitisHls = networking;
     inherit strict;
     greyboxApplications = true;
     pname = "coyote-shell-${checkedBoard}-${name}";

@@ -96,10 +96,37 @@ in
       ! grep -q '^set(FDEV_NAME "u55c")' CMakeLists.txt
     '';
   };
-  # Only in Coyote versions that have it. 32 vFPGAs need the V80 without
-  # application reconfiguration, and mkCoyoteShell builds one vFPGA.
+  # The following examples exist only in newer Coyote versions. They bring
+  # their own static or network setup, so each is built in one piece.
+
+  # Two U280s linked over QSFP1 with Aurora; running it needs both cards cabled.
+  aurora_loopback = {
+    directory = "13_aurora_loopback";
+    boards = [ "u280" ];
+    services.hostStreams = 1;
+    optimize = true;
+    monolithic = true;
+  };
+  # The V80's on-card R5 CPU working with a vFPGA as its co-processor.
+  amc_ping = {
+    directory = "14_amc_ping";
+    boards = [ "v80" ];
+    services.hostStreams = 1;
+    optimize = true;
+    monolithic = true;
+  };
+  # Raw Ethernet through the V80's DCMAC; running it needs a peer on QSFP.
+  dcmac = {
+    directory = "15_dcmac";
+    boards = [ "v80" ];
+    services.hostStreams = 1;
+    optimize = true;
+    monolithic = true;
+  };
+  # 32 vFPGAs need the V80 without application reconfiguration, and
+  # mkCoyoteShell builds one vFPGA.
   many_vfpgas = {
-    directory = "17_many_vfpgas";
+    directory = "16_many_vfpgas";
     boards = [ "v80" ];
     services.vfpgas = 32;
     optimize = true;
