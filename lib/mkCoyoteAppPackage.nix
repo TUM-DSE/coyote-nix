@@ -1060,9 +1060,9 @@ let
         paths = [ "checkpoints/config_0/shell_routed_c0.dcp" ];
       }}
       mkdir -p "$build_dir/reports/config_0"
-      cp -a ${link}/reports/config_0/. "$build_dir/reports/config_0/"
-      cp -a ${validate}/reports/config_0/. "$build_dir/reports/config_0/"
-      chmod -R u+w "$build_dir/reports/config_0"
+      # validate's reports include link's; copy writable so they can overlap.
+      cp -r --no-preserve=mode ${link}/reports/config_0/. "$build_dir/reports/config_0/"
+      cp -r --no-preserve=mode ${validate}/reports/config_0/. "$build_dir/reports/config_0/"
       ${lib.optionalString (checkedUserProjectDelta != null) ''
         expected_locked_sha256="$(jq -r '.compatibility.shellRoutedLockedDcpSha256' \
           ${shellPackage}/metadata/shell.json)"
