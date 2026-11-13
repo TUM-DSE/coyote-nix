@@ -96,6 +96,15 @@ in
       ! grep -q '^set(FDEV_NAME "u55c")' CMakeLists.txt
     '';
   };
+  # Only in Coyote versions that have it. 32 vFPGAs need the V80 without
+  # application reconfiguration, and mkCoyoteShell builds one vFPGA.
+  many_vfpgas = {
+    directory = "17_many_vfpgas";
+    boards = [ "v80" ];
+    services.vfpgas = 32;
+    optimize = true;
+    monolithic = true;
+  };
   packet_sniffer = {
     directory = "11_packet_sniffer";
     boards = [ "u280" ];

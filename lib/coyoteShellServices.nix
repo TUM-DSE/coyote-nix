@@ -49,8 +49,10 @@ rec {
       ]
     then
       fail "rdma, tcp and sniffer must be Booleans"
-    else if !isCount 1 s.vfpgas || s.vfpgas > 15 then
-      fail "vfpgas must be an integer from 1 to 15"
+    # 32 is Coyote's largest shell (V80 without application reconfiguration);
+    # Coyote's CMake enforces the lower limits of other boards and of PR.
+    else if !isCount 1 s.vfpgas || s.vfpgas > 32 then
+      fail "vfpgas must be an integer from 1 to 32"
     else if !isCount 1 s.configurations then
       fail "configurations must be a positive integer"
     else if board == "v80" && networking then

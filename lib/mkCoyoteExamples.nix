@@ -53,13 +53,17 @@ let
     if !(board ? xilinxVersion) then fail "site.boards.${name}.xilinxVersion is missing" else board
   ) siteBoards;
 
-  knownExamples = lib.concatStringsSep ", " (lib.attrNames allExamples);
+  # Examples differ between Coyote versions; build those this Coyote has.
+  presentExamples = lib.filterAttrs (
+    _: example: builtins.pathExists "${coyoteRoot}/examples/${example.directory}"
+  ) allExamples;
+  knownExamples = lib.concatStringsSep ", " (lib.attrNames presentExamples);
   selectedExamples =
     if examples == null then
-      allExamples
+      presentExamples
     else
       lib.genAttrs examples (
-        name: allExamples.${name} or (fail "unknown example ${name}; known: ${knownExamples}")
+        name: presentExamples.${name} or (fail "unknown example ${name}; known: ${knownExamples}")
       );
 
   cmakeListsOf =
