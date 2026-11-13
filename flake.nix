@@ -14,8 +14,9 @@
       inputs.flake-utils.follows = "flake-utils";
       inputs.fpgahog.follows = "fpgahog";
     };
+    # With submodules: Coyote's network stack (hw/services/network) is one.
     coyote = {
-      url = "github:taugoust/Coyote/develop";
+      url = "git+https://github.com/taugoust/Coyote?ref=develop&submodules=1";
       flake = false;
     };
     # The site whose Xilinx installation and boards the examples are built

@@ -1,7 +1,10 @@
 """Build Coyote's examples with Nix and keep the results in a run directory.
 
 Usage: test-examples [--coyote REF] [--flake REF] [--jobs N] [--out DIR]
-                     [--only REGEX]
+                     [--only REGEX] [--synth-only]
+
+REF for a Coyote checkout needs its submodules, for example
+git+file:///path/to/Coyote?ref=BRANCH&submodules=1.
 
 Every piece of every example (host program, shell, application or one-piece
 image) is built in a single `nix build --keep-going`, so shared shells are
@@ -14,6 +17,11 @@ directory holds:
 
 The links are garbage-collector roots: as long as the run directory exists,
 Nix keeps everything it points to, and a later run reuses it.
+
+--synth-only builds just the synthesis of every shell and one-piece example,
+which needs nothing else and shows synthesis and configuration errors within
+about two hours. Application synthesis needs its finished shell and is left
+to the full run. It links the steps under synth/ and summarizes them.
 """
 
 import argparse
@@ -60,6 +68,9 @@ def evaluate(flake, overrides):
 
 
 def build(pieces, sandbox_paths, jobs, log_path):
+    if not pieces:
+        pathlib.Path(log_path).write_text("")
+        return 0
     command = [
         "nix", "--extra-experimental-features", "nix-command flakes",
         "build", "--no-link", "--keep-going", "-L", "--max-jobs", str(jobs),
@@ -129,6 +140,37 @@ def log_tail(drv, lines=30):
     return log.splitlines()[-lines:]
 
 
+SYNTH_STEP = re.compile(r"/nix/store/[^-]+-coyote-(shell|example)-.*-synth-[0-9.]+\.drv$")
+
+
+def synthesis_steps(pieces):
+    steps = set()
+    for piece in pieces.values():
+        steps.update(d for d in coyote_steps(piece["drv"]) if SYNTH_STEP.match(d))
+    return {step_name(d): {"drv": d, "out": outputs(d)[0]} for d in sorted(steps)}
+
+
+def summarize_synthesis(run, steps, failed):
+    report, lines = {}, [f"# Coyote synthesis run {run.name}", "", "| Step | Result |",
+                         "| --- | --- |"]
+    for name, step in sorted(steps.items()):
+        if os.path.exists(step["out"]):
+            result = "ok"
+        elif step["drv"] in failed:
+            result = "failed"
+        else:
+            result = "not built (a dependency failed)"
+        report[name] = {"result": result}
+        lines.append(f"| {name} | {result} |")
+    for name, step in sorted(steps.items()):
+        if report[name]["result"] == "failed":
+            report[name]["log"] = log_tail(step["drv"])
+            lines += ["", f"## {name}", "", "```", *report[name]["log"], "```"]
+    (run / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
+    (run / "summary.md").write_text("\n".join(lines) + "\n")
+    return report
+
+
 def summarize(run, pieces, failed):
     examples = {}
     for name, piece in pieces.items():
@@ -188,11 +230,15 @@ def main():
                         help="directory for run directories (default: ./coyote-example-runs)")
     parser.add_argument("--only", help="build only pieces whose <board>/<example>/<piece> "
                         "name matches this regular expression")
+    parser.add_argument("--synth-only", action="store_true",
+                        help="build only the synthesis of shells and one-piece examples")
     args = parser.parse_args()
 
     overrides = ["--override-input", "coyote", args.coyote] if args.coyote else []
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M")
-    run = pathlib.Path(args.out).resolve() / f"{stamp}-coyote-{coyote_revision(args.flake, args.coyote)}"
+    kind = "-synth" if args.synth_only else ""
+    run = (pathlib.Path(args.out).resolve()
+           / f"{stamp}-coyote-{coyote_revision(args.flake, args.coyote)}{kind}")
     run.mkdir(parents=True)
     latest = run.parent / "latest"
     if latest.is_symlink():
@@ -204,6 +250,18 @@ def main():
     pieces = {name: piece for name, piece in tests["pieces"].items()
               if not args.only or re.search(args.only, name)}
     (run / "pieces.json").write_text(json.dumps(pieces, indent=2) + "\n")
+
+    if args.synth_only:
+        steps = synthesis_steps(pieces)
+        status = build(steps, tests["sandboxPaths"], args.jobs, run / "build.log")
+        for name, step in steps.items():
+            if os.path.exists(step["out"]):
+                add_root(run / "synth" / name, step["out"])
+        report = summarize_synthesis(run, steps, failed_derivations(run / "build.log"))
+        ok = sum(1 for entry in report.values() if entry["result"] == "ok")
+        print(f"test-examples: {ok} of {len(report)} synthesis steps ok; "
+              f"see {run / 'summary.md'}")
+        return 0 if status == 0 else 1
 
     status = build(pieces, tests["sandboxPaths"], args.jobs, run / "build.log")
 

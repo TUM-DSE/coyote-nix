@@ -20,17 +20,19 @@
       "flake": false,
       "locked": {
         "lastModified": 1794526237,
-        "narHash": "sha256-+POlnEiluzT6QgUINB0SLltXpWAjYhvyTQWNPSw8zLw=",
-        "owner": "taugoust",
-        "repo": "Coyote",
+        "narHash": "sha256-MU6cYfcQm0Syr+3SgkaZcFLEPq2euoM89S0vIgiOiZY=",
+        "ref": "develop",
         "rev": "f09dd7e3699461ab73178bb28bbc1b93f820ffe5",
-        "type": "github"
+        "revCount": 875,
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/taugoust/Coyote"
       },
       "original": {
-        "owner": "taugoust",
         "ref": "develop",
-        "repo": "Coyote",
-        "type": "github"
+        "submodules": true,
+        "type": "git",
+        "url": "https://github.com/taugoust/Coyote"
       }
     },
     "coyoteDeltaBase": {
