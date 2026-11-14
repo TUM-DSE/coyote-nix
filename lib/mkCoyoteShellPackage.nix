@@ -792,10 +792,16 @@ let
     open_checkpoint $dcp
     set cells [get_cells -quiet inst_shell/inst_dynamic/inst_user_wrapper_*]
     if {[llength $cells] == 0} { error "no application partitions to grey-box" }
-    source ${../nix/tools/timing-greybox.tcl}
     foreach cell $cells {
       update_design -cell $cell -black_box
       update_design -cell $cell -buffer_ports
+    }
+    write_checkpoint -force $dcp
+    # The inserted port buffers only accept new loads after a reload.
+    close_design
+    open_checkpoint $dcp
+    source ${../nix/tools/timing-greybox.tcl}
+    foreach cell [get_cells inst_shell/inst_dynamic/inst_user_wrapper_*] {
       puts "coyote-nix: [coyote_timing_greybox $cell] outputs of $cell driven by registers"
     }
     write_checkpoint -force $dcp
