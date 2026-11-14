@@ -281,6 +281,10 @@ let
         boards.${board} = {
           inherit (checkedSiteBoards.${board}) xilinxVersion;
         }
+        // lib.optionalAttrs ((example.services.configurations or 1) > 1) {
+          inherit (example.services) configurations;
+        }
+        // (example.boardOptions.${board} or { })
         // lib.optionalAttrs (checkedSiteBoards.${board} ? simXilinxVersion) {
           inherit (checkedSiteBoards.${board}) simXilinxVersion;
         };

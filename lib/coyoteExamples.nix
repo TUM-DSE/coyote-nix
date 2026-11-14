@@ -106,6 +106,9 @@ in
     services.hostStreams = 1;
     optimize = true;
     monolithic = true;
+    # Coyote skips the post-opt shell checkpoints with Aurora on QSFP1, as
+    # Vivado 2023.2 can crash writing them.
+    boardOptions.u280.skipIntermediateRouteCheckpoints = true;
   };
   # The V80's on-card R5 CPU working with a vFPGA as its co-processor.
   amc_ping = {
@@ -123,12 +126,12 @@ in
     optimize = true;
     monolithic = true;
   };
-  # 32 vFPGAs need the V80 without application reconfiguration, and
-  # mkCoyoteShell builds one vFPGA.
+  # 15 vFPGAs, the most the shipped static layers take, each running a
+  # loopback. mkCoyoteShell builds one vFPGA, so it is built in one piece.
   many_vfpgas = {
     directory = "16_many_vfpgas";
     boards = [ "v80" ];
-    services.vfpgas = 32;
+    services.vfpgas = 15;
     optimize = true;
     monolithic = true;
   };

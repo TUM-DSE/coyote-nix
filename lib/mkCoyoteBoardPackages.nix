@@ -582,11 +582,26 @@ let
     let
       xilinxVersion = board.xilinxVersion;
       includeStaticCheckpoint = board.staticBuild or false;
+      # With several configurations, application reconfiguration is on. Versal
+      # has no nested reconfiguration, so Coyote does not route a shell first
+      # but places and routes every configuration in full (flow_dyn_versal),
+      # and bitgen writes one partial image per configuration.
+      configurations = board.configurations or 1;
+      reconfigurable = configurations > 1;
+      configIndices = lib.range 0 (configurations - 1);
       synthesisCheckpointDirs = [
         "shell"
         "config_0"
       ]
+      ++ lib.optionals reconfigurable (map (i: "config_${toString i}") (lib.drop 1 configIndices))
       ++ lib.optionals includeStaticCheckpoint [ "static" ];
+      userSynthCheckpoints = map (
+        i: "checkpoints/config_${toString i}/user_synthed_c${toString i}_0.dcp"
+      ) configIndices;
+      partialImages = lib.optionals reconfigurable (
+        map (i: "config_${toString i}/vfpga_c${toString i}_0.pdi") configIndices
+      );
+      finalArtifacts = board.finalArtifacts ++ partialImages;
       generatedSynth = staticMkStage {
         pname = board.synthPname or "${pnamePrefix}-${board.platform}-synth";
         inherit board xilinxVersion;
@@ -597,8 +612,8 @@ let
         ];
         expectedPaths = [
           "checkpoints/shell/shell_synthed.dcp"
-          "checkpoints/config_0/user_synthed_c0_0.dcp"
         ]
+        ++ (if reconfigurable then userSynthCheckpoints else lib.take 1 userSynthCheckpoints)
         ++ lib.optionals includeStaticCheckpoint [
           "checkpoints/static/static_synthed.dcp"
         ];
@@ -619,14 +634,16 @@ let
           reportDirs = synthesisCheckpointDirs;
           logDirs = synthesisCheckpointDirs;
         };
+        # Without IMMUTABLE_IMPLEMENTATION_STAGES, Coyote's app target runs
+        # the dynamic flow when BUILD_APP is off.
         buildCommands = [
           "make project"
-          "make shell"
+          (if reconfigurable then "make app" else "make shell")
         ];
         expectedPaths = [
           "checkpoints/shell/shell_synthed.dcp"
-          "checkpoints/config_0/user_synthed_c0_0.dcp"
         ]
+        ++ (if reconfigurable then userSynthCheckpoints else lib.take 1 userSynthCheckpoints)
         ++ lib.optionals includeStaticCheckpoint [
           "checkpoints/static/static_synthed.dcp"
         ]
@@ -636,7 +653,11 @@ let
           "checkpoints/shell_placed.dcp"
           "checkpoints/shell_phys_opted.dcp"
           "checkpoints/shell_routed.dcp"
-        ];
+        ]
+        ++ lib.optionals reconfigurable (
+          map (i: "checkpoints/config_${toString i}/shell_routed_c${toString i}.dcp") configIndices
+          ++ [ "checkpoints/dynamic_route_complete" ]
+        );
         extraInstallPhase = installCheckpointReports {
           copyAllCheckpoints = true;
           copyAllReports = true;
@@ -650,10 +671,12 @@ let
         cmakeFlags = board.cmakeFlags or [ ];
         preBuildSetup = copyPreviousStageSetup routed { };
         buildCommands = [
-          (finalBitgenCommand board.finalArtifacts)
+          (finalBitgenCommand finalArtifacts)
         ];
-        expectedPaths = map (artifact: "bitstreams/${artifact}") board.finalArtifacts;
-        extraInstallPhase = installFinalReportsAndArtifacts board.finalArtifacts;
+        expectedPaths = map (artifact: "bitstreams/${artifact}") finalArtifacts;
+        extraInstallPhase =
+          lib.concatMapStrings (image: "mkdir -p \"$out/bitstreams/${dirOf image}\"\n") partialImages
+          + installFinalReportsAndArtifacts finalArtifacts;
         description = "Coyote hardware build for ${board.platform}";
       };
 
