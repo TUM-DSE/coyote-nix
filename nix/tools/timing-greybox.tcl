@@ -1,8 +1,9 @@
-# Drive every grey-box output buffer from a flip-flop instead of a constant.
-# update_design -buffer_ports ties outputs to VCC/GND, and Vivado then drops
-# every shell path through them, so the shell is placed without timing
-# toward the application. A register per output, clocked like the shell
-# logic it feeds, gives those paths their real timing.
+# Make grey-boxed applications look like registers to the shell.
+# update_design -buffer_ports ties every output to VCC/GND and leaves every
+# input on a LUT without loads, so Vivado places the shell without timing
+# toward the application. A register behind each output and in front of
+# each input, clocked like the shell logic on the other side, gives those
+# paths their real timing.
 
 # The leaf pin driving a net, which names it across hierarchy. Cached per
 # net segment, since clock nets have many loads.
@@ -61,6 +62,31 @@ proc coyote_rp_inner_net {rp pin} {
   return $inner
 }
 
+# Clock drivers of the registers that start the paths into a pin. Those
+# start at real shell registers, so timing fanin sees them.
+proc coyote_source_clocks {pin} {
+  set counts [dict create]
+  foreach clock_pin [all_fanin -quiet -startpoints_only -flat $pin] {
+    if {![get_property -quiet IS_CLOCK $clock_pin]} { continue }
+    set driver [coyote_net_driver [get_nets -quiet -of $clock_pin]]
+    if {[llength $driver] == 1} { dict incr counts $driver }
+  }
+  return $counts
+}
+
+# The partition input whose clock drives most of the given counts.
+proc coyote_pick_clock {inputs counts} {
+  set clock_pin {}
+  set best 0
+  dict for {driver count} $counts {
+    if {$count > $best && [dict exists $inputs $driver]} {
+      set best $count
+      set clock_pin [dict get $inputs $driver]
+    }
+  }
+  return $clock_pin
+}
+
 proc coyote_timing_greybox {rp} {
   set inputs [coyote_rp_inputs $rp]
   set inner_nets [dict create]
@@ -84,14 +110,7 @@ proc coyote_timing_greybox {rp} {
     # through the partition input carrying that clock. Outputs whose loads
     # use no partition clock stay constant, since a register on another
     # clock would add a false path.
-    set clock_pin {}
-    set best 0
-    dict for {driver count} [coyote_load_clocks $out] {
-      if {$count > $best && [dict exists $inputs $driver]} {
-        set best $count
-        set clock_pin [dict get $inputs $driver]
-      }
-    }
+    set clock_pin [coyote_pick_clock $inputs [coyote_load_clocks $out]]
     if {$clock_pin eq {}} { continue }
     if {![dict exists $inner_nets $clock_pin]} {
       dict set inner_nets $clock_pin [coyote_rp_inner_net $rp $clock_pin]
@@ -111,6 +130,29 @@ proc coyote_timing_greybox {rp} {
     connect_net -net $vcc -objects [get_pins $ff/CE]
     connect_net -net $gnd -objects [get_pins $ff/CLR]
     set_property DONT_TOUCH true [list $ff $d]
+    incr n
+  }
+  foreach buf [get_cells -quiet "$rp/HD_PR_Connection_S_IN_BUF_*"] {
+    set in [get_pins -of $buf -filter {DIRECTION == IN}]
+    set out [get_pins -of $buf -filter {DIRECTION == OUT}]
+    set net [get_nets -quiet -of $out]
+    if {[llength $net] == 0} {
+      set net [create_net "$rp/coyote_tgb_in_$n"]
+      connect_net -net $net -objects [list $out]
+    } elseif {[llength [get_pins -quiet -leaf -of $net -filter {DIRECTION == IN}]] > 0} {
+      continue
+    }
+    set clock_pin [coyote_pick_clock $inputs [coyote_source_clocks $in]]
+    if {$clock_pin eq {}} { continue }
+    if {![dict exists $inner_nets $clock_pin]} {
+      dict set inner_nets $clock_pin [coyote_rp_inner_net $rp $clock_pin]
+    }
+    set ff [create_cell -reference FDCE "$rp/coyote_tgb_sink_$n"]
+    connect_net -net $net -objects [get_pins $ff/D]
+    connect_net -hier -net [dict get $inner_nets $clock_pin] -objects [get_pins $ff/C]
+    connect_net -net $vcc -objects [get_pins $ff/CE]
+    connect_net -net $gnd -objects [get_pins $ff/CLR]
+    set_property DONT_TOUCH true $ff
     incr n
   }
   return $n
