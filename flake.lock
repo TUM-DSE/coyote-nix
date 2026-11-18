@@ -213,15 +213,15 @@
       "locked": {
         "lastModified": 1788963511,
         "narHash": "sha256-muZa8Kj7ZsPjbE42o2rx1utkNQToz6s0oNdgTEqSzOU=",
-        "ref": "refs/heads/master",
+        "owner": "TUM-DSE",
+        "repo": "doctor-cluster-config",
         "rev": "a2b72cdd94bcee7fa8c179c019382ad94950a7f9",
-        "revCount": 5568,
-        "type": "git",
-        "url": "ssh://git@github.com/TUM-DSE/doctor-cluster-config.git"
+        "type": "github"
       },
       "original": {
-        "type": "git",
-        "url": "ssh://git@github.com/TUM-DSE/doctor-cluster-config.git"
+        "owner": "TUM-DSE",
+        "repo": "doctor-cluster-config",
+        "type": "github"
       }
     },
     "fast-nix-gc": {
@@ -835,11 +835,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1794427465,
-        "narHash": "sha256-msX1WMGPns5JD69f1nfEsySgOHBXhSynJ0ap3eZ0t2Y=",
+        "lastModified": 1794756676,
+        "narHash": "sha256-Z+fQXqm4VnX1hxpqpD3qSPCVJAe1KZLMeiLaPNc8e1Q=",
         "owner": "TUM-DSE",
         "repo": "doctor-cluster-xilinx",
-        "rev": "fc674131ebafbcfe7535b0a74d11c0c5ccd1ba0b",
+        "rev": "17164e683da69f9f3f29560e5bea4c3f643345d0",
         "type": "github"
       },
       "original": {
