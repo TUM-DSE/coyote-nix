@@ -27,6 +27,7 @@ let
   names = board: lib.attrNames examples.${board};
   expected = {
     u280 = [
+      "aurora_loopback"
       "gpu_p2p"
       "hello_world"
       "hls_vadd"
@@ -41,10 +42,13 @@ let
       "user_interrupts"
     ];
     v80 = [
+      "amc_ping"
       "app_reconfiguration"
+      "dcmac"
       "gpu_p2p"
       "hello_world"
       "hls_vadd"
+      "many_vfpgas"
       "multitenancy"
       "multithreading"
       "perf_fpga"

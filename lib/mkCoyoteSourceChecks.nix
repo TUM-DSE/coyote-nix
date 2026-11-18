@@ -191,7 +191,7 @@ let
         render_case control-v80 v80 \
           -DTEST_ENABLE_SERVICE:BOOL=ON \
           -DTEST_ENABLE_CONTROL:BOOL=ON
-        render_case packet-limit-v80 v80 -DPMTU_BYTES:STRING=65535
+        render_case packet-limit-v80 v80 -DPMTU_HOST:STRING=32768
         for invalid_pmtu in 0 65536 2097152; do
           if cmake -S "$fixture" -B "$TMPDIR/invalid-pmtu-$invalid_pmtu" \
             -DCYT_DIR=${coyoteRoot} -DFDEV_NAME:STRING=v80 \
@@ -634,7 +634,8 @@ let
         (cd "$TMPDIR/provider-shell" && ${python}/bin/python write_hdl.py 1 0 0)
 
         ! grep -q 'V80_R5_' "$TMPDIR/disabled/export.cmake"
-        ! grep -q 'v80_r5\|platform_dir' "$TMPDIR/disabled/base.tcl"
+        ! grep -q 'v80_r5_platform\|v80_r5_lpd\|v80_r5_scratch\|platform_dir' \
+          "$TMPDIR/disabled/base.tcl"
         test ! -e "$TMPDIR/disabled/export_platform.tcl"
         cmake --build "$TMPDIR/disabled" --target help > "$TMPDIR/disabled-targets"
         if grep -q '^\.\.\. platform$' "$TMPDIR/disabled-targets"; then
@@ -681,7 +682,7 @@ let
         grep -q 'r5_provider_clock_converter.*xilinx.com:ip:smartconnect:1.0' \
           ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
         ! grep -q 'xilinx.com:ip:axi_clock_converter' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
-        grep -q 'append xclk_busifs {:r5_provider}' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
+        grep -q 'append xclk_busif ":r5_provider"' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
         grep -q 'get_bd_addr_segs r5_provider/Reg' ${coyoteRoot}/hw/bd/versal/cr_pci.tcl
         grep -q 'm_axi_r5_provider' ${coyoteRoot}/hw/templates/versal/static_top_tmplt.txt
         grep -q 's_axi_r5_provider_awaddr' ${coyoteRoot}/hw/templates/common/shell_top_tmplt.txt
@@ -691,7 +692,9 @@ let
         grep -q '^\.\.\. provider-project-design-check$' "$TMPDIR/provider-shell-targets"
         grep -q 'V80_R5_PROVIDER_PROJECT_PASS' \
           "$TMPDIR/provider-static/check_v80_r5_provider_project.tcl"
-        grep -q 'r5_coprocessor_provider_stack inst_r5_provider' \
+        grep -q 'r5_coprocessor_provider_stack' \
+          "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/dynamic_top.sv"
+        grep -q ') inst_r5_provider (' \
           "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/dynamic_top.sv"
         grep -q 'r5_provider_axil_ccross inst_r5_provider_ccross' \
           "$TMPDIR/provider-shell/coyote-coprocessor-port-fixture_shell/hdl/shell_top.sv"
