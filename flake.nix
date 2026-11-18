@@ -16,7 +16,7 @@
     };
     # With submodules: Coyote's network stack (hw/services/network) is one.
     coyote = {
-      url = "git+https://github.com/taugoust/Coyote?ref=develop&submodules=1";
+      url = "git+https://github.com/taugoust/Coyote?ref=master&submodules=1";
       flake = false;
     };
     # The site whose Xilinx installation and boards the examples are built
