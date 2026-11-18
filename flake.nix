@@ -16,22 +16,22 @@
     };
     # With submodules: Coyote's network stack (hw/services/network) is one.
     coyote = {
-      url = "git+https://github.com/taugoust/Coyote?ref=master&submodules=1";
+      url = "git+https://github.com/TUM-DSE/coyote?ref=master&submodules=1";
       flake = false;
     };
     # The site whose Xilinx installation and boards the examples are built
     # for. Override it with `inputs.coyote-nix.inputs.site.follows`.
     site.url = "github:TUM-DSE/doctor-cluster-xilinx";
     coyoteDriver = {
-      url = "github:taugoust/Coyote/develop";
+      url = "github:TUM-DSE/coyote/develop";
       flake = false;
     };
     coyoteDeltaBase = {
-      url = "github:taugoust/Coyote/d0e293778b2e14c3b69c3e9e6295b10dabafe24e";
+      url = "github:TUM-DSE/coyote/d0e293778b2e14c3b69c3e9e6295b10dabafe24e";
       flake = false;
     };
     coyoteDeltaCandidate = {
-      url = "github:taugoust/Coyote/a2ea6a76e93e526fc264d4a8eaa11291fc2f33e8";
+      url = "github:TUM-DSE/coyote/a2ea6a76e93e526fc264d4a8eaa11291fc2f33e8";
       flake = false;
     };
   };

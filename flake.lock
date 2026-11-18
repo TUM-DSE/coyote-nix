@@ -26,13 +26,13 @@
         "revCount": 1025,
         "submodules": true,
         "type": "git",
-        "url": "https://github.com/taugoust/Coyote"
+        "url": "https://github.com/TUM-DSE/coyote"
       },
       "original": {
         "ref": "master",
         "submodules": true,
         "type": "git",
-        "url": "https://github.com/taugoust/Coyote"
+        "url": "https://github.com/TUM-DSE/coyote"
       }
     },
     "coyoteDeltaBase": {
@@ -40,14 +40,14 @@
       "locked": {
         "lastModified": 1788366318,
         "narHash": "sha256-ExJfvp12lzcdxCp3ZQXvj5vUYhIxrgljQDQv9ViyJCc=",
-        "owner": "taugoust",
-        "repo": "Coyote",
+        "owner": "TUM-DSE",
+        "repo": "coyote",
         "rev": "d0e293778b2e14c3b69c3e9e6295b10dabafe24e",
         "type": "github"
       },
       "original": {
-        "owner": "taugoust",
-        "repo": "Coyote",
+        "owner": "TUM-DSE",
+        "repo": "coyote",
         "rev": "d0e293778b2e14c3b69c3e9e6295b10dabafe24e",
         "type": "github"
       }
@@ -57,14 +57,14 @@
       "locked": {
         "lastModified": 1788507391,
         "narHash": "sha256-5SzpnHUIPCVIl2rHqtE1XuM4PtjyJMObEE1yZOulD7k=",
-        "owner": "taugoust",
-        "repo": "Coyote",
+        "owner": "TUM-DSE",
+        "repo": "coyote",
         "rev": "a2ea6a76e93e526fc264d4a8eaa11291fc2f33e8",
         "type": "github"
       },
       "original": {
-        "owner": "taugoust",
-        "repo": "Coyote",
+        "owner": "TUM-DSE",
+        "repo": "coyote",
         "rev": "a2ea6a76e93e526fc264d4a8eaa11291fc2f33e8",
         "type": "github"
       }
@@ -74,15 +74,15 @@
       "locked": {
         "lastModified": 1789337921,
         "narHash": "sha256-OsQE2EmX659BV8ib1HkggVAgr1ymecyiEnIXcUd6TCE=",
-        "owner": "taugoust",
-        "repo": "Coyote",
+        "owner": "TUM-DSE",
+        "repo": "coyote",
         "rev": "4492d0419f85e286452b9c9e2f37c97d6a5e4b41",
         "type": "github"
       },
       "original": {
-        "owner": "taugoust",
+        "owner": "TUM-DSE",
         "ref": "develop",
-        "repo": "Coyote",
+        "repo": "coyote",
         "type": "github"
       }
     },
